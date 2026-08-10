@@ -1,12 +1,26 @@
+"use client"; // Wajib ditambahkan karena Recharts butuh sisi client (browser)
+
 import React from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+// Data dummy simulasi pergerakan sensor gas
+const dummyData = [
+  { time: '10:00', mq137: 240, mq136: 120, mq4: 300 },
+  { time: '10:05', mq137: 255, mq136: 125, mq4: 310 },
+  { time: '10:10', mq137: 270, mq136: 130, mq4: 305 },
+  { time: '10:15', mq137: 260, mq136: 140, mq4: 320 },
+  { time: '10:20', mq137: 280, mq136: 145, mq4: 340 },
+  { time: '10:25', mq137: 310, mq136: 160, mq4: 360 },
+  { time: '10:30', mq137: 340, mq136: 180, mq4: 390 }, // Simulasi gas mulai naik
+];
 
 export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-[#1e3a8a] to-indigo-950 flex flex-col font-sans relative overflow-hidden">
       
       {/* Elemen Cahaya Dekoratif di Background (Orb) */}
-      <div className="absolute top-0 left-20 w-96 h-96 bg-blue-500 rounded-full mix-blend-screen filter blur-[120px] opacity-40 animate-pulse"></div>
-      <div className="absolute bottom-10 right-20 w-96 h-96 bg-cyan-400 rounded-full mix-blend-screen filter blur-[120px] opacity-20"></div>
+      <div className="absolute top-0 left-20 w-96 h-96 bg-blue-500 rounded-full mix-blend-screen filter blur-[120px] opacity-40 animate-pulse pointer-events-none"></div>
+      <div className="absolute bottom-10 right-20 w-96 h-96 bg-cyan-400 rounded-full mix-blend-screen filter blur-[120px] opacity-20 pointer-events-none"></div>
 
       {/* 1. Header / Navbar (Efek Kaca) */}
       <header className="relative z-10 flex justify-between items-center px-8 py-5 mx-6 mt-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
@@ -36,7 +50,6 @@ export default function Dashboard() {
           
           {/* Kolom Kiri: Suhu & Kelembapan */}
           <div className="flex flex-col gap-6 h-full">
-            {/* Kartu Suhu Glassmorphism */}
             <div className="flex-1 bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl text-white p-6 flex flex-col shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
               <p className="text-[10px] font-bold font-mono tracking-wide uppercase leading-tight text-white/70">
                 Chamber 1<br/>Ruangan X
@@ -46,7 +59,6 @@ export default function Dashboard() {
               </div>
             </div>
             
-            {/* Kartu Kelembapan Glassmorphism */}
             <div className="flex-1 bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6 flex flex-col justify-center relative shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
               <div className="flex items-center justify-center h-full">
                 <span className="text-5xl font-black text-white font-mono drop-shadow-lg">55 %</span>
@@ -57,11 +69,34 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Kolom Tengah: Grafik GAS */}
-          <div className="md:col-span-2 bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl flex flex-col items-center justify-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] p-6 group hover:bg-white/15 transition-all duration-300">
-            <h2 className="text-4xl font-black text-white/90 text-center uppercase tracking-wider drop-shadow-md">
-              Grafik<br/>GAS
-            </h2>
+          {/* Kolom Tengah: Grafik GAS (Recharts) */}
+          <div className="md:col-span-2 bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl flex flex-col shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-black text-white/90 uppercase tracking-wider drop-shadow-md">
+                Pergerakan Gas Aktif
+              </h2>
+              <span className="flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+              </span>
+            </div>
+            
+            {/* Area Rendering Grafik */}
+            <div className="flex-1 w-full min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={dummyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff20" vertical={false} />
+                  <XAxis dataKey="time" stroke="#ffffff70" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#ffffff70" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px' }}
+                    itemStyle={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}
+                  />
+                  <Line type="monotone" dataKey="mq137" stroke="#38bdf8" strokeWidth={3} dot={{ r: 4, fill: '#38bdf8', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-137" />
+                  <Line type="monotone" dataKey="mq4" stroke="#a78bfa" strokeWidth={3} dot={{ r: 4, fill: '#a78bfa', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-4" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* Kolom Kanan: Export CSV */}
@@ -77,19 +112,20 @@ export default function Dashboard() {
 
         {/* Baris Bawah: Daftar Sensor */}
         <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 flex justify-between items-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] mt-4">
-          <span className="font-black text-sm font-mono text-white/80 tracking-widest drop-shadow-sm">MQ-137</span>
-          <span className="font-black text-sm font-mono text-white/80 tracking-widest drop-shadow-sm">MQ-136</span>
-          <span className="font-black text-sm font-mono text-white/80 tracking-widest drop-shadow-sm">MQ-4</span>
-          <span className="font-black text-sm font-mono text-white/80 tracking-widest drop-shadow-sm">DHT-22</span>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#38bdf8]"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-137</span></div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-white/30"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-136</span></div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#a78bfa]"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-4</span></div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-white/30"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">DHT-22</span></div>
         </div>
         
-      </main>
+      </main> 
 
       {/* 3. Footer */}
       <footer className="relative z-10 py-6 text-center text-xs font-mono font-bold text-white/50 tracking-widest">
-        *E-Sniffer team 2026
+        *E-Sniffer n Team 2026
       </footer>
       
     </div>
   );
 }
+
