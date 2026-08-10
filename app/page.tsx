@@ -110,12 +110,57 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Baris Bawah: Daftar Sensor */}
-        <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 flex justify-between items-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] mt-4">
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#38bdf8]"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-137</span></div>
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-white/30"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-136</span></div>
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#a78bfa]"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">MQ-4</span></div>
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-white/30"></span><span className="font-black text-sm font-mono text-white/80 tracking-widest">DHT-22</span></div>
+        {/* Baris Bawah: Daftar Sensor + Gambar & Senyawa Target */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+          
+          {/* Card MQ-137 */}
+          <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
+            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+              <img src="/mq137.png" alt="MQ-137 Sensor" className="w-full h-full object-cover rounded-lg" />
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#38bdf8]"></span>
+              <span className="font-black text-sm font-mono text-white tracking-wider">MQ-137</span>
+            </div>
+            <span className="text-[11px] font-mono text-cyan-300 font-semibold uppercase tracking-wide">Amonia (NH₃)</span>
+          </div>
+
+          {/* Card MQ-136 */}
+          <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
+            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+              <img src="/mq136.png" alt="MQ-136 Sensor" className="w-full h-full object-cover rounded-lg" />
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-white/40"></span>
+              <span className="font-black text-sm font-mono text-white tracking-wider">MQ-136</span>
+            </div>
+            <span className="text-[11px] font-mono text-purple-300 font-semibold uppercase tracking-wide">Hidrogen Sulfida (H₂S)</span>
+          </div>
+
+          {/* Card MQ-4 */}
+          <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
+            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+              <img src="/mq4.png" alt="MQ-4 Sensor" className="w-full h-full object-cover rounded-lg" />
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#a78bfa]"></span>
+              <span className="font-black text-sm font-mono text-white tracking-wider">MQ-4</span>
+            </div>
+            <span className="text-[11px] font-mono text-emerald-300 font-semibold uppercase tracking-wide">Metana (CH₄) / CNG</span>
+          </div>
+
+          {/* Card DHT-22 */}
+          <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
+            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+              <img src="/dht22.png" alt="DHT-22 Sensor" className="w-full h-full object-cover rounded-lg" />
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-white/40"></span>
+              <span className="font-black text-sm font-mono text-white tracking-wider">DHT-22</span>
+            </div>
+            <span className="text-[11px] font-mono text-amber-300 font-semibold uppercase tracking-wide">Suhu & Kelembapan</span>
+          </div>
+
         </div>
         
       </main> 
