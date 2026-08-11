@@ -46,7 +46,7 @@ export default function Dashboard() {
       <main className="relative z-10 flex-1 p-8 mx-[-8px] flex flex-col gap-6">
         
         {/* Baris Atas: Grid 3 Kolom */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-[400px]">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 min-h-[550px]">
           
           {/* Kolom Kiri: Suhu & Kelembapan */}
           <div className="flex flex-col gap-6 h-full">
@@ -115,7 +115,7 @@ export default function Dashboard() {
           
           {/* Card MQ-137 */}
           <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
-            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+            <div className="w-25 h-25 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
               <img src="/mq137.png" alt="MQ-137 Sensor" className="w-full h-full object-cover rounded-lg" />
             </div>
             <div className="flex items-center gap-2 mb-1">
@@ -127,7 +127,7 @@ export default function Dashboard() {
 
           {/* Card MQ-136 */}
           <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
-            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+            <div className="w-25 h-25 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
               <img src="/mq136.png" alt="MQ-136 Sensor" className="w-full h-full object-cover rounded-lg" />
             </div>
             <div className="flex items-center gap-2 mb-1">
@@ -139,7 +139,7 @@ export default function Dashboard() {
 
           {/* Card MQ-4 */}
           <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
-            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+            <div className="w-25 h-25 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
               <img src="/mq4.png" alt="MQ-4 Sensor" className="w-full h-full object-cover rounded-lg" />
             </div>
             <div className="flex items-center gap-2 mb-1">
@@ -151,7 +151,7 @@ export default function Dashboard() {
 
           {/* Card DHT-22 */}
           <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-4 flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:bg-white/15 transition-all">
-            <div className="w-16 h-16 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
+            <div className="w-25 h-25 relative rounded-xl overflow-hidden mb-3 border border-white/20 bg-black/20 p-1">
               <img src="/dht22.png" alt="DHT-22 Sensor" className="w-full h-full object-cover rounded-lg" />
             </div>
             <div className="flex items-center gap-2 mb-1">
