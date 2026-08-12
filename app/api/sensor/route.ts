@@ -1,48 +1,42 @@
 import { NextResponse } from 'next/server';
 
-// Data dummy (sebagai fallback jika Prometheus belum menyala)
-const fallbackData = [
-  { time: '10:00', mq137: 240, mq136: 120, mq4: 300 },
-  { time: '10:05', mq137: 255, mq136: 125, mq4: 310 },
-  { time: '10:10', mq137: 270, mq136: 130, mq4: 305 },
-  { time: '10:15', mq137: 260, mq136: 140, mq4: 320 },
-  { time: '10:20', mq137: 280, mq136: 145, mq4: 340 },
-  { time: '10:25', mq137: 310, mq136: 160, mq4: 360 },
-  { time: '10:30', mq137: 340, mq136: 180, mq4: 390 },
-];
+// Fungsi bantuan untuk menembak API Prometheus
+async function fetchPrometheus(metricName: string) {
+  try {
+    // Memanggil endpoint bawaan Prometheus
+    const res = await fetch(`http://localhost:9090/api/v1/query?query=${metricName}`, {
+      cache: 'no-store', // Pastikan selalu mengambil data terbaru, bukan cache
+    });
+    const json = await res.json();
+    
+    // Mengecek apakah datanya ada
+    if (json.status === 'success' && json.data.result.length > 0) {
+      // Prometheus mengirim angka dalam format teks, jadi kita ubah ke Float (Desimal)
+      return parseFloat(json.data.result[0].value[1]);
+    }
+    return 0; // Kembalikan 0 jika belum ada data masuk
+  } catch (error) {
+    console.error(`Gagal mengambil metrik ${metricName}:`, error);
+    return 0;
+  }
+}
 
 export async function GET() {
-  try {
-    // URL Prometheus (asumsi berjalan di localhost:9090)
-    // Di sini nantinya kita memanggil API Prometheus: /api/v1/query_range
-    const prometheusUrl = 'http://localhost:9090/api/v1/query?query=up'; 
-    
-    // Mencoba melakukan fetch ke Prometheus
-    const res = await fetch(prometheusUrl, { cache: 'no-store' });
-    
-    if (!res.ok) {
-      throw new Error("Gagal mengambil data dari Prometheus");
-    }
+  // Menarik semua data sensor secara paralel agar lebih cepat
+  const [temp, humidity, mq137, mq136, mq4] = await Promise.all([
+    fetchPrometheus('esniffer_temp_c'),
+    fetchPrometheus('esniffer_humidity_percent'),
+    fetchPrometheus('esniffer_mq137_ppm'),
+    fetchPrometheus('esniffer_mq136_ppm'),
+    fetchPrometheus('esniffer_mq4_ppm'),
+  ]);
 
-    const prometheusData = await res.json();
-
-    // TODO: Transformasi data Prometheus (JSON) menjadi format Recharts di sini.
-    // Karena saat ini Node-RED & Prometheus mungkin belum memompa data asli,
-    // kita asumsikan fetch berhasil, namun kita tetap me-return struktur yang siap dibaca Recharts.
-
-    return NextResponse.json({
-      status: "success",
-      source: "prometheus", 
-      data: fallbackData // Nanti ini diganti dengan hasil parse prometheusData
-    });
-
-  } catch (error) {
-    // Pintar: Jika Prometheus belum jalan (error fetch), jangan buat webnya hancur (crash).
-    // Kembalikan data dummy agar UI tetap cantik selama masa development.
-    return NextResponse.json({
-      status: "fallback",
-      source: "dummy",
-      data: fallbackData
-    });
-  }
+  // Mengembalikan datanya dalam format JSON yang rapi ke Frontend
+  return NextResponse.json({
+    temp: temp.toFixed(1),
+    humidity: humidity.toFixed(1),
+    mq137: mq137.toFixed(2),
+    mq136: mq136.toFixed(2),
+    mq4: mq4.toFixed(2),
+  });
 }
