@@ -72,21 +72,21 @@ export default function Dashboard() {
           <SensorCard 
             imageSrc="/mq137.png" 
             name="MQ-137" 
-            compound={`Amonia: ${sensorData.mq137} V`} {/* <-- Ubah di sini */}
+            compound={"Amonia: " + sensorData.mq137 }
             dotColorClass="bg-[#38bdf8]" 
             compoundColorClass="text-cyan-300" 
           />
           <SensorCard 
             imageSrc="/mq136.png" 
             name="MQ-136" 
-            compound={`H₂S: ${sensorData.mq136} V`} {/* <-- Ubah di sini */}
+            compound={"H₂S: " + sensorData.mq136} 
             dotColorClass="bg-white/40" 
             compoundColorClass="text-purple-300" 
           />
           <SensorCard 
             imageSrc="/mq4.png" 
             name="MQ-4" 
-            compound={`Metana: ${sensorData.mq4} V`} {/* <-- Ubah di sini */}
+            compound={"Metana: " + sensorData.mq4} 
             dotColorClass="bg-[#a78bfa]" 
             compoundColorClass="text-emerald-300" 
           />
