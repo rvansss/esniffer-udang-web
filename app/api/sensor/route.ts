@@ -26,9 +26,9 @@ export async function GET() {
   const [temp, humidity, mq137, mq136, mq4] = await Promise.all([
     fetchPrometheus('esniffer_temp_c'),
     fetchPrometheus('esniffer_humidity_percent'),
-    fetchPrometheus('esniffer_mq137_ppm'),
-    fetchPrometheus('esniffer_mq136_ppm'),
-    fetchPrometheus('esniffer_mq4_ppm'),
+    fetchPrometheus('esniffer_mq137_volt'), 
+    fetchPrometheus('esniffer_mq136_volt'), 
+    fetchPrometheus('esniffer_mq4_volt'),   
   ]);
 
   // Mengembalikan datanya dalam format JSON yang rapi ke Frontend
