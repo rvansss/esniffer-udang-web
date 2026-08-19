@@ -4,16 +4,35 @@ import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function ChartPanel() {
-  // State untuk menyimpan data grafik
-  const [chartData, setChartData] = useState([]);
+  const [chartData, setChartData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fungsi untuk menarik data dari API Route kita
   const fetchSensorData = async () => {
     try {
       const response = await fetch('/api/sensor');
       const result = await response.json();
-      setChartData(result.data);
+      
+      const currentTime = new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit'
+      });
+
+      const newPoint = {
+        time: currentTime,
+        mq137: parseFloat(result.mq137), 
+        mq136: parseFloat(result.mq136), // <-- INI YANG BARU DITAMBAHKAN
+        mq4: parseFloat(result.mq4)
+      };
+
+      setChartData((prevData) => {
+        const updatedData = [...prevData, newPoint];
+        if (updatedData.length > 20) {
+          return updatedData.slice(updatedData.length - 20);
+        }
+        return updatedData;
+      });
+
     } catch (error) {
       console.error("Gagal menarik data:", error);
     } finally {
@@ -21,16 +40,14 @@ export default function ChartPanel() {
     }
   };
 
-  // Gunakan useEffect untuk menarik data saat komponen pertama kali dimuat
   useEffect(() => {
     fetchSensorData();
     
-    // Opsional: Buat interval untuk menarik data baru setiap 5 detik
     const interval = setInterval(() => {
       fetchSensorData();
     }, 5000);
 
-    return () => clearInterval(interval); // Bersihkan interval saat pindah halaman
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -40,7 +57,6 @@ export default function ChartPanel() {
           Pergerakan Gas Aktif
         </h2>
         
-        {/* Indikator Status Data */}
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-mono text-white/50 uppercase tracking-widest">
             {isLoading ? 'Memuat...' : 'Live'}
@@ -67,8 +83,12 @@ export default function ChartPanel() {
                 contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px' }}
                 itemStyle={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}
               />
-              <Line type="monotone" dataKey="mq137" stroke="#38bdf8" strokeWidth={3} dot={{ r: 4, fill: '#38bdf8', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-137" />
-              <Line type="monotone" dataKey="mq4" stroke="#a78bfa" strokeWidth={3} dot={{ r: 4, fill: '#a78bfa', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-4" />
+              <Line type="monotone" dataKey="mq137" stroke="#38bdf8" strokeWidth={3} dot={{ r: 4, fill: '#38bdf8', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-137" isAnimationActive={false} />
+              
+              {/* <-- GARIS MQ-136 BARU DITAMBAHKAN DI SINI (Warna Ungu Muda) --> */}
+              <Line type="monotone" dataKey="mq136" stroke="#d8b4fe" strokeWidth={3} dot={{ r: 4, fill: '#d8b4fe', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-136" isAnimationActive={false} />
+              
+              <Line type="monotone" dataKey="mq4" stroke="#a78bfa" strokeWidth={3} dot={{ r: 4, fill: '#a78bfa', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-4" isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         )}
