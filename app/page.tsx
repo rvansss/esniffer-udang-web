@@ -69,25 +69,24 @@ export default function Dashboard() {
 
         {/* Baris Daftar Sensor */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-          {/* Saya tambahkan juga nilai PPM agar tampil di bawah nama senyawanya */}
           <SensorCard 
             imageSrc="/mq137.png" 
             name="MQ-137" 
-            compound={`Amonia: ${sensorData.mq137} ppm`} 
+            compound={`Amonia: ${sensorData.mq137} V`} {/* <-- Ubah di sini */}
             dotColorClass="bg-[#38bdf8]" 
             compoundColorClass="text-cyan-300" 
           />
           <SensorCard 
             imageSrc="/mq136.png" 
             name="MQ-136" 
-            compound={`H₂S: ${sensorData.mq136} ppm`} 
+            compound={`H₂S: ${sensorData.mq136} V`} {/* <-- Ubah di sini */}
             dotColorClass="bg-white/40" 
             compoundColorClass="text-purple-300" 
           />
           <SensorCard 
             imageSrc="/mq4.png" 
             name="MQ-4" 
-            compound={`Metana: ${sensorData.mq4} ppm`} 
+            compound={`Metana: ${sensorData.mq4} V`} {/* <-- Ubah di sini */}
             dotColorClass="bg-[#a78bfa]" 
             compoundColorClass="text-emerald-300" 
           />
