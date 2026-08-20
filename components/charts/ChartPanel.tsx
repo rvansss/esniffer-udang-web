@@ -3,44 +3,49 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-export default function ChartPanel() {
+// 1. Menerima props 'chamberId' dari halaman utama
+export default function ChartPanel({ chamberId }: { chamberId: string }) {
   const [chartData, setChartData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchSensorData = async () => {
-    try {
-      const response = await fetch('/api/sensor');
-      const result = await response.json();
-      
-      const currentTime = new Date().toLocaleTimeString('id-ID', {
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit'
-      });
-
-      const newPoint = {
-        time: currentTime,
-        mq137: parseFloat(result.mq137), 
-        mq136: parseFloat(result.mq136), // <-- INI YANG BARU DITAMBAHKAN
-        mq4: parseFloat(result.mq4)
-      };
-
-      setChartData((prevData) => {
-        const updatedData = [...prevData, newPoint];
-        if (updatedData.length > 20) {
-          return updatedData.slice(updatedData.length - 20);
-        }
-        return updatedData;
-      });
-
-    } catch (error) {
-      console.error("Gagal menarik data:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // 2. Pindahkan fungsi fetch ke dalam useEffect agar bisa memantau variabel chamberId dengan aman
   useEffect(() => {
+    if (!chamberId) return; // Cegah eksekusi jika ID belum ada
+
+    const fetchSensorData = async () => {
+      try {
+        // 3. Mengubah alamat fetch menjadi dinamis sesuai ID ruangan
+        const response = await fetch(`/api/sensor/${chamberId}`);
+        const result = await response.json();
+        
+        const currentTime = new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit', 
+          minute: '2-digit', 
+          second: '2-digit'
+        });
+
+        const newPoint = {
+          time: currentTime,
+          mq137: parseFloat(result.mq137), 
+          mq136: parseFloat(result.mq136),
+          mq4: parseFloat(result.mq4)
+        };
+
+        setChartData((prevData) => {
+          const updatedData = [...prevData, newPoint];
+          if (updatedData.length > 20) {
+            return updatedData.slice(updatedData.length - 20);
+          }
+          return updatedData;
+        });
+
+      } catch (error) {
+        console.error("Gagal menarik data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     fetchSensorData();
     
     const interval = setInterval(() => {
@@ -48,7 +53,7 @@ export default function ChartPanel() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [chamberId]); // 4. Tambahkan chamberId sebagai dependency
 
   return (
     <div className="md:col-span-2 bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl flex flex-col shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] p-6">
@@ -84,10 +89,7 @@ export default function ChartPanel() {
                 itemStyle={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}
               />
               <Line type="monotone" dataKey="mq137" stroke="#38bdf8" strokeWidth={3} dot={{ r: 4, fill: '#38bdf8', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-137" isAnimationActive={false} />
-              
-              {/* <-- GARIS MQ-136 BARU DITAMBAHKAN DI SINI (Warna Ungu Muda) --> */}
               <Line type="monotone" dataKey="mq136" stroke="#d8b4fe" strokeWidth={3} dot={{ r: 4, fill: '#d8b4fe', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-136" isAnimationActive={false} />
-              
               <Line type="monotone" dataKey="mq4" stroke="#a78bfa" strokeWidth={3} dot={{ r: 4, fill: '#a78bfa', strokeWidth: 0 }} activeDot={{ r: 6 }} name="MQ-4" isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
