@@ -1,0 +1,24 @@
+# Mosquitto ACL Configuration for e-Sniffer Udang
+# Sesuai docs/esniffer/03-technical-design.md Section 6.1
+
+# Ingestion Worker
+user worker
+topic read esniffer/v1/devices/+/telemetry
+topic read esniffer/v1/devices/+/status
+topic write esniffer/v1/devices/+/ack
+
+# Authenticated deployment healthcheck; no application topics.
+user healthcheck
+topic read $SYS/broker/version
+
+# Device esp32-001
+user esp32-001
+topic write esniffer/v1/devices/esp32-001/telemetry
+topic write esniffer/v1/devices/esp32-001/status
+topic read esniffer/v1/devices/esp32-001/ack
+
+# Device esp32-002
+user esp32-002
+topic write esniffer/v1/devices/esp32-002/telemetry
+topic write esniffer/v1/devices/esp32-002/status
+topic read esniffer/v1/devices/esp32-002/ack

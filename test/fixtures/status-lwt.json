@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "device_id": "esp32-001",
+  "boot_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "d4f497e4-c782-43da-bf5d-4a2fd704d4dc",
+  "connection_sequence": 1,
+  "status_sequence": 16,
+  "event_type": "will",
+  "state": "offline",
+  "uptime_ms": 190000,
+  "event_at": null,
+  "clock_synced": false
+}

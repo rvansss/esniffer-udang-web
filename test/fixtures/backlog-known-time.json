@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "device_id": "esp32-001",
+  "message_id": "550e8400-e29b-41d4-a716-446655440000:0000000010",
+  "boot_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sequence": 10,
+  "sample_uptime_ms": 27325,
+  "measured_at": "2026-09-30T06:00:00.000Z",
+  "clock_synced": true,
+  "sensors": {
+    "temperature_c": { "value": 26.5, "quality": "ok" },
+    "humidity_percent": { "value": 80.0, "quality": "ok" },
+    "mq137_raw": { "value": 1800, "quality": "ok" },
+    "mq136_raw": { "value": 2050, "quality": "ok" },
+    "mq4_raw": { "value": 900, "quality": "ok" }
+  }
+}

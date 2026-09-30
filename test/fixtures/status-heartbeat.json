@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "device_id": "esp32-001",
+  "boot_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "d4f497e4-c782-43da-bf5d-4a2fd704d4dc",
+  "connection_sequence": 1,
+  "status_sequence": 15,
+  "event_type": "heartbeat",
+  "state": "online",
+  "uptime_ms": 187500,
+  "event_at": "2026-09-30T07:15:32.300Z",
+  "clock_synced": true,
+  "firmware_version": "1.0.0",
+  "queue": { "depth": 2, "capacity": 2048, "dropped_total": 0 },
+  "time_reference": {
+    "reference_id": "ntp-550e8400-3",
+    "anchor_utc": "2026-09-30T07:15:30.000Z",
+    "anchor_uptime_ms": 185200,
+    "uncertainty_ms": 50,
+    "source": "ntp"
+  }
+}

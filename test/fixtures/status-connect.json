@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "device_id": "esp32-001",
+  "boot_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "d4f497e4-c782-43da-bf5d-4a2fd704d4dc",
+  "connection_sequence": 1,
+  "status_sequence": 1,
+  "event_type": "connect",
+  "state": "online",
+  "uptime_ms": 15000,
+  "event_at": "2026-09-30T07:00:00.000Z",
+  "clock_synced": true,
+  "firmware_version": "1.0.0",
+  "queue": { "depth": 0, "capacity": 2048, "dropped_total": 0 }
+}

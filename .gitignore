@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.crt
 
 # debug
 npm-debug.log*
@@ -32,6 +34,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -43,3 +46,19 @@ next-env.d.ts
 # documentation
 diki/
 docs/
+!docs/
+docs/*
+!docs/esniffer/
+docs/esniffer/*
+!docs/esniffer/*.md
+
+# mosquitto secrets and persistence data
+docker/mosquitto/config/passwords.txt
+docker/mosquitto/data/
+docker/mosquitto/certs/
+docker/mosquitto/secrets/
+
+# production deployment material (templates remain tracked)
+deploy/.env.production
+deploy/secrets/
+deploy/backups/

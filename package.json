@@ -2,14 +2,34 @@
   "name": "esniffer-udang-web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "worker:start": "node --experimental-strip-types worker/index.ts",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts test/db/*.test.ts test/e2e/*.test.ts test/api/*.test.ts",
+    "test:unit": "node --experimental-strip-types --test test/*.test.ts",
+    "test:db": "node --experimental-strip-types --test --test-concurrency=1 test/db/*.test.ts",
+    "test:e2e": "node --experimental-strip-types --test --test-concurrency=1 test/e2e/*.test.ts",
+    "test:api": "node --experimental-strip-types --test --test-concurrency=1 test/api/*.test.ts",
+    "db:seed": "node --experimental-strip-types prisma/seed.ts",
+    "mosquitto:up": "docker run -d --name esniffer-mosquitto -p 127.0.0.1:1883:1883 -v $(pwd)/docker/mosquitto/config:/mosquitto/config eclipse-mosquitto:2",
+    "mosquitto:down": "docker rm -f esniffer-mosquitto"
+  },
+  "prisma": {
+    "seed": "node --experimental-strip-types prisma/seed.ts"
   },
   "dependencies": {
-    "next": "16.3.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "canonicalize": "^5.1.0",
+    "dotenv": "^18.0.4",
+    "mqtt": "^5.16.0",
+    "next": "16.3.8",
+    "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1"
@@ -17,10 +37,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.0",
+    "eslint-config-next": "16.3.8",
+    "prisma": "7.10.0",
+    "puppeteer-core": "^25.12.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
