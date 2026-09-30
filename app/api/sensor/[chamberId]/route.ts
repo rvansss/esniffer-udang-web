@@ -6,10 +6,10 @@ import { fetchPrometheus } from '../../../../lib/prometheus';
 
 export async function GET(
   request: Request,
-  { params }: { params: { chamberId: string } }
+  { params }: { params: Promise<{ chamberId: string }> }
 ) {
-  // Menangkap angka dari URL (misal: "1" dari /api/sensor/1)
-  const chamberId = params.chamberId; 
+  // Karena Next.js terbaru menjadikan params sebagai Promise, kita harus melakukan await
+  const { chamberId } = await params;
   
   // Membuat filter label Prometheus (contoh hasil: {ruangan="chamber1"})
   const label = `{ruangan="chamber${chamberId}"}`;
