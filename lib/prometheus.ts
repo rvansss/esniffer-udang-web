@@ -2,7 +2,10 @@
 
 export async function fetchPrometheus(metricName: string) {
   try {
-    const res = await fetch(`http://localhost:9090/api/v1/query?query=${metricName}`, {
+    // Mengambil URL dari file .env.local, jika tidak ada, default ke localhost
+    const baseUrl = process.env.NEXT_PUBLIC_PROMETHEUS_URL || 'http://localhost:9090';
+
+    const res = await fetch(`${baseUrl}/api/v1/query?query=${metricName}`, {
       cache: 'no-store', 
     });
     const json = await res.json();
