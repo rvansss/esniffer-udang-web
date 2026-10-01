@@ -1,0 +1,243 @@
+name: ${COMPOSE_PROJECT_NAME:-esniffer}
+
+x-app: &app
+  image: ${APP_IMAGE:-esniffer-udang-web}:${APP_TAG:-local}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 45s
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  logging: &default-logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  postgres:
+    image: postgres:15-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_RUNTIME_USER: ${POSTGRES_RUNTIME_USER:-esniffer_app}
+    secrets:
+      - postgres_password
+      - postgres_runtime_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/01-runtime-role.sh:/docker-entrypoint-initdb.d/01-runtime-role.sh:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    environment:
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST}
+    ports:
+      - "8883:8883"
+    volumes:
+      - ../docker/mosquitto/config/mosquitto-tls.conf:/mosquitto/config/mosquitto.conf:ro
+      - ../docker/mosquitto/config/acl.txt:/mosquitto/config/acl.txt:ro
+      - ${MQTT_CA_CERT_PATH}:/mosquitto/certs/ca.crt:ro
+      - ${MQTT_SERVER_CERT_PATH}:/mosquitto/certs/server.crt:ro
+      - mqtt-data:/mosquitto/data
+    secrets:
+      - source: mqtt_server_key
+        target: /mosquitto/certs/server.key
+      - source: mqtt_passwords
+        target: /mosquitto/secrets/passwords.txt
+      - source: mqtt_health_password
+        target: mqtt_health_password
+    networks:
+      mqtt:
+        aliases:
+          - ${MQTT_BROKER_HOST}
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h \"$$MQTT_BROKER_HOST\" -p 8883 --cafile /mosquitto/certs/ca.crt -u healthcheck -P \"$$(cat /run/secrets/mqtt_health_password)\" -t '$$SYS/broker/version' -C 1 -W 5 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  migrate:
+    <<: *app
+    image: ${APP_IMAGE:-esniffer-udang-web}-migration:${APP_TAG:-local}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: migration
+    profiles: ["tools"]
+    restart: "no"
+    entrypoint: ["sh", "/app/deploy/scripts/runtime-entrypoint.sh"]
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    entrypoint: ["sh", "/app/deploy/scripts/runtime-entrypoint.sh"]
+    command: ["node", "node_modules/next/dist/bin/next", "start"]
+    environment:
+      NODE_ENV: production
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_RUNTIME_USER:-esniffer_app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_runtime_password
+      PORT: "3000"
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-5}
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+      CURSOR_SIGNING_SECRET_FILE: /run/secrets/cursor_signing_secret
+      APP_BASE_URL: ${APP_BASE_URL}
+      APP_ORIGIN_ALLOWLIST: ${APP_ORIGIN_ALLOWLIST:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    secrets:
+      - postgres_runtime_password
+      - auth_secret
+      - cursor_signing_secret
+    volumes:
+      - next-cache:/app/.next/cache
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    <<: *app
+    entrypoint: ["sh", "/app/deploy/scripts/runtime-entrypoint.sh"]
+    command: ["node", "--experimental-strip-types", "worker/index.ts"]
+    environment:
+      NODE_ENV: production
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_RUNTIME_USER:-esniffer_app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_runtime_password
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-5}
+      MQTT_URL: ${MQTT_URL}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD_FILE: /run/secrets/mqtt_worker_password
+      MQTT_CA_FILE: /run/secrets/mqtt_ca
+      MQTT_RECONNECT_MIN_MS: ${MQTT_RECONNECT_MIN_MS:-1000}
+      MQTT_RECONNECT_MAX_MS: ${MQTT_RECONNECT_MAX_MS:-30000}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      WORKER_MAX_QUEUE: ${WORKER_MAX_QUEUE:-500}
+      WORKER_HEALTH_HOST: 0.0.0.0
+      WORKER_HEALTH_PORT: "8081"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    secrets:
+      - postgres_runtime_password
+      - source: mqtt_worker_password
+        target: mqtt_worker_password
+      - source: mqtt_ca
+        target: mqtt_ca
+    networks:
+      - backend
+      - mqtt
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  proxy:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DASHBOARD_HOST: ${DASHBOARD_HOST}
+      NGINX_ENVSUBST_FILTER: DASHBOARD_HOST
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${HTTPS_CERT_PATH}:/etc/nginx/tls/fullchain.pem:ro
+    secrets:
+      - source: https_private_key
+        target: /etc/nginx/tls/privkey.pem
+    networks:
+      - frontend
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 20s
+    logging: *default-logging
+
+networks:
+  frontend:
+  backend:
+    internal: true
+  mqtt:
+
+volumes:
+  postgres-data:
+  mqtt-data:
+  next-cache:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_PATH}
+  auth_secret:
+    file: ${AUTH_SECRET_PATH}
+  postgres_runtime_password:
+    file: ${POSTGRES_RUNTIME_PASSWORD_PATH}
+  cursor_signing_secret:
+    file: ${CURSOR_SIGNING_SECRET_PATH}
+  mqtt_worker_password:
+    file: ${MQTT_WORKER_PASSWORD_PATH}
+  mqtt_health_password:
+    file: ${MQTT_HEALTH_PASSWORD_PATH}
+  mqtt_passwords:
+    file: ${MQTT_PASSWORDS_PATH}
+  mqtt_ca:
+    file: ${MQTT_CA_CERT_PATH}
+  mqtt_server_key:
+    file: ${MQTT_SERVER_KEY_PATH}
+  https_private_key:
+    file: ${HTTPS_KEY_PATH}

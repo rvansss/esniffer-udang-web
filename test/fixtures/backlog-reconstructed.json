@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "device_id": "esp32-001",
+  "message_id": "550e8400-e29b-41d4-a716-446655440000:0000000005",
+  "boot_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sequence": 5,
+  "sample_uptime_ms": 12000,
+  "measured_at": null,
+  "clock_synced": false,
+  "time_reference": {
+    "reference_id": "ntp-550e8400-1",
+    "anchor_utc": "2026-09-30T07:15:30.000Z",
+    "anchor_uptime_ms": 185200,
+    "uncertainty_ms": 50,
+    "source": "ntp"
+  },
+  "sensors": {
+    "temperature_c": { "value": 26.8, "quality": "ok" },
+    "humidity_percent": { "value": 79.5, "quality": "ok" },
+    "mq137_raw": { "value": 1810, "quality": "ok" },
+    "mq136_raw": { "value": 2080, "quality": "ok" },
+    "mq4_raw": { "value": 905, "quality": "ok" }
+  }
+}

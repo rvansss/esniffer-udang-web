@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ConnectionState {
+  UNKNOWN
+  ONLINE
+  OFFLINE
+}
+
+enum ConnectionEvidence {
+  NONE
+  LIVE_STATUS
+  LIVE_TELEMETRY
+  RETAINED_SNAPSHOT
+  LWT
+}
+
+enum SensorQuality {
+  OK
+  SENSOR_ERROR
+  OUT_OF_RANGE
+  MISSING
+}
+
+enum MeasurementTimeQuality {
+  SYNCED
+  RECONSTRUCTED
+  UNKNOWN
+}
+
+enum IngestionSource {
+  MQTT
+  PROMETHEUS_IMPORT
+}
+
+enum UserRole {
+  VIEWER
+  ADMIN
+}
+
+model Chamber {
+  id          String             @id @default(uuid()) @db.Uuid
+  code        String             @unique @db.VarChar(32)
+  name        String             @db.VarChar(100)
+  description String?            @db.VarChar(500)
+  isActive    Boolean            @default(true) @map("is_active")
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  assignments DeviceAssignment[]
+  readings    SensorReading[]
+
+  @@map("chambers")
+}
+
+model Device {
+  id                    String                @id @default(uuid()) @db.Uuid
+  mqttDeviceId          String                @unique @map("mqtt_device_id") @db.VarChar(64)
+  name                  String                @db.VarChar(100)
+  isActive              Boolean               @default(true) @map("is_active")
+  connectionState       ConnectionState       @default(UNKNOWN) @map("connection_state")
+  connectionEvidence    ConnectionEvidence    @default(NONE) @map("connection_evidence")
+  currentBootId         String?               @map("current_boot_id") @db.Uuid
+  currentSessionId      String?               @map("current_session_id") @db.Uuid
+  currentConnectionSeq  BigInt?               @map("current_connection_seq") @db.BigInt
+  currentStatusSequence BigInt?               @map("current_status_sequence") @db.BigInt
+  lastSeenAt            DateTime?             @map("last_seen_at") @db.Timestamptz(3)
+  lastStatusEventAt     DateTime?             @map("last_status_event_at") @db.Timestamptz(3)
+  lastStatusProcessedAt DateTime?             @map("last_status_processed_at") @db.Timestamptz(3)
+  firmwareVersion       String?               @map("firmware_version") @db.VarChar(64)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  assignments           DeviceAssignment[]
+  timeReferences        DeviceTimeReference[]
+  readings              SensorReading[]
+
+  @@map("devices")
+}
+
+model DeviceAssignment {
+  id          String          @id @default(uuid()) @db.Uuid
+  deviceId    String          @map("device_id") @db.Uuid
+  chamberId   String          @map("chamber_id") @db.Uuid
+  activeFrom  DateTime        @map("active_from") @db.Timestamptz(3)
+  activeUntil DateTime?       @map("active_until") @db.Timestamptz(3)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  device      Device          @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  chamber     Chamber         @relation(fields: [chamberId], references: [id], onDelete: Restrict)
+  readings    SensorReading[]
+
+  @@index([deviceId, activeFrom(sort: Desc)])
+  @@index([chamberId, activeFrom(sort: Desc)])
+  @@map("device_assignments")
+}
+
+model DeviceTimeReference {
+  id             String          @id @default(uuid()) @db.Uuid
+  deviceId       String          @map("device_id") @db.Uuid
+  bootId         String          @map("boot_id") @db.Uuid
+  referenceKey   String          @map("reference_key") @db.VarChar(128)
+  anchorUtc      DateTime        @map("anchor_utc") @db.Timestamptz(3)
+  anchorUptimeMs BigInt          @map("anchor_uptime_ms") @db.BigInt
+  uncertaintyMs  Int             @map("uncertainty_ms")
+  source         String          @db.VarChar(32)
+  receivedAt     DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  device         Device          @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  readings       SensorReading[]
+
+  @@unique([deviceId, bootId, referenceKey])
+  @@index([deviceId, bootId, anchorUptimeMs])
+  @@map("device_time_references")
+}
+
+model SensorReading {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  deviceId               String                 @map("device_id") @db.Uuid
+  chamberId              String?                @map("chamber_id") @db.Uuid
+  assignmentId           String?                @map("assignment_id") @db.Uuid
+  messageId              String                 @map("message_id") @db.VarChar(128)
+  payloadSha256          String                 @map("payload_sha256") @db.Char(64)
+  bootId                 String                 @map("boot_id") @db.Uuid
+  sequence               BigInt                 @db.BigInt
+  sampleUptimeMs         BigInt?                @map("sample_uptime_ms") @db.BigInt
+  measuredAt             DateTime?              @map("measured_at") @db.Timestamptz(3)
+  receivedAt             DateTime               @default(now()) @map("received_at") @db.Timestamptz(3)
+  measurementTimeQuality MeasurementTimeQuality @map("measurement_time_quality")
+  timeReferenceId        String?                @map("time_reference_id") @db.Uuid
+  timeUncertaintyMs      Int?                   @map("time_uncertainty_ms")
+  historySequence        BigInt?                @unique @map("history_sequence") @db.BigInt
+  ingestionSource        IngestionSource        @default(MQTT) @map("ingestion_source")
+  temperatureC           Decimal?               @map("temperature_c") @db.Decimal(7, 3)
+  temperatureQuality     SensorQuality          @map("temperature_quality")
+  humidityPercent        Decimal?               @map("humidity_percent") @db.Decimal(6, 3)
+  humidityQuality        SensorQuality          @map("humidity_quality")
+  mq137Raw               Decimal?               @map("mq137_raw") @db.Decimal(14, 3)
+  mq137Quality           SensorQuality          @map("mq137_quality")
+  mq136Raw               Decimal?               @map("mq136_raw") @db.Decimal(14, 3)
+  mq136Quality           SensorQuality          @map("mq136_quality")
+  mq4Raw                 Decimal?               @map("mq4_raw") @db.Decimal(14, 3)
+  mq4Quality             SensorQuality          @map("mq4_quality")
+  rawPayload             Json                   @map("raw_payload") @db.JsonB
+  device                 Device                 @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  chamber                Chamber?               @relation(fields: [chamberId], references: [id], onDelete: Restrict)
+  assignment             DeviceAssignment?      @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  timeReference          DeviceTimeReference?   @relation(fields: [timeReferenceId], references: [id], onDelete: Restrict)
+
+  @@unique([deviceId, messageId])
+  @@index([chamberId, measuredAt(sort: Desc), receivedAt(sort: Desc), historySequence(sort: Desc)])
+  @@index([deviceId, measuredAt(sort: Desc), receivedAt(sort: Desc), historySequence(sort: Desc)])
+  @@index([assignmentId, measuredAt(sort: Desc)])
+  @@index([bootId, sampleUptimeMs])
+  @@map("sensor_readings")
+}
+
+model User {
+  id               String        @id @default(uuid()) @db.Uuid
+  email            String        @unique @db.VarChar(254)
+  passwordHash     String        @map("password_hash") @db.VarChar(255)
+  role             UserRole      @default(VIEWER)
+  isActive         Boolean       @default(true) @map("is_active")
+  failedLoginCount Int           @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?     @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt      DateTime?     @map("last_login_at") @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions         AuthSession[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("auth_sessions")
+}
+
+model HistorySequenceWatermark {
+  id              Int    @id @default(1)
+  currentSequence BigInt @default(0) @map("current_sequence") @db.BigInt
+
+  @@map("history_sequence_watermark")
+}

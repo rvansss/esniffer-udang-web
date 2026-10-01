@@ -1,5 +1,6 @@
 import './globals.css';
 import Header from '../components/layout/Header'; 
+import { AuthProvider } from '../components/auth/AuthProvider'; 
 
 export const metadata = {
   title: 'E-Sniffer Dashboard',
@@ -24,17 +25,19 @@ export default function RootLayout({
           <div className="absolute bottom-10 right-20 w-96 h-96 bg-cyan-400 rounded-full mix-blend-screen filter blur-[120px] opacity-20 pointer-events-none z-0"></div>
 
           {/* Kontainer Utama */}
-          <div className="relative z-10 flex flex-col min-h-screen p-4 md:p-8 max-w-[1440px] mx-auto w-full gap-6">
-            <Header />
-            
-            <main className="flex-1 w-full flex flex-col gap-6">
-              {children}
-            </main>
+          <AuthProvider>
+            <div className="relative z-10 flex flex-col min-h-screen p-4 md:p-8 max-w-[1440px] mx-auto w-full gap-6">
+              <Header />
+              
+              <main className="flex-1 w-full flex flex-col gap-6">
+                {children}
+              </main>
 
-            <footer className="py-6 text-center text-xs font-mono font-bold text-white/50 tracking-widest">
-              *E-Sniffer n Team 2026
-            </footer>
-          </div>
+              <footer className="py-6 text-center text-xs font-mono font-bold text-white/50 tracking-widest">
+                *E-Sniffer n Team 2026
+              </footer>
+            </div>
+          </AuthProvider>
 
         </div>
       </body>
