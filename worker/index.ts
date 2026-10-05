@@ -543,9 +543,10 @@ export class WorkerDaemon {
 }
 
 // Entry point jika dijalankan langsung melalui CLI
+// Normalisasi path separator agar kompatibel di Windows (backslash) maupun Linux/Mac (forward slash)
 if (
   typeof process !== 'undefined' &&
-  process.argv[1]?.endsWith('worker/index.ts')
+  process.argv[1]?.replace(/\\/g, '/').endsWith('worker/index.ts')
 ) {
   const worker = new WorkerDaemon();
   worker.start().catch((err) => {
