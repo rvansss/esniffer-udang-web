@@ -124,6 +124,15 @@ test('Batas foto MVP: 10 file @5MB', () => {
   assert.strictEqual(MAX_PHOTO_BYTES, 5 * 1024 * 1024);
 });
 
+test('Baseline cutoff: 2 menit setelah mulai sesi', async () => {
+  const { BASELINE_SECONDS, baselineCutoffUtc } = await import('../shared/dataset.ts');
+  assert.strictEqual(BASELINE_SECONDS, 120);
+  assert.strictEqual(
+    baselineCutoffUtc(new Date('2026-10-02T06:00:00.000Z')).toISOString(),
+    '2026-10-02T06:02:00.000Z'
+  );
+});
+
 test('Urutan timepoint baku per kondisi simpan', async () => {
   const { TIMEPOINT_SEQUENCES } = await import('../shared/dataset.ts');
   assert.deepStrictEqual(TIMEPOINT_SEQUENCES.room_temp[1], 'H6');
