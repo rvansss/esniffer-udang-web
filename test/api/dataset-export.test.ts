@@ -121,6 +121,20 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         sampleWeightG: 162.3,
       },
     });
+    // Grup dingin tanpa sesi — menguji baris 'no_session' pada metadata.
+    await prisma.sampleGroup.create({
+      data: {
+        groupId: `${BATCH}-SD`,
+        batchId: BATCH,
+        storageCondition: 'COLD',
+        targetTempC: 4.0,
+        labTempC: 5.0,
+        visualCheck: 'NORMAL',
+        labWeightG: 480.0,
+        sampleShrimpCount: 4,
+        sampleWeightG: 160.0,
+      },
+    });
     const session = await prisma.measurementSession.create({
       data: {
         sessionId: SESSION,
@@ -222,5 +236,38 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
       { params: Promise.resolve({ batchId: BATCH }) }
     );
     assert.strictEqual(anon.status, 401);
+  });
+
+  it('4. format=metadata membawa isian form (satu baris per sesi + no_session)', async () => {
+    const res = await getExport('?format=metadata');
+    assert.strictEqual(res.status, 200);
+    assert.match(res.headers.get('content-disposition') ?? '', /metadata-.*\.csv/);
+    const lines = (await res.text()).split('\r\n').filter((l) => l.length > 0);
+    assert.strictEqual(lines[0].split(',')[0], 'batch_id');
+    assert.strictEqual(lines.length, 3); // header + SR (punya sesi) + SD (no_session)
+
+    const sr = lines.find((l) => l.includes(GROUP))!.split(',');
+    assert.strictEqual(sr[0], BATCH);
+    assert.strictEqual(sr[2], 'Pasar Export');
+    assert.strictEqual(sr[6], '485.5');
+    assert.strictEqual(sr[19], GROUP);
+    assert.strictEqual(sr[20], 'room_temp');
+    assert.strictEqual(sr[24], '482');
+    assert.strictEqual(sr[26], '162.3');
+    assert.strictEqual(sr[27], SESSION);
+    assert.strictEqual(sr[29], '0');
+    assert.strictEqual(sr[32], 'complete');
+    assert.strictEqual(sr[33], 'true');
+
+    const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
+    assert.strictEqual(sd[19], `${BATCH}-SD`);
+    assert.strictEqual(sd[20], 'cold');
+    assert.strictEqual(sd[27], ''); // session_id kosong
+    assert.strictEqual(sd[32], 'no_session'); // ditandai jelas
+  });
+
+  it('5. format tidak dikenal ditolak 422', async () => {
+    const res = await getExport('?format=pdf');
+    assert.strictEqual(res.status, 422);
   });
 });
