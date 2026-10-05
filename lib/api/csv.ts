@@ -89,3 +89,24 @@ export const READING_CSV_HEADERS = [
   'mq4_raw_quality',
   'ingestion_source',
 ];
+
+/**
+ * Header CSV ML-ready untuk export batch dataset (PRD §3.4).
+ * Kolom snake_case English persis contoh PRD; boolean is_baseline
+ * diserialkan sebagai string 'true'/'false', null sebagai sel kosong.
+ */
+export const DATASET_CSV_HEADERS = [
+  'timestamp_utc',
+  'session_id',
+  'batch_id',
+  'source_type',
+  'storage_condition',
+  'timepoint_code',
+  'elapsed_hours',
+  'mq137_raw',
+  'mq136_raw',
+  'mq4_raw',
+  'temp_chamber_c',
+  'rh_chamber_pct',
+  'is_baseline',
+];
