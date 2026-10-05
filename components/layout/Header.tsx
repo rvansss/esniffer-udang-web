@@ -18,6 +18,17 @@ export default function Header() {
   const [chambers, setChambers] = useState<ChamberItem[]>([]);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const itemRefs = React.useRef<Array<HTMLElement | null>>([]);
+
+  const focusItem = React.useCallback((index: number) => {
+    const items = itemRefs.current.filter((el): el is HTMLElement => el !== null && !el.hasAttribute('disabled'));
+    if (items.length === 0) return;
+    const next = ((index % items.length) + items.length) % items.length;
+    items[next].focus();
+  }, []);
 
   const isLoginPage = pathname === '/login';
 
@@ -49,6 +60,54 @@ export default function Header() {
   // Extract current chamberId from path e.g. /chamber/CH-01 -> CH-01, or legacy /chamber/1 -> 1
   const pathParts = pathname?.split('/') || [];
   const currentChamberParam = pathParts[1] === 'chamber' ? pathParts[2] : null;
+
+  // Tutup menu profil saat klik di luar atau tekan Escape/TAB
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
+      if (e.key === 'Tab') {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
+
+  // Fokus item pertama saat menu dibuka (pola menu-button WAI-APG)
+  useEffect(() => {
+    if (menuOpen) {
+      focusItem(0);
+    }
+  }, [menuOpen, focusItem]);
+
+  const handleMenuKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusItem(index + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusItem(index - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusItem(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusItem(Number.MAX_SAFE_INTEGER - 1);
+    }
+  };
 
   // Determine if a chamber is currently active in the navigation
   const isChamberActive = (c: ChamberItem, index: number) => {
@@ -142,49 +201,128 @@ export default function Header() {
         </nav>
       )}
 
-      {/* User profile & actions */}
+      {/* Profil & menu pengguna */}
       <div className="flex items-center gap-3">
         {user ? (
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col text-right">
-              <span className="text-xs font-mono font-medium text-white/90 truncate max-w-[140px] md:max-w-[180px]">
-                {user.email}
-              </span>
-              <span
-                className={`text-[9px] font-mono font-bold tracking-widest uppercase px-1.5 py-0.2 rounded w-fit self-end ${
-                  user.role === 'ADMIN'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                }`}
-              >
-                {user.role}
-              </span>
-              {logoutError && (
-                <span
-                  role="alert"
-                  className="text-[9px] font-mono text-rose-300 max-w-[180px] mt-0.5 truncate"
-                  title={logoutError}
-                >
-                  {logoutError}
-                </span>
-              )}
-            </div>
+          <div className="relative" ref={menuRef}>
             <button
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              title={isLoggingOut ? 'Sedang keluar...' : 'Keluar dari sesi'}
-              aria-label="Logout"
-              className="p-2 rounded-xl bg-white/10 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/70 hover:text-rose-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              ref={triggerRef}
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-controls="profile-menu"
+              aria-label="Menu pengguna"
+              className="flex items-center gap-2.5 min-h-[44px] px-2 pr-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
+              <span className="w-8 h-8 shrink-0 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-mono font-black text-white text-sm">
+                {user.email.charAt(0).toUpperCase()}
+              </span>
+              <span className="hidden sm:flex flex-col text-left">
+                <span className="text-xs font-mono font-medium text-white/90 truncate max-w-[140px] md:max-w-[180px]">
+                  {user.email}
+                </span>
+                <span
+                  className={`text-[9px] font-mono font-bold tracking-widest uppercase px-1.5 py-0.2 rounded w-fit ${
+                    user.role === 'ADMIN'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                  }`}
+                >
+                  {user.role}
+                </span>
+              </span>
+              <svg
+                className={`w-4 h-4 shrink-0 text-white/50 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
+            {logoutError && (
+              <span
+                role="alert"
+                className="absolute right-0 top-full mt-1 text-[9px] font-mono text-rose-300 max-w-[180px] truncate"
+                title={logoutError}
+              >
+                {logoutError}
+              </span>
+            )}
+            {menuOpen && (
+              <div
+                role="menu"
+                id="profile-menu"
+                aria-label="Menu akun"
+                style={{
+                  background: 'linear-gradient(180deg, #24407f 0%, #16295c 100%)',
+                  boxShadow: '0 20px 60px -10px rgba(0,0,0,0.7)',
+                }}
+                className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-white/15 overflow-hidden z-20 p-2"
+              >
+                <div className="flex items-center gap-3 px-2 pt-1 pb-3">
+                  <span className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-mono font-black text-white">
+                    {user.email.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-mono font-semibold text-white truncate">{user.email}</span>
+                    <span className="mt-0.5 inline-block text-[10px] font-mono font-bold tracking-widest uppercase px-1.5 py-0.5 rounded-md bg-white/10 text-white/70 border border-white/10">
+                      {user.role}
+                    </span>
+                  </span>
+                </div>
+                <div role="separator" className="mx-2 border-t border-white/10" />
+                <div className="pt-2 space-y-1">
+                  <Link
+                    href="/batches"
+                    role="menuitem"
+                    ref={(el) => {
+                      itemRefs.current[0] = el;
+                    }}
+                    onKeyDown={(e) => handleMenuKeyDown(e, 0)}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-3 px-2 py-2 rounded-xl text-[13px] font-mono font-semibold text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:bg-white/10"
+                  >
+                    <span className="w-8 h-8 shrink-0 rounded-lg bg-emerald-400/15 border border-emerald-300/20 flex items-center justify-center text-emerald-200">
+                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                        />
+                      </svg>
+                    </span>
+                    Pencatatan
+                  </Link>
+                  <button
+                    role="menuitem"
+                    ref={(el) => {
+                      itemRefs.current[1] = el;
+                    }}
+                    onKeyDown={(e) => handleMenuKeyDown(e, 1)}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void handleLogout();
+                    }}
+                    disabled={isLoggingOut}
+                    className="w-full flex items-center gap-3 px-2 py-2 rounded-xl text-[13px] font-mono font-semibold text-white hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:bg-white/10"
+                  >
+                    <span className="w-8 h-8 shrink-0 rounded-lg bg-rose-400/15 border border-rose-300/20 flex items-center justify-center text-rose-200">
+                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                        />
+                      </svg>
+                    </span>
+                    {isLoggingOut ? 'Keluar…' : 'Keluar'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : !isLoginPage ? (
           <Link
