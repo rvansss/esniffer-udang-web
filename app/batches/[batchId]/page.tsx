@@ -314,6 +314,9 @@ export default function BatchDetailPage() {
               <h3 className="text-sm font-mono font-bold text-white tracking-widest">
                 {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor
               </h3>
+              <p className="text-[11px] font-mono text-white/45">
+                Jadwal timepoint: {seq.join(' · ')}
+              </p>
             </div>
             {g.sessions.length === 0 ? (
               <p className="text-xs font-mono text-white/50">Belum ada sesi pengukuran.</p>

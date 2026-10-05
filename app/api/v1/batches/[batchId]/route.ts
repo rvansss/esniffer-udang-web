@@ -22,7 +22,7 @@ export async function GET(
       where: { batchId },
       include: {
         sampleGroups: {
-          orderBy: { groupId: 'asc' },
+          orderBy: { storageCondition: 'asc' },
           include: { sessions: { orderBy: { elapsedHours: 'asc' } } },
         },
       },
