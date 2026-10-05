@@ -15,6 +15,9 @@ describe('HTTP API v1: Authentication & Authorization Tests', () => {
 
   let adminCookie = '';
   let viewerCookie = '';
+  // Chamber yang dibuat test ini — wajib dibersihkan di after() agar tidak
+  // mengotori nav dashboard (best practice: test membersihkan buatannya sendiri).
+  const createdChamberIds: string[] = [];
 
   before(async () => {
     // Buat password hash scrypt
@@ -65,6 +68,26 @@ describe('HTTP API v1: Authentication & Authorization Tests', () => {
         email: { in: [adminEmail, viewerEmail, inactiveEmail] },
       },
     });
+    // Bersihkan chamber buatan test ini (berdasarkan ID + pola nama khas file ini
+    // sebagai jaring pengaman bila run sebelumnya terinterupsi).
+    const residue = await prisma.chamber.findMany({
+      where: {
+        OR: [
+          { id: { in: createdChamberIds } },
+          {
+            name: { in: ['Valid Admin Chamber', 'Valid CSRF Chamber'] },
+            code: { notIn: ['CH-01', 'CH-02'] },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    const residueIds = residue.map((c) => c.id);
+    if (residueIds.length > 0) {
+      await prisma.deviceAssignment.deleteMany({ where: { chamberId: { in: residueIds } } });
+      await prisma.sensorReading.deleteMany({ where: { chamberId: { in: residueIds } } });
+      await prisma.chamber.deleteMany({ where: { id: { in: residueIds } } });
+    }
     await closeDb();
   });
 
@@ -181,6 +204,7 @@ describe('HTTP API v1: Authentication & Authorization Tests', () => {
     assert.strictEqual(res.status, 201);
     const body = await res.json();
     assert.ok(body.data.id);
+    createdChamberIds.push(body.data.id);
   });
 
   it('8. Role VIEWER ditolak saat mencoba mutasi admin (403)', async () => {
@@ -322,6 +346,7 @@ describe('HTTP API v1: Authentication & Authorization Tests', () => {
 
     const validCsrfRes = await createChamberHandler(validCsrfReq);
     assert.strictEqual(validCsrfRes.status, 201);
+    createdChamberIds.push(((await validCsrfRes.json()) as { data: { id: string } }).data.id);
     const cacheHeader = validCsrfRes.headers.get('cache-control');
     assert.ok(cacheHeader?.includes('no-store'), 'Respons mutasi harus no-store');
     assert.ok(cacheHeader?.includes('private'), 'Respons mutasi harus private');
