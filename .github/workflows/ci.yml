@@ -10,6 +10,27 @@ jobs:
   validate:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: esniffer
+          POSTGRES_PASSWORD: esniffer
+          POSTGRES_DB: esniffer_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U esniffer"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://esniffer:esniffer@localhost:5432/esniffer_test
+      AUTH_SECRET: ci-auth-secret-at-least-32-characters-long
+      CURSOR_SIGNING_SECRET: ci-cursor-secret-at-least-32-characters-long
+      APP_BASE_URL: http://localhost:3000
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,11 +44,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Prisma Client tidak di-generate oleh `npm ci`, sehingga tipe `Prisma`
+      # dan turunannya hilang dan `typecheck` gagal tanpa langkah ini.
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed database
+        run: npm run db:seed
+
       - name: Lint check
-        run: npm run lint
+        run: npx eslint .
 
       - name: Type check
         run: npm run typecheck
 
-      - name: Run unit & contract tests
-        run: npm test
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Database tests
+        run: npm run test:db
+
+      - name: API tests
+        run: npm run test:api
