@@ -2,7 +2,7 @@ import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
-import { DATASET_CSV_HEADERS, buildCsvRow } from '../../../../../../lib/api/csv.ts';
+import { DATASET_CSV_HEADERS, DATASET_METADATA_CSV_HEADERS, buildCsvRow } from '../../../../../../lib/api/csv.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
 import { Prisma } from '@prisma/client';
 
@@ -32,6 +32,99 @@ export async function GET(
     }
 
     const url = new URL(request.url);
+    const format = url.searchParams.get('format') ?? 'readings';
+    if (format !== 'readings' && format !== 'metadata') {
+      throw validationError('Query param "format" must be "readings" or "metadata"');
+    }
+
+    // Export metadata: satu baris per sesi (atau per grup bila belum ada sesi),
+    // membawa seluruh isian form. Selalu berisi data walau belum ada reading sensor.
+    if (format === 'metadata') {
+      const full = await prisma.collectionBatch.findUniqueOrThrow({
+        where: { batchId },
+        include: {
+          sampleGroups: {
+            orderBy: { groupId: 'asc' },
+            include: { sessions: { orderBy: { elapsedHours: 'asc' } } },
+          },
+        },
+      });
+      const num = (v: { toNumber(): number } | null | undefined): number | '' =>
+        v === null || v === undefined ? '' : v.toNumber();
+      const dt = (v: Date | null | undefined): string => (v ? v.toISOString() : '');
+      const batchBlock = [
+        full.batchId,
+        dt(full.procuredAtUtc),
+        full.marketSource,
+        DB_TO_SOURCE[full.sourceType] ?? full.sourceType,
+        full.shrimpCount,
+        full.sizeGrade,
+        num(full.totalWeightG),
+        String(full.initialCondition).toLowerCase(),
+        num(full.initialTempC),
+        dt(full.departedAtUtc),
+        dt(full.arrivedAtUtc),
+        num(full.coolerTempMinC),
+        num(full.coolerTempMaxC),
+        full.iceToShrimpRatio,
+        num(full.tempStartC),
+        num(full.tempEndC),
+        full.rejectionNotes ?? '',
+        full.photoUrls.length,
+        dt(full.lockedAt),
+      ];
+      const rows: unknown[][] = [];
+      const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
+      if (full.sampleGroups.length === 0) {
+        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
+      }
+      for (const g of full.sampleGroups) {
+        const groupBlock = [
+          g.groupId,
+          DB_TO_STORAGE[g.storageCondition] ?? g.storageCondition,
+          num(g.targetTempC),
+          num(g.labTempC),
+          String(g.visualCheck).toLowerCase(),
+          num(g.labWeightG),
+          g.sampleShrimpCount,
+          num(g.sampleWeightG),
+        ];
+        if (g.sessions.length === 0) {
+          // Baris grup tanpa sesi: kolom sesi kosong, ditandai jelas agar tidak ambigu.
+          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock]);
+        } else {
+          for (const s of g.sessions) {
+            rows.push([
+              ...batchBlock,
+              ...groupBlock,
+              s.sessionId,
+              s.timepointCode,
+              s.elapsedHours,
+              dt(s.startedAtUtc),
+              dt(s.endedAtUtc),
+              s.status.toLowerCase(),
+              String(s.warmupDone),
+              String(s.cleaningDone),
+              num(s.baselineMq137),
+              num(s.baselineMq136),
+              num(s.baselineMq4),
+            ]);
+          }
+        }
+      }
+      const body =
+        buildCsvRow(DATASET_METADATA_CSV_HEADERS) + rows.map((r) => buildCsvRow(r)).join('');
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="metadata-${batchId}.csv"`,
+          'Cache-Control': 'no-store, private',
+          'x-request-id': requestId,
+        },
+      });
+    }
+
     const filterSessionId = url.searchParams.get('sessionId');
     const filterTimepoint = url.searchParams.get('timepointCode');
     const filterBaseline = url.searchParams.get('isBaseline');
