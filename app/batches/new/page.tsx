@@ -8,6 +8,7 @@ import {
   isColdChainCompliant,
   transportDurationMs,
   wibInputToUtc,
+  MAX_BATCH_PHOTOS,
   DatasetValidationError,
 } from '../../../shared/dataset.ts';
 
@@ -87,6 +88,10 @@ export default function NewBatchPage() {
   const [tempStart, setTempStart] = useState('');
   const [tempEnd, setTempEnd] = useState('');
   const [deviationAck, setDeviationAck] = useState(false);
+  // Foto kondisi awal (diunggah setelah batch dibuat)
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const [createdBatchId, setCreatedBatchId] = useState<string | null>(null);
   // Tahap C — grup SR/SD
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
   const [groupSD, setGroupSD] = useState<GroupForm>(emptyGroup());
@@ -274,6 +279,51 @@ export default function NewBatchPage() {
     ) : null;
   const clsFor = (key: string) => (fieldErrors[key] ? inputErrCls : inputCls);
 
+  /** Pilih foto: tambah ke yang sudah ada (bukan mengganti). */
+  const handlePhotoSelect = (list: FileList | null, input: HTMLInputElement) => {
+    const incoming = Array.from(list ?? []);
+    const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
+    if (usable.length < incoming.length) {
+      setFieldErrors((prev) => ({ ...prev, photos: 'Hanya file JPG/PNG yang dipakai. File lain dilewati.' }));
+    }
+    const fitting = usable.filter((f) => f.size <= 5 * 1024 * 1024);
+    if (fitting.length < usable.length) {
+      setFieldErrors((prev) => ({ ...prev, photos: 'Tiap foto maksimal 5 MB. File lebih besar dilewati.' }));
+    }
+    const room = MAX_BATCH_PHOTOS - photoFiles.length;
+    const accepted = fitting.slice(0, Math.max(room, 0));
+    if (accepted.length < fitting.length) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        photos: `Maksimal ${MAX_BATCH_PHOTOS} foto per batch. Kelebihannya dilewati.`,
+      }));
+    }
+    setPhotoFiles((prev) => [...prev, ...accepted]);
+    setPhotoPreviews((prev) => [...prev, ...accepted.map((f) => URL.createObjectURL(f))]);
+    input.value = '';
+  };
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(photoPreviews[index]);
+    setPhotoFiles((prev) => prev.filter((_, i) => i !== index));
+    setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadPhotos = async (batchId: string) => {
+    const form = new FormData();
+    for (const f of photoFiles) {
+      form.append('photos', f);
+    }
+    const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
+      method: 'POST',
+      body: form,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error?.message || `Unggah foto gagal (${res.status}). Coba lagi dari halaman batch.`);
+    }
+  };
+
   const postJson = async (url: string, payload: unknown) => {
     const res = await apiFetch(url, {
       method: 'POST',
@@ -332,6 +382,16 @@ export default function NewBatchPage() {
       await postJson(`/api/v1/batches/${encodeURIComponent(batch.batchId)}/groups`, {
         groups: [toGroup(groupSR, 'room_temp'), toGroup(groupSD, 'cold')],
       });
+      if (photoFiles.length > 0) {
+        try {
+          await uploadPhotos(batch.batchId);
+        } catch (photoErr) {
+          setCreatedBatchId(batch.batchId);
+          throw new Error(
+            photoErr instanceof Error ? photoErr.message : 'Batch tersimpan, tapi foto gagal diunggah dari sini.'
+          );
+        }
+      }
       router.push(`/batches/${encodeURIComponent(batch.batchId)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menyimpan batch. Periksa isian lalu coba lagi.');
@@ -486,6 +546,11 @@ export default function NewBatchPage() {
               </option>
             </select>
             {fieldMessage(`${prefix}-visualCheck`)}
+            {g.visualCheck !== 'normal' && (
+              <p className="text-[11px] font-mono text-amber-300" role="status">
+                Temuan abnormal: catat detailnya di catatan seleksi batch dan foto ulang sebelum lock.
+              </p>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -595,7 +660,15 @@ export default function NewBatchPage() {
         aria-live="polite"
         className={`p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 ${error ? '' : 'hidden'}`}
       >
-        {error}
+        {error}{' '}
+        {createdBatchId && (
+          <button
+            onClick={() => router.push(`/batches/${encodeURIComponent(createdBatchId)}`)}
+            className="underline font-bold"
+          >
+            Buka halaman batch
+          </button>
+        )}
       </div>
 
       {step === 0 && (
@@ -732,6 +805,44 @@ export default function NewBatchPage() {
               ['dead', 'Mati'],
               ['alive', 'Hidup'],
             ])}
+          </div>
+          <div className={fieldCls}>
+            <label className={labelCls} htmlFor="photos">
+              Foto kondisi awal
+            </label>
+            <input
+              id="photos"
+              name="photos"
+              type="file"
+              accept="image/jpeg,image/png"
+              multiple
+              onChange={(e) => handlePhotoSelect(e.target.files, e.target)}
+              className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
+            />
+            <p className={hintCls}>JPG/PNG sampai 5 MB, maksimal 10 (bisa tambah bertahap). Minimal 1 foto sebelum batch dikunci.</p>
+            {fieldErrors.photos && (
+              <p className="text-[11px] font-mono text-amber-300" role="status">
+                {fieldErrors.photos}
+              </p>
+            )}
+            {photoPreviews.length > 0 && (
+              <div className="grid grid-cols-4 gap-2">
+                {photoPreviews.map((src, i) => (
+                  <div key={src} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      aria-label={`Hapus foto ${i + 1}`}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500/90 text-white text-[10px] font-bold leading-none hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <button type="submit" className={btnPrimary}>
             Lanjut ke Transport

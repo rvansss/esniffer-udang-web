@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
+import { TIMEPOINT_SEQUENCES } from '../../../shared/dataset.ts';
 
 interface SessionItem {
   sessionId: string;
@@ -32,8 +33,8 @@ interface BatchDetail {
   sampleGroups: GroupItem[];
 }
 
-const SR_TIMEPOINTS = ['H0', 'H6', 'H12', 'H18', 'H24', 'H30', 'H36', 'H42', 'H48'];
-const SD_TIMEPOINTS = ['H0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14'];
+const SR_TIMEPOINTS = TIMEPOINT_SEQUENCES.room_temp;
+const SD_TIMEPOINTS = TIMEPOINT_SEQUENCES.cold;
 
 const cardCls = 'p-5 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 space-y-3';
 const btnPrimary =
