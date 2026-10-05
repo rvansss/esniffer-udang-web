@@ -243,6 +243,13 @@ export default function BatchDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href={`/api/v1/batches/${encodeURIComponent(batch.batchId)}/export`}
+            download
+            className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-200 text-xs font-mono font-bold tracking-wider transition-all"
+          >
+            Unduh CSV
+          </a>
           {locked ? (
             <span className="text-[10px] font-mono px-2 py-1 rounded border uppercase bg-white/10 text-white/60 border-white/20">
               Terkunci
