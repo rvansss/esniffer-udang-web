@@ -123,3 +123,14 @@ test('Batas foto MVP: 10 file @5MB', () => {
   assert.strictEqual(MAX_BATCH_PHOTOS, 10);
   assert.strictEqual(MAX_PHOTO_BYTES, 5 * 1024 * 1024);
 });
+
+test('Urutan timepoint baku per kondisi simpan', async () => {
+  const { TIMEPOINT_SEQUENCES } = await import('../shared/dataset.ts');
+  assert.deepStrictEqual(TIMEPOINT_SEQUENCES.room_temp[1], 'H6');
+  assert.deepStrictEqual(TIMEPOINT_SEQUENCES.cold[1], 'D1');
+  for (const seq of Object.values(TIMEPOINT_SEQUENCES)) {
+    const hours = seq.map((t) => timepointToElapsedHours(t));
+    const sorted = [...hours].sort((a, b) => a - b);
+    assert.deepStrictEqual(hours, sorted);
+  }
+});

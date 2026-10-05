@@ -32,6 +32,12 @@ const STORAGE_SUFFIX: Record<StorageConditionCode, 'SR' | 'SD'> = {
   cold: 'SD',
 };
 
+/** Urutan timepoint baku per kondisi simpan (satu sumber kebenaran untuk UI + validasi). */
+export const TIMEPOINT_SEQUENCES: Record<StorageConditionCode, readonly string[]> = {
+  room_temp: ['H0', 'H6', 'H12', 'H18', 'H24', 'H30', 'H36', 'H42', 'H48'],
+  cold: ['H0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14'],
+};
+
 export function isValidBatchId(value: unknown): value is string {
   return typeof value === 'string' && BATCH_ID_PATTERN.test(value);
 }
