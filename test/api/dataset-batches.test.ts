@@ -1,9 +1,12 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import { prisma, closeDb } from '../../lib/db/client.ts';
 import { GET as listBatches, POST as createBatch } from '../../app/api/v1/batches/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route.ts';
+import { POST as uploadPhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
@@ -93,6 +96,9 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     await prisma.measurementSession.deleteMany({ where: { batchId: { startsWith: 'BT-20990202' } } });
     await prisma.sampleGroup.deleteMany({ where: { batchId: { startsWith: 'BT-20990202' } } });
     await prisma.collectionBatch.deleteMany({ where: { batchId: { startsWith: 'BT-20990202' } } });
+    for (const suffix of ['BT-20990202-01', 'BT-20990202-02']) {
+      await rm(path.join(process.cwd(), 'public', 'uploads', suffix), { recursive: true, force: true });
+    }
     await prisma.authSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await closeDb();
@@ -413,6 +419,18 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
         body: JSON.stringify({ cleaningDone: true }),
       }),
       { params: Promise.resolve({ sessionId: sessionH6 }) }
+    );
+
+    const photoForm = new FormData();
+    photoForm.append('photos', new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], 'awal.jpg', { type: 'image/jpeg' }));
+    const photoReq = new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
+      method: 'POST',
+      headers: { Cookie: adminCookie, Origin: 'http://localhost:3000', Host: 'localhost:3000' },
+      body: photoForm,
+    });
+    assert.strictEqual(
+      (await uploadPhotos(photoReq, { params: Promise.resolve({ batchId }) })).status,
+      201
     );
 
     const res = await lockBatch(
