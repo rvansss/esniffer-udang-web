@@ -4,6 +4,7 @@ import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib
 import { parseIsoDate } from '../../../../../../lib/api/validation.ts';
 import { conflict, notFound, validationError } from '../../../../../../lib/api/errors.ts';
 import { serializeSession, parseFiniteNumber } from '../../../../../../lib/api/dataset.ts';
+import { backfillSessionReadings } from '../../../../../../lib/dataset/backfill.ts';
 
 /**
  * Menyelesaikan sesi: validasi gerbang ringan (cleaning + urutan waktu).
@@ -58,12 +59,20 @@ export async function POST(
       data: {
         endedAtUtc,
         cleaningDone: true,
-        status: 'COMPLETE',
         ...baselines,
       },
     });
 
-    return jsonResponse(serializeSession(updated));
+    // Fase 6: tautkan reading live ke sesi (GATE D level row). Idempoten.
+    const backfill = await backfillSessionReadings(updated.id);
+    const finalSession = await prisma.measurementSession.findUniqueOrThrow({
+      where: { sessionId },
+    });
+
+    return jsonResponse(serializeSession(finalSession), {
+      linkedReadings: backfill.linked,
+      baselineReadings: backfill.baseline,
+    });
   } catch (err) {
     return errorResponse(err, requestId, request);
   }
