@@ -20,6 +20,14 @@ export const WIB_OFFSET_MINUTES = 7 * 60;
 export const MAX_BATCH_PHOTOS = 10;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
+// Durasi baseline udara bersih per sesi (PRD Tahap D): 2 menit pertama.
+export const BASELINE_SECONDS = 120;
+
+/** Batas baseline = startedAt + 2 menit; row dengan measured_at <= ini adalah baseline. */
+export function baselineCutoffUtc(startedAtUtc: Date): Date {
+  return new Date(startedAtUtc.getTime() + BASELINE_SECONDS * 1000);
+}
+
 export const BATCH_ID_PATTERN = /^BT-\d{8}-\d{2}$/;
 export const GROUP_ID_PATTERN = /^BT-\d{8}-\d{2}-(SR|SD)$/;
 export const SESSION_ID_PATTERN = /^SES-\d{8}-[A-Z0-9]{1,8}-(SR|SD)$/;
