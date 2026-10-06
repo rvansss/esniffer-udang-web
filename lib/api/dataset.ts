@@ -196,6 +196,17 @@ export function serializeGroup(g: DbGroup) {
   };
 }
 
+/** Status sesi di kontrak API: selalu lowercase (DB menyimpan UPPER_CASE). UI wajib bandingkan lowercase. */
+export type ApiSessionStatus = 'open' | 'complete' | 'incomplete' | 'locked';
+
+export function toApiSessionStatus(db: string): ApiSessionStatus {
+  const lowered = db.toLowerCase();
+  if (lowered === 'open' || lowered === 'complete' || lowered === 'incomplete' || lowered === 'locked') {
+    return lowered;
+  }
+  throw validationError(`Status sesi tidak dikenal: ${db}`);
+}
+
 type DbSession = {
   id: string;
   sessionId: string;
@@ -234,7 +245,7 @@ export function serializeSession(s: DbSession) {
     baselineMq4: dec(s.baselineMq4),
     warmupDone: s.warmupDone,
     cleaningDone: s.cleaningDone,
-    status: s.status.toLowerCase(),
+    status: toApiSessionStatus(s.status),
     lockedAt: iso(s.lockedAt),
     createdAt: s.createdAt.toISOString(),
   };

@@ -4,12 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { TIMEPOINT_SEQUENCES } from '../../../shared/dataset.ts';
+import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
   sessionId: string;
   timepointCode: string;
   elapsedHours: number;
-  status: string;
+  status: ApiSessionStatus;
   warmupDone: boolean;
   cleaningDone: boolean;
 }
@@ -56,6 +57,10 @@ export default function BatchDetailPage() {
   const [tpSel, setTpSel] = useState<Record<string, string>>({});
   const [warmup, setWarmup] = useState<Record<string, boolean>>({});
   const [cleaning, setCleaning] = useState<Record<string, boolean>>({});
+  const [chSel, setChSel] = useState<Record<string, string>>({});
+  const [devSel, setDevSel] = useState<Record<string, string>>({});
+  const [chambers, setChambers] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [devices, setDevices] = useState<Array<{ id: string; mqttDeviceId: string; name: string }>>([]);
   const [files, setFiles] = useState<FileList | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -98,6 +103,38 @@ export default function BatchDetailPage() {
 
   const refresh = () => setRefreshKey((k) => k + 1);
 
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    apiFetch('/api/v1/chambers?active=true&limit=50')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = await res.json();
+        if (Array.isArray(json.data)) {
+          setChambers(json.data.map((c: { id: string; code: string; name?: string }) => ({
+            id: c.id,
+            code: c.code,
+            name: c.name || c.code,
+          })));
+        }
+      })
+      .catch(() => {});
+    apiFetch('/api/v1/devices?limit=100')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = await res.json();
+        if (Array.isArray(json.data)) {
+          setDevices(json.data.map((d: { id: string; mqttDeviceId?: string; name?: string }) => ({
+            id: d.id,
+            mqttDeviceId: d.mqttDeviceId || d.id,
+            name: d.name || d.mqttDeviceId || d.id,
+          })));
+        }
+      })
+      .catch(() => {});
+  }, [user, apiFetch]);
+
   const callJson = async (url: string, payload: unknown) => {
     const res = await apiFetch(url, {
       method: 'POST',
@@ -111,9 +148,25 @@ export default function BatchDetailPage() {
     return body.data;
   };
 
+  const usedCodes = (g: GroupItem): Set<string> =>
+    new Set(g.sessions.filter((s) => s.status !== 'incomplete').map((s) => s.timepointCode));
+
+  const handleReopen = async (s: SessionItem) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await callJson(`/api/v1/sessions/${encodeURIComponent(s.sessionId)}/reopen`, {});
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal membuka ulang sesi');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const suggestNext = (g: GroupItem): string => {
     const seq = g.storageCondition === 'cold' ? SD_TIMEPOINTS : SR_TIMEPOINTS;
-    const used = new Set(g.sessions.map((s) => s.timepointCode));
+    const used = usedCodes(g);
     return seq.find((t) => !used.has(t)) ?? seq[seq.length - 1];
   };
 
@@ -129,6 +182,8 @@ export default function BatchDetailPage() {
       await callJson(`/api/v1/groups/${encodeURIComponent(g.groupId)}/sessions`, {
         timepointCode,
         warmupDone: true,
+        chamberId: chSel[g.groupId] || null,
+        deviceId: devSel[g.groupId] || null,
       });
       refresh();
     } catch (err) {
@@ -308,6 +363,10 @@ export default function BatchDetailPage() {
 
       {batch.sampleGroups.map((g) => {
         const seq = g.storageCondition === 'cold' ? SD_TIMEPOINTS : SR_TIMEPOINTS;
+        const taken = usedCodes(g);
+        const available = seq.filter((t) => !taken.has(t));
+        const running = g.sessions.filter((s) => s.status === 'open');
+        const history = g.sessions.filter((s) => s.status !== 'open');
         return (
           <div key={g.groupId} className={cardCls}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -318,55 +377,116 @@ export default function BatchDetailPage() {
                 Jadwal timepoint: {seq.join(' · ')}
               </p>
             </div>
-            {g.sessions.length === 0 ? (
-              <p className="text-xs font-mono text-white/50">Belum ada sesi pengukuran.</p>
-            ) : (
-              <ul className="space-y-2">
-                {g.sessions.map((s) => (
-                  <li key={s.sessionId} className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-black/25 border border-white/10">
-                    <div className="text-xs font-mono text-white/80">
-                      <span className="font-bold text-white">{s.timepointCode}</span>
-                      <span className="text-white/50"> ({s.elapsedHours} jam)</span>{' '}
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded border uppercase ${
-                          s.status === 'COMPLETE'
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                            : s.status === 'OPEN'
-                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-                              : 'bg-white/10 text-white/60 border-white/20'
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    </div>
-                    {isAdmin && !locked && s.status === 'OPEN' && (
-                      <label className="flex items-center gap-2 text-[11px] font-mono text-white/70 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!cleaning[s.sessionId]}
-                          onChange={(e) => setCleaning({ ...cleaning, [s.sessionId]: e.target.checked })}
-                          className="accent-emerald-500"
-                        />
-                        Cleaning 70%
-                        <button onClick={() => void handleComplete(s)} disabled={busy || !cleaning[s.sessionId]} className={btnPrimary} title={!cleaning[s.sessionId] ? 'Centang cleaning 70% dulu' : 'Selesaikan sesi'}>
-                          Complete
-                        </button>
-                      </label>
-                    )}
-                  </li>
-                ))}
-              </ul>
+            {running.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
+                  Sesi berjalan
+                </p>
+                <ul className="space-y-2">
+                  {running.map((s) => (
+                    <li key={s.sessionId} className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-black/25 border border-cyan-400/20">
+                      <div className="text-xs font-mono text-white/80">
+                        <span className="font-bold text-white">{s.timepointCode}</span>
+                        <span className="text-white/50"> ({s.elapsedHours} jam)</span>{' '}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border uppercase bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+                          {s.status}
+                        </span>
+                      </div>
+                      {isAdmin && !locked && (
+                        <label className="flex items-center gap-2 text-[11px] font-mono text-white/70 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!cleaning[s.sessionId]}
+                            onChange={(e) => setCleaning({ ...cleaning, [s.sessionId]: e.target.checked })}
+                            className="accent-emerald-500"
+                          />
+                          Cleaning 70%
+                          <button onClick={() => void handleComplete(s)} disabled={busy || !cleaning[s.sessionId]} className={btnPrimary} title={!cleaning[s.sessionId] ? 'Centang cleaning 70% dulu' : 'Selesaikan sesi'}>
+                            Complete
+                          </button>
+                        </label>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
-            {isAdmin && !locked && (
+            {history.length > 0 && (
+              <details className="rounded-xl bg-black/15 border border-white/10 px-3 py-2">
+                <summary className="cursor-pointer text-[11px] font-mono font-bold tracking-widest uppercase text-white/50 hover:text-white/80">
+                  Riwayat ({history.length})
+                </summary>
+                <ul className="mt-2 space-y-2">
+                  {history.map((s) => (
+                    <li key={s.sessionId} className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-black/25 border border-white/10">
+                      <div className="text-xs font-mono text-white/80">
+                        <span className="font-bold text-white">{s.timepointCode}</span>
+                        <span className="text-white/50"> ({s.elapsedHours} jam)</span>{' '}
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded border uppercase ${
+                            s.status === 'complete'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-white/10 text-white/60 border-white/20'
+                          }`}
+                          title={s.status === 'incomplete' ? 'Selesai tanpa data tertaut — bisa diulang' : undefined}
+                        >
+                          {s.status}
+                        </span>
+                      </div>
+                      {isAdmin && !locked && s.status === 'incomplete' && (
+                        <button onClick={() => void handleReopen(s)} disabled={busy} className={btnGhost} title="Buka ulang sesi untuk mengukur ulang timepoint ini">
+                          Ulangi
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {g.sessions.length === 0 && (
+              <p className="text-xs font-mono text-white/50">Belum ada sesi pengukuran.</p>
+            )}
+            {isAdmin && !locked && available.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <select
                   value={tpSel[g.groupId] || suggestNext(g)}
                   onChange={(e) => setTpSel({ ...tpSel, [g.groupId]: e.target.value })}
+                  aria-label="Timepoint sesi baru"
                   className="px-3 py-2 rounded-xl bg-black/25 border border-white/10 text-xs font-mono text-white"
                 >
-                  {seq.map((t) => (
+                  {available.map((t) => (
                     <option key={t} value={t} className="bg-slate-900">
                       {t}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={chSel[g.groupId] || ''}
+                  onChange={(e) => setChSel({ ...chSel, [g.groupId]: e.target.value })}
+                  aria-label="Chamber sesi (opsional, wajib agar data tertaut)"
+                  className="px-3 py-2 rounded-xl bg-black/25 border border-white/10 text-xs font-mono text-white max-w-[180px]"
+                >
+                  <option value="" className="bg-slate-900">
+                    Chamber: —
+                  </option>
+                  {chambers.map((c) => (
+                    <option key={c.id} value={c.id} className="bg-slate-900">
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={devSel[g.groupId] || ''}
+                  onChange={(e) => setDevSel({ ...devSel, [g.groupId]: e.target.value })}
+                  aria-label="Device sesi (opsional, wajib agar data tertaut)"
+                  className="px-3 py-2 rounded-xl bg-black/25 border border-white/10 text-xs font-mono text-white max-w-[180px]"
+                >
+                  <option value="" className="bg-slate-900">
+                    Device: —
+                  </option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.id} className="bg-slate-900">
+                      {d.mqttDeviceId}
                     </option>
                   ))}
                 </select>
@@ -382,6 +502,9 @@ export default function BatchDetailPage() {
                 <button onClick={() => void handleCreateSession(g)} disabled={busy || !warmup[g.groupId]} className={btnGhost} title={!warmup[g.groupId] ? 'Centang warmup 30 menit dulu' : 'Mulai sesi'}>
                   Start Sesi
                 </button>
+                <p className="w-full text-[11px] font-mono text-white/45">
+                  Isi chamber + device agar data sensor otomatis tertaut ke sesi (kosong = sesi tanpa data).
+                </p>
               </div>
             )}
           </div>
