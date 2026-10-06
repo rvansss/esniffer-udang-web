@@ -46,11 +46,6 @@ next-env.d.ts
 # documentation
 diki/
 docs/
-!docs/
-docs/*
-!docs/esniffer/
-docs/esniffer/*
-!docs/esniffer/*.md
 
 # mosquitto secrets and persistence data
 docker/mosquitto/config/passwords.txt

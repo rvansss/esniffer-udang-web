@@ -1,0 +1,186 @@
+name: CD - Continuous Delivery & Deployment
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      deploy_to_server:
+        description: 'Trigger automated SSH deployment to VPS'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & Push Images to GHCR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.resolve-tag.outputs.tag }}
+      app_image: ${{ steps.meta-app.outputs.tags }}
+      migration_image: ${{ steps.meta-migration.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve Image Tag
+        id: resolve-tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="sha-${{ github.sha }}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: ${TAG}"
+
+      - name: Docker metadata for Web & Worker (target: runtime)
+        id: meta-app
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=sha-${{ github.sha }}
+            type=ref,event=tag
+
+      - name: Docker metadata for Database Migration (target: migration)
+        id: meta-migration
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-migration
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=sha-${{ github.sha }}
+            type=ref,event=tag
+
+      - name: Build and push Web & Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ steps.meta-app.outputs.tags }}
+          labels: ${{ steps.meta-app.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migration
+          push: true
+          tags: ${{ steps.meta-migration.outputs.tags }}
+          labels: ${{ steps.meta-migration.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Remote Server (VPS)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.deploy_to_server == 'true')
+
+    steps:
+      - name: Check Deployment Secrets Configuration
+        id: check-secrets
+        run: |
+          if [ -n "${{ secrets.SSH_HOST }}" ] && [ -n "${{ secrets.SSH_USER }}" ] && [ -n "${{ secrets.SSH_KEY }}" ]; then
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+            echo "SSH deployment secrets configured."
+          else
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "SSH_HOST, SSH_USER, or SSH_KEY is not configured in repository secrets."
+          fi
+
+      - name: Informative Notice if Secrets Missing
+        if: steps.check-secrets.outputs.has_secrets != 'true'
+        run: |
+          echo "::notice title=CD Image Ready, Remote Deploy Skipped::Docker images successfully built and published to GHCR. To activate automated VPS deployment, configure repository secrets: SSH_HOST, SSH_USER, SSH_KEY, and optional DEPLOY_PATH."
+
+      - name: Deploy to VPS via SSH
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          REPO_NAME: ${{ github.repository }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/esniffer-udang-web' }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,REPO_NAME,DEPLOY_PATH
+          script_stop: true
+          script: |
+            set -eu
+
+            echo "=== [1/6] Navigating to deployment directory ==="
+            cd "${DEPLOY_PATH}"
+
+            echo "=== [2/6] Logging in to GitHub Container Registry on VPS ==="
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            echo "=== [3/6] Pulling updated container images ==="
+            APP_IMAGE="ghcr.io/${REPO_NAME}"
+            MIGRATION_IMAGE="ghcr.io/${REPO_NAME}-migration"
+            
+            docker pull "${APP_IMAGE}:${IMAGE_TAG}"
+            docker pull "${MIGRATION_IMAGE}:${IMAGE_TAG}"
+
+            echo "=== [4/6] Updating deployment environment variables ==="
+            # Update APP_IMAGE and APP_TAG in deploy/.env.production
+            if [ -f deploy/.env.production ]; then
+              sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" deploy/.env.production
+              sed -i.bak "s|^APP_TAG=.*|APP_TAG=${IMAGE_TAG}|" deploy/.env.production
+              rm -f deploy/.env.production.bak
+            else
+              echo "Error: deploy/.env.production not found in ${DEPLOY_PATH}" >&2
+              exit 1
+            fi
+
+            echo "=== [5/6] Running Prisma Migration ==="
+            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml --profile tools run --rm migrate
+
+            echo "=== [6/6] Updating Services (Zero-downtime rolling restart) ==="
+            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --remove-orphans web worker proxy
+
+            echo "=== Deployment Succeeded! Verifying container status ==="
+            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml ps

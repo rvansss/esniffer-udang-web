@@ -1,4 +1,4 @@
-name: CI (Read-Only)
+name: CI - Continuous Integration
 
 on:
   push:
@@ -6,8 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Code Quality & Automated Tests
     runs-on: ubuntu-latest
 
     services:
@@ -44,8 +49,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Prisma Client tidak di-generate oleh `npm ci`, sehingga tipe `Prisma`
-      # dan turunannya hilang dan `typecheck` gagal tanpa langkah ini.
+      # Prisma Client tidak di-generate otomatis oleh `npm ci`,
+      # sehingga generate eksplisit diperlukan sebelum typecheck & test.
       - name: Generate Prisma Client
         run: npx prisma generate
 
@@ -69,3 +74,45 @@ jobs:
 
       - name: API tests
         run: npm run test:api
+
+      - name: Production Webpack build verification
+        run: npm run build -- --webpack
+
+      - name: Real Next.js HTTP Smoke Test
+        run: node --experimental-strip-types --test test/e2e/http-smoke.test.ts
+
+  docker-validation:
+    name: Docker & Compose Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate production Docker Compose configuration
+        run: |
+          docker compose --env-file deploy/.env.production.example -f deploy/compose.production.yml config --quiet
+          echo "Compose configuration syntax and environment bindings valid."
+
+      - name: Build Web/Worker runtime image (target: runtime)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Database migration image (target: migration)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migration
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
