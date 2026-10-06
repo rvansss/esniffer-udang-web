@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "draw-io-diagram-generator": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/draw-io-diagram-generator/SKILL.md",
+      "computedHash": "62482a37dd45bfd414b285c1876e2028c5de62d43bb0af8a35fc488cafdb04b8"
+    },
+    "linkedin-profile-optimizer": {
+      "source": "paramchoudhary/resumeskills",
+      "sourceType": "github",
+      "skillPath": "skills/linkedin-profile-optimizer/SKILL.md",
+      "computedHash": "fb2aaf9ce1a1bcae1fd44f3d04db9a76eb98394a017ffdcd4ca4b8d947efdc29"
+    },
+    "prd": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/prd/SKILL.md",
+      "computedHash": "1f3e1f005fc40fda85d250ae906c8ee4f7e8e833e23adfeca6542c19609fd7cd"
+    }
+  }
+}
