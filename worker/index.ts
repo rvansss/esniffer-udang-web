@@ -542,11 +542,10 @@ export class WorkerDaemon {
   }
 }
 
-// Entry point jika dijalankan langsung melalui CLI
-if (
-  typeof process !== 'undefined' &&
-  process.argv[1]?.endsWith('worker/index.ts')
-) {
+// Entry point jika dijalankan langsung melalui CLI.
+// Normalisasi separator Windows (\) agar cocok di semua OS.
+const entryScript = process.argv[1]?.replace(/\\/g, '/');
+if (typeof process !== 'undefined' && entryScript?.endsWith('worker/index.ts')) {
   const worker = new WorkerDaemon();
   worker.start().catch((err) => {
     logger.error({
