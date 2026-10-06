@@ -43,6 +43,38 @@ enum UserRole {
   ADMIN
 }
 
+// Dataset collection (PRD §5.4). Enum UPPER_CASE mengikuti konvensi repo;
+// konversi ke lowercase CSV (market/farm, room_temp/cold) di lapisan API/export.
+enum CollectionSourceType {
+  MARKET
+  FARM
+}
+
+enum InitialCondition {
+  FRESH_DEAD
+  DEAD
+  ALIVE
+}
+
+enum StorageCondition {
+  ROOM_TEMP
+  COLD
+}
+
+enum VisualCheck {
+  NORMAL
+  MELANOSIS
+  DAMAGED
+  MIXED_SPECIES
+}
+
+enum SessionStatus {
+  OPEN
+  COMPLETE
+  INCOMPLETE
+  LOCKED
+}
+
 model Chamber {
   id          String             @id @default(uuid()) @db.Uuid
   code        String             @unique @db.VarChar(32)
@@ -53,6 +85,8 @@ model Chamber {
   updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
   assignments DeviceAssignment[]
   readings    SensorReading[]
+  sampleGroups SampleGroup[]
+  sessions     MeasurementSession[]
 
   @@map("chambers")
 }
@@ -77,6 +111,7 @@ model Device {
   assignments           DeviceAssignment[]
   timeReferences        DeviceTimeReference[]
   readings              SensorReading[]
+  sessions              MeasurementSession[]
 
   @@map("devices")
 }
@@ -143,16 +178,24 @@ model SensorReading {
   mq4Raw                 Decimal?               @map("mq4_raw") @db.Decimal(14, 3)
   mq4Quality             SensorQuality          @map("mq4_quality")
   rawPayload             Json                   @map("raw_payload") @db.JsonB
+  sessionId              String?                @map("session_id") @db.Uuid
+  batchId                String?                @map("batch_id") @db.VarChar(16)
+  timepointCode          String?                @map("timepoint_code") @db.VarChar(8)
+  isBaseline             Boolean?               @map("is_baseline")
   device                 Device                 @relation(fields: [deviceId], references: [id], onDelete: Restrict)
   chamber                Chamber?               @relation(fields: [chamberId], references: [id], onDelete: Restrict)
   assignment             DeviceAssignment?      @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
   timeReference          DeviceTimeReference?   @relation(fields: [timeReferenceId], references: [id], onDelete: Restrict)
+  session                MeasurementSession?    @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  batch                  CollectionBatch?       @relation(fields: [batchId], references: [batchId], onDelete: Restrict)
 
   @@unique([deviceId, messageId])
   @@index([chamberId, measuredAt(sort: Desc), receivedAt(sort: Desc), historySequence(sort: Desc)])
   @@index([deviceId, measuredAt(sort: Desc), receivedAt(sort: Desc), historySequence(sort: Desc)])
   @@index([assignmentId, measuredAt(sort: Desc)])
   @@index([bootId, sampleUptimeMs])
+  @@index([sessionId, measuredAt(sort: Desc)])
+  @@index([batchId, timepointCode])
   @@map("sensor_readings")
 }
 
@@ -168,6 +211,7 @@ model User {
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   sessions         AuthSession[]
+  collectionBatches CollectionBatch[] @relation("BatchOperator")
 
   @@map("users")
 }
@@ -184,6 +228,89 @@ model AuthSession {
 
   @@index([userId, expiresAt])
   @@map("auth_sessions")
+}
+
+model CollectionBatch {
+  id                String               @id @default(uuid()) @db.Uuid
+  batchId           String               @unique @map("batch_id") @db.VarChar(16)
+  procuredAtUtc     DateTime             @map("procured_at_utc") @db.Timestamptz(3)
+  // Teks bebas sesuai revisi (bukan dropdown); non-empty dijaga CHECK.
+  marketSource      String               @map("market_source") @db.VarChar(100)
+  sourceType        CollectionSourceType @default(MARKET) @map("source_type")
+  shrimpCount       Int                  @map("shrimp_count")
+  sizeGrade         String               @map("size_grade") @db.VarChar(32)
+  totalWeightG      Decimal              @map("total_weight_g") @db.Decimal(8, 2)
+  initialCondition  InitialCondition     @map("initial_condition")
+  initialTempC      Decimal              @map("initial_temp_c") @db.Decimal(5, 2)
+  departedAtUtc     DateTime             @map("departed_at_utc") @db.Timestamptz(3)
+  arrivedAtUtc      DateTime             @map("arrived_at_utc") @db.Timestamptz(3)
+  coolerTempMinC    Decimal              @map("cooler_temp_min_c") @db.Decimal(5, 2)
+  coolerTempMaxC    Decimal              @map("cooler_temp_max_c") @db.Decimal(5, 2)
+  iceToShrimpRatio  String               @default("2:1") @map("ice_to_shrimp_ratio") @db.VarChar(8)
+  tempStartC        Decimal              @map("temp_start_c") @db.Decimal(5, 2)
+  tempEndC          Decimal              @map("temp_end_c") @db.Decimal(5, 2)
+  rejectionNotes    String?              @map("rejection_notes") @db.VarChar(500)
+  photoUrls         String[]             @default([]) @map("photo_urls")
+  operatorId        String               @map("operator_id") @db.Uuid
+  lockedAt          DateTime?            @map("locked_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  operator          User                 @relation("BatchOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  sampleGroups      SampleGroup[]
+  sessions          MeasurementSession[]
+  readings          SensorReading[]
+
+  @@map("collection_batches")
+}
+
+model SampleGroup {
+  id                String           @id @default(uuid()) @db.Uuid
+  groupId           String           @unique @map("group_id") @db.VarChar(24)
+  batchId           String           @map("batch_id") @db.VarChar(16)
+  chamberId         String?          @map("chamber_id") @db.Uuid
+  storageCondition  StorageCondition @map("storage_condition")
+  targetTempC       Decimal          @map("target_temp_c") @db.Decimal(5, 2)
+  labTempC          Decimal          @map("lab_temp_c") @db.Decimal(5, 2)
+  visualCheck       VisualCheck      @map("visual_check")
+  labWeightG        Decimal          @map("lab_weight_g") @db.Decimal(8, 2)
+  sampleShrimpCount Int              @map("sample_shrimp_count")
+  sampleWeightG     Decimal          @map("sample_weight_g") @db.Decimal(8, 2)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  batch             CollectionBatch  @relation(fields: [batchId], references: [batchId], onDelete: Restrict)
+  chamber           Chamber?         @relation(fields: [chamberId], references: [id], onDelete: Restrict)
+  sessions          MeasurementSession[]
+
+  @@unique([batchId, storageCondition])
+  @@map("sample_groups")
+}
+
+model MeasurementSession {
+  id            String        @id @default(uuid()) @db.Uuid
+  sessionId     String        @unique @map("session_id") @db.VarChar(32)
+  groupId       String        @map("group_id") @db.VarChar(24)
+  batchId       String        @map("batch_id") @db.VarChar(16)
+  chamberId     String?       @map("chamber_id") @db.Uuid
+  deviceId      String?       @map("device_id") @db.Uuid
+  timepointCode String        @map("timepoint_code") @db.VarChar(8)
+  elapsedHours  Int           @map("elapsed_hours")
+  startedAtUtc  DateTime      @map("started_at_utc") @db.Timestamptz(3)
+  // Batas window akuisisi; dipakai backfill Fase 6 agar worker tidak diubah.
+  endedAtUtc    DateTime?     @map("ended_at_utc") @db.Timestamptz(3)
+  baselineMq137 Decimal?      @map("baseline_mq137") @db.Decimal(14, 3)
+  baselineMq136 Decimal?      @map("baseline_mq136") @db.Decimal(14, 3)
+  baselineMq4   Decimal?      @map("baseline_mq4") @db.Decimal(14, 3)
+  warmupDone    Boolean       @default(false) @map("warmup_done")
+  cleaningDone  Boolean       @default(false) @map("cleaning_done")
+  status        SessionStatus @default(OPEN) @map("status")
+  lockedAt      DateTime?     @map("locked_at") @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  group         SampleGroup     @relation(fields: [groupId], references: [groupId], onDelete: Restrict)
+  batch         CollectionBatch @relation(fields: [batchId], references: [batchId], onDelete: Restrict)
+  chamber       Chamber?        @relation(fields: [chamberId], references: [id], onDelete: Restrict)
+  device        Device?         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  readings      SensorReading[]
+
+  @@unique([groupId, timepointCode])
+  @@map("measurement_sessions")
 }
 
 model HistorySequenceWatermark {

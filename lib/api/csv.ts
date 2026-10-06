@@ -89,3 +89,70 @@ export const READING_CSV_HEADERS = [
   'mq4_raw_quality',
   'ingestion_source',
 ];
+
+/**
+ * Header CSV ML-ready untuk export batch dataset (PRD §3.4).
+ * Kolom snake_case English persis contoh PRD; boolean is_baseline
+ * diserialkan sebagai string 'true'/'false', null sebagai sel kosong.
+ */
+export const DATASET_CSV_HEADERS = [
+  'timestamp_utc',
+  'session_id',
+  'batch_id',
+  'source_type',
+  'storage_condition',
+  'timepoint_code',
+  'elapsed_hours',
+  'mq137_raw',
+  'mq136_raw',
+  'mq4_raw',
+  'temp_chamber_c',
+  'rh_chamber_pct',
+  'is_baseline',
+];
+
+/**
+ * Header CSV metadata batch (satu baris per sesi, atau per grup bila belum
+ * ada sesi). Selalu berisi data yang diisi operator di form, sehingga
+ * pengguna tetap mendapat isiannya walau belum ada reading sensor.
+ */
+export const DATASET_METADATA_CSV_HEADERS = [
+  'batch_id',
+  'procured_at_utc',
+  'market_source',
+  'source_type',
+  'shrimp_count',
+  'size_grade',
+  'total_weight_g',
+  'initial_condition',
+  'initial_temp_c',
+  'departed_at_utc',
+  'arrived_at_utc',
+  'cooler_temp_min_c',
+  'cooler_temp_max_c',
+  'ice_to_shrimp_ratio',
+  'temp_start_c',
+  'temp_end_c',
+  'rejection_notes',
+  'photo_count',
+  'locked_at',
+  'group_id',
+  'storage_condition',
+  'target_temp_c',
+  'lab_temp_c',
+  'visual_check',
+  'lab_weight_g',
+  'sample_shrimp_count',
+  'sample_weight_g',
+  'session_id',
+  'timepoint_code',
+  'elapsed_hours',
+  'started_at_utc',
+  'ended_at_utc',
+  'session_status',
+  'warmup_done',
+  'cleaning_done',
+  'baseline_mq137',
+  'baseline_mq136',
+  'baseline_mq4',
+];
