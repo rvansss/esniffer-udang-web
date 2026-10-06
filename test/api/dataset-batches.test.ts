@@ -295,7 +295,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     );
     assert.strictEqual(res.status, 201);
     const body = await res.json();
-    assert.match(body.data.sessionId, /^SES-\d{8}-H0-SR$/);
+    assert.match(body.data.sessionId, /^SES-\d{8}-\d{2}-H0-SR$/);
     assert.strictEqual(body.data.elapsedHours, 0);
     sessionH0 = body.data.sessionId;
   });

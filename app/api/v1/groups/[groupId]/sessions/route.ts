@@ -86,7 +86,7 @@ export async function POST(
     const suffix = group.storageCondition === 'COLD' ? 'SD' : 'SR';
     const session = await prisma.measurementSession.create({
       data: {
-        sessionId: buildSessionId(startedAtUtc, timepointCode, suffix),
+        sessionId: buildSessionId(group.batchId, timepointCode, suffix),
         groupId,
         batchId: group.batchId,
         chamberId,

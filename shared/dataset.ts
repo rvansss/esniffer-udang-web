@@ -30,7 +30,7 @@ export function baselineCutoffUtc(startedAtUtc: Date): Date {
 
 export const BATCH_ID_PATTERN = /^BT-\d{8}-\d{2}$/;
 export const GROUP_ID_PATTERN = /^BT-\d{8}-\d{2}-(SR|SD)$/;
-export const SESSION_ID_PATTERN = /^SES-\d{8}-[A-Z0-9]{1,8}-(SR|SD)$/;
+export const SESSION_ID_PATTERN = /^SES-\d{8}-\d{2}-[A-Z0-9]{1,8}-(SR|SD)$/;
 export const TIMEPOINT_PATTERN = /^(H|D)([0-9]+)$/;
 
 export type StorageConditionCode = 'room_temp' | 'cold';
@@ -87,11 +87,17 @@ export function buildGroupId(batchId: string, storage: StorageConditionCode): st
   return `${batchId}-${suffix}`;
 }
 
-/** Auto-generate session_id dari tanggal, timepoint, dan suffix grup (SR/SD). */
-export function buildSessionId(now: Date, timepointCode: string, groupSuffix: 'SR' | 'SD'): string {
+/**
+ * Auto-generate session_id dari batch induk: SES-&lt;tanggal-batch&gt;-&lt;nomor-batch&gt;-&lt;timepoint&gt;-&lt;SR/SD&gt;.
+ * Nomor batch ikut serta agar dua batch di hari yang sama tidak tabrakan ID sesi.
+ */
+export function buildSessionId(batchId: string, timepointCode: string, groupSuffix: 'SR' | 'SD'): string {
+  const match = /^BT-(\d{8})-(\d{2})$/.exec(batchId);
+  if (!match) {
+    throw new DatasetValidationError('INVALID_BATCH_ID', `batch_id tidak valid: ${batchId}`);
+  }
   const parsed = parseTimepointCode(timepointCode); // validasi format sekalian
-  const tp = `${parsed.kind}${parsed.value}`;
-  return `SES-${wibDateStamp(now)}-${tp}-${groupSuffix}`;
+  return `SES-${match[1]}-${match[2]}-${parsed.kind}${parsed.value}-${groupSuffix}`;
 }
 
 export interface ParsedTimepoint {

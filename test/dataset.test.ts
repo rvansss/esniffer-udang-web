@@ -38,9 +38,10 @@ test('ID: format batch_id/group_id/session_id valid dan invalid', () => {
   assert.ok(isValidGroupId('BT-20261002-01-SD'));
   assert.ok(!isValidGroupId('BT-20261002-01-XX'));
 
-  assert.ok(isValidSessionId('SES-20261002-H6-SR'));
-  assert.ok(isValidSessionId('SES-20261002-D14-SD'));
-  assert.ok(!isValidSessionId('SES-20261002-H6-XX'));
+  assert.ok(isValidSessionId('SES-20261002-01-H6-SR'));
+  assert.ok(isValidSessionId('SES-20261002-01-D14-SD'));
+  assert.ok(!isValidSessionId('SES-20261002-01-H6-XX'));
+  assert.ok(!isValidSessionId('SES-20261002-H6-SR')); // format lama tanpa nomor batch
 });
 
 test('ID: builder menghasilkan format benar dan menolak input salah', () => {
@@ -48,7 +49,7 @@ test('ID: builder menghasilkan format benar dan menolak input salah', () => {
   assert.strictEqual(buildBatchId(now, 1), 'BT-20261002-01');
   assert.strictEqual(buildGroupId('BT-20261002-01', 'room_temp'), 'BT-20261002-01-SR');
   assert.strictEqual(buildGroupId('BT-20261002-01', 'cold'), 'BT-20261002-01-SD');
-  assert.strictEqual(buildSessionId(now, 'H6', 'SR'), 'SES-20261002-H6-SR');
+  assert.strictEqual(buildSessionId('BT-20261002-01', 'H6', 'SR'), 'SES-20261002-01-H6-SR');
 
   assert.throws(() => buildBatchId(now, 0), DatasetValidationError);
   assert.throws(() => buildBatchId(now, 100), DatasetValidationError);
@@ -57,7 +58,8 @@ test('ID: builder menghasilkan format benar dan menolak input salah', () => {
     () => buildGroupId('BT-20261002-01', 'freezer' as never),
     DatasetValidationError
   );
-  assert.throws(() => buildSessionId(now, 'KEMARIN', 'SR'), DatasetValidationError);
+  assert.throws(() => buildSessionId('BT-20261002-01', 'KEMARIN', 'SR'), DatasetValidationError);
+  assert.throws(() => buildSessionId('SALAH', 'H6', 'SR'), DatasetValidationError);
 });
 
 test('Timepoint: H6=6 jam dan D1=24 jam', () => {
