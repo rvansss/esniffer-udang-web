@@ -146,6 +146,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
           port: ${{ secrets.SSH_PORT || 22 }}
           envs: GITHUB_TOKEN,GITHUB_ACTOR,IMAGE_TAG,REPO_NAME,DEPLOY_PATH
           script_stop: true
