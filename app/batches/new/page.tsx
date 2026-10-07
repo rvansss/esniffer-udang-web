@@ -11,10 +11,11 @@ import {
   MAX_BATCH_PHOTOS,
   DatasetValidationError,
 } from '../../../shared/dataset.ts';
+import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
 
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono font-semibold text-white/85';
-const hintCls = 'text-[11px] font-mono text-white/45';
+const hintCls = 'text-xs font-mono text-white/70';
 const inputCls =
   'w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-400/60 focus-visible:ring-2 focus-visible:ring-emerald-400/50 [color-scheme:dark] [tabular-nums]';
 const inputErrCls =
@@ -26,6 +27,13 @@ const btnBack =
   'flex-1 py-3 rounded-xl bg-transparent hover:bg-white/10 border border-white/15 text-white/70 text-sm font-mono font-bold transition-colors touch-manipulation disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
 const stepBtn =
   'flex-1 px-2 py-2.5 rounded-xl font-mono text-xs font-bold border transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60';
+const btnGhost =
+  'px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-white/60 hover:text-white text-[11px] font-mono transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
+
+// Alat bantu tes fitur: isi otomatis seluruh form dengan nilai realistis.
+// Matikan (ganti ke false) saat pengujian sesungguhnya agar tombolnya
+// tidak muncul.
+const AUTO_FILL_ENABLED = true;
 
 interface GroupForm {
   labTempC: string;
@@ -70,6 +78,7 @@ export default function NewBatchPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Errors>({});
   const errorRef = useRef<HTMLDivElement>(null);
+  const { message: notice, notify, dismiss } = useSuccessNotice();
 
   // Tahap A — pengadaan
   const [procuredAt, setProcuredAt] = useState('');
@@ -80,7 +89,7 @@ export default function NewBatchPage() {
   const [totalWeightG, setTotalWeightG] = useState('');
   const [initialCondition, setInitialCondition] = useState('fresh_dead');
   const [initialTempC, setInitialTempC] = useState('');
-  // Tahap B — transport
+  // Tahap B — transportasi
   const [departedAt, setDepartedAt] = useState('');
   const [arrivedAt, setArrivedAt] = useState('');
   const [coolerMin, setCoolerMin] = useState('');
@@ -95,6 +104,114 @@ export default function NewBatchPage() {
   // Tahap C — grup SR/SD
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
   const [groupSD, setGroupSD] = useState<GroupForm>(emptyGroup());
+
+  // Berat di lab & suhu tusuk saat tiba selalu sama di kedua kartu (diukur
+  // sekali sebelum dibagi): kartu pertama yang disentuh menyalin ke kartu
+  // satunya; begitu kartu kedua disentuh manual, keduanya independen.
+  const [labSource, setLabSource] = useState<'sr' | 'sd' | null>(null);
+  const [labTempTouched, setLabTempTouched] = useState({ sr: false, sd: false });
+  const setSR = (v: GroupForm) => {
+    if (v.labWeightG !== groupSR.labWeightG) {
+      if (labSource !== 'sd') {
+        setGroupSD((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+      }
+      setLabSource('sr');
+    }
+    if (v.labTempC !== groupSR.labTempC) {
+      setLabTempTouched((prev) => ({ ...prev, sr: true }));
+    }
+    setGroupSR(v);
+  };
+  const setSD = (v: GroupForm) => {
+    if (v.labWeightG !== groupSD.labWeightG) {
+      if (labSource !== 'sr') {
+        setGroupSR((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+      }
+      setLabSource('sd');
+    }
+    if (v.labTempC !== groupSD.labTempC) {
+      setLabTempTouched((prev) => ({ ...prev, sd: true }));
+    }
+    setGroupSD(v);
+  };
+
+  // Suhu awal udang = suhu awal transportasi (masuk box segera setelah beli):
+  // tersalin hidup selama kolom transportasi belum disentuh manual.
+  const [tempStartTouched, setTempStartTouched] = useState(false);
+  const changeInitialTempC = (v: string) => {
+    setInitialTempC(v);
+    if (!tempStartTouched) {
+      setTempStart(v);
+    }
+  };
+  const changeTempStart = (v: string) => {
+    setTempStartTouched(true);
+    setTempStart(v);
+  };
+  // Suhu akhir transportasi = suhu tusuk saat tiba (kedua kartu, sampai disentuh).
+  const changeTempEnd = (v: string) => {
+    setTempEnd(v);
+    if (!labTempTouched.sr) {
+      setGroupSR((g) => ({ ...g, labTempC: v }));
+    }
+    if (!labTempTouched.sd) {
+      setGroupSD((g) => ({ ...g, labTempC: v }));
+    }
+  };
+
+  /**
+   * Isi seluruh form (pengadaan → transportasi → kelompok) dengan
+   * nilai yang realistis dan saling konsisten, agar alur fitur
+   * bisa diuji tanpa mengetar satu per satu. Foto tidak diisi:
+   * file asli tidak bisa dibuang-buang, jadi tetap dipilih manual.
+   */
+  const fillTestData = () => {
+    // Tanggal kalender WIB hari ini (UTC+7).
+    const wibDate = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+    // Berangkat dari lab 06:15 → beli di pasar 07:20 (dalam jendela
+    // 06:00–08:00) → tiba kembali di lab 07:55 (perjalanan 1j40).
+    const procured = `${wibDate}T07:20`;
+
+    // Isi ulang berarti mengganti seluruh form, jadi flag mirror direset.
+    setTempStartTouched(false);
+    setLabTempTouched({ sr: false, sd: false });
+    setLabSource(null);
+    setDeviationAck(false);
+
+    // Tahap A — pengadaan
+    setProcuredAt(procured);
+    setMarketSource('Pasar Ciroyom');
+    setSourceType('market');
+    setShrimpCount('12');
+    setSizeGrade('uniform_medium');
+    setTotalWeightG('480');
+    setInitialCondition('fresh_dead');
+    setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
+    // Tahap B — transportasi
+    setDepartedAt(`${wibDate}T06:15`);
+    setArrivedAt(`${wibDate}T07:55`);
+    setCoolerMin('1.2');
+    setCoolerMax('3.6');
+    setTempStart('8.5');
+    setTempEnd('6.4'); // suhu tusuk saat tiba di lab
+    // Tahap C — kelompok SR (suhu ruang) dan SD (dingin)
+    setGroupSR({
+      labTempC: '6.4',
+      visualCheck: 'normal',
+      labWeightG: '472',
+      sampleShrimpCount: '4',
+      sampleWeightG: '158',
+    });
+    setGroupSD({
+      labTempC: '6.4',
+      visualCheck: 'normal',
+      labWeightG: '472',
+      sampleShrimpCount: '4',
+      sampleWeightG: '156',
+    });
+    setFieldErrors({});
+    notify('Form terisi data tes — periksa dulu sebelum Simpan batch.');
+  };
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -164,7 +281,12 @@ export default function NewBatchPage() {
       e.arrivedAt = arr.error;
     }
     if (!dep.error && !arr.error) {
-      if (transportDurationMs(dep.date!, arr.date!) < 0) {
+      const proc = parseWib(procuredAt);
+      if (!proc.error && transportDurationMs(dep.date!, proc.date!) <= 0) {
+        e.departedAt = 'Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar.';
+      } else if (!proc.error && transportDurationMs(proc.date!, arr.date!) <= 0) {
+        e.arrivedAt = 'Waktu tiba di lab harus setelah waktu beli udang.';
+      } else if (transportDurationMs(dep.date!, arr.date!) < 0) {
         e.arrivedAt = 'Waktu tiba harus setelah waktu berangkat.';
       } else if (!isColdChainCompliant(dep.date!, arr.date!) && !deviationAck) {
         e.arrivedAt = 'Melebihi 3 jam — centang deviasi di bawah untuk lanjut.';
@@ -251,6 +373,21 @@ export default function NewBatchPage() {
         setStep(i);
         focusFirstError(errs);
         return;
+      }
+    }
+    // Suhu awal udang (dibeli lalu langsung masuk box) = suhu awal transportasi:
+    // praktis satu pembacaan fisik, jadi cukup isi sekali lalu tersalin.
+    if (next >= 1 && tempStart.trim() === '' && initialTempC.trim() !== '') {
+      setTempStart(initialTempC);
+    }
+    // Suhu akhir transportasi (udang tiba di lab) = suhu tusuk saat tiba:
+    // praktis satu pembacaan, jadi cukup isi sekali lalu tersalin ke tiap kartu.
+    if (next >= 2 && tempEnd.trim() !== '') {
+      if (groupSR.labTempC.trim() === '') {
+        setGroupSR((prev) => ({ ...prev, labTempC: tempEnd }));
+      }
+      if (groupSD.labTempC.trim() === '') {
+        setGroupSD((prev) => ({ ...prev, labTempC: tempEnd }));
       }
     }
     setFieldErrors({});
@@ -408,7 +545,7 @@ export default function NewBatchPage() {
     );
   }
 
-  const steps = ['Pengadaan', 'Transport', 'Kelompok'];
+  const steps = ['Pengadaan', 'Transportasi', 'Kelompok'];
 
   const radioRow = (
     name: string,
@@ -518,7 +655,11 @@ export default function NewBatchPage() {
               placeholder="6.5…"
               className={clsFor(`${prefix}-labTempC`)}
             />
-            {fieldMessage(`${prefix}-labTempC`)}
+            {fieldErrors[`${prefix}-labTempC`] ? (
+              fieldMessage(`${prefix}-labTempC`)
+            ) : (
+              <p className={hintCls}>Tersalin dari suhu akhir transportasi; ubah bila beda.</p>
+            )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-visualCheck`}>
@@ -571,7 +712,11 @@ export default function NewBatchPage() {
               placeholder="482.0…"
               className={clsFor(`${prefix}-labWeightG`)}
             />
-            {fieldMessage(`${prefix}-labWeightG`)}
+            {fieldErrors[`${prefix}-labWeightG`] ? (
+              fieldMessage(`${prefix}-labWeightG`)
+            ) : (
+              <p className={hintCls}>Otomatis sama dengan kartu satunya; boleh diubah bila perlu.</p>
+            )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-sampleShrimpCount`}>
@@ -633,6 +778,16 @@ export default function NewBatchPage() {
             <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-emerald-400/80' : 'bg-white/10'}`} />
           ))}
         </div>
+        {AUTO_FILL_ENABLED && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button type="button" onClick={fillTestData} className={btnGhost}>
+              Isi otomatis (data tes)
+            </button>
+            <span className="text-[11px] font-mono text-white/40">
+              Uji cepat: mengisi pengadaan → transportasi → kelompok dengan nilai realistis; foto tetap dipilih manual.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2" role="tablist" aria-label="Tahap pengisian">
@@ -671,6 +826,8 @@ export default function NewBatchPage() {
         )}
       </div>
 
+      <SuccessNotice message={notice} onDismiss={dismiss} />
+
       {step === 0 && (
         <form
           className={cardCls}
@@ -700,7 +857,7 @@ export default function NewBatchPage() {
             {fieldErrors.procuredAt ? (
               fieldMessage('procuredAt')
             ) : (
-              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB. Otomatis tersimpan sebagai UTC.</p>
+              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus di antara waktu berangkat serta tiba. Tersimpan sebagai UTC.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -794,7 +951,7 @@ export default function NewBatchPage() {
               revalidateLive(0, { totalWeightG: fieldErrors.totalWeightG });
             }, { placeholder: '485.5…', hint: 'Timbang dengan timbangan digital.' })}
             {numberField('initialTempC', 'Suhu awal udang (°C)', initialTempC, (v) => {
-              setInitialTempC(v);
+              changeInitialTempC(v);
               revalidateLive(0, { initialTempC: fieldErrors.initialTempC });
             }, { placeholder: '8.2…', hint: 'Ukur dengan termometer tusuk.' })}
           </div>
@@ -845,7 +1002,7 @@ export default function NewBatchPage() {
             )}
           </div>
           <button type="submit" className={btnPrimary}>
-            Lanjut ke Transport
+            Lanjut ke Transportasi
           </button>
         </form>
       )}
@@ -877,7 +1034,11 @@ export default function NewBatchPage() {
                 }}
                 className={clsFor('departedAt')}
               />
-              {fieldMessage('departedAt')}
+              {fieldErrors.departedAt ? (
+                fieldMessage('departedAt')
+              ) : (
+                <p className={hintCls}>Berangkat dari lab menuju pasar; jam beli harus sesudah ini.</p>
+              )}
             </div>
             <div className={fieldCls}>
               <label className={labelCls} htmlFor="arrivedAt">
@@ -896,7 +1057,11 @@ export default function NewBatchPage() {
                 }}
                 className={clsFor('arrivedAt')}
               />
-              {fieldMessage('arrivedAt')}
+              {fieldErrors.arrivedAt ? (
+                fieldMessage('arrivedAt')
+              ) : (
+                <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
+              )}
             </div>
           </div>
           {durationHours !== null && !fieldErrors.arrivedAt && (
@@ -916,14 +1081,14 @@ export default function NewBatchPage() {
           </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
           <div className="grid grid-cols-2 gap-3">
-            {numberField('tempStart', 'Suhu awal transport (°C)', tempStart, (v) => {
-              setTempStart(v);
+            {numberField('tempStart', 'Suhu awal transportasi (°C)', tempStart, (v) => {
+              changeTempStart(v);
               revalidateLive(1, { tempStart: fieldErrors.tempStart });
-            }, { placeholder: '3.0…' })}
-            {numberField('tempEnd', 'Suhu akhir transport (°C)', tempEnd, (v) => {
-              setTempEnd(v);
+            }, { placeholder: '3.0…', hint: 'Tersalin dari Suhu awal udang; ubah hanya bila beda.' })}
+            {numberField('tempEnd', 'Suhu akhir transportasi (°C)', tempEnd, (v) => {
+              changeTempEnd(v);
               revalidateLive(1, { tempEnd: fieldErrors.tempEnd });
-            }, { placeholder: '3.5…' })}
+            }, { placeholder: '3.5…', hint: 'Tersalin ke suhu tusuk saat tiba di tiap kelompok.' })}
           </div>
           {overDuration && (
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-mono text-rose-200 cursor-pointer">
@@ -958,7 +1123,7 @@ export default function NewBatchPage() {
             'Kelompok suhu ruang (25 ± 2 °C)',
             'Diukur tiap 6 jam selama 36–48 jam.',
             groupSR,
-            setGroupSR
+            setSR
           )}
           {groupCard(
             'sd',
@@ -966,7 +1131,7 @@ export default function NewBatchPage() {
             'Kelompok dingin (4 ± 1 °C)',
             'Diukur tiap 24 jam selama 10–14 hari.',
             groupSD,
-            setGroupSD
+            setSD
           )}
           <div className="flex gap-2">
             <button type="button" onClick={() => goToStep(1)} disabled={submitting} className={btnBack}>

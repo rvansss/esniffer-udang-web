@@ -1,7 +1,8 @@
 import { prisma } from '../../../../../lib/db/client.ts';
-import { requireAuth } from '../../../../../lib/auth/guard.ts';
+import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
-import { notFound } from '../../../../../lib/api/errors.ts';
+import { conflict, notFound } from '../../../../../lib/api/errors.ts';
+import { deleteBatch } from '../../../../../lib/dataset/batches.ts';
 import {
   serializeBatch,
   serializeGroup,
@@ -38,6 +39,31 @@ export async function GET(
         sessions: g.sessions.map(serializeSession),
       })),
     });
+  } catch (err) {
+    return errorResponse(err, requestId, request);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ batchId: string }> }
+): Promise<Response> {
+  const requestId = getRequestId(request);
+
+  try {
+    verifyCsrfAndOrigin(request);
+    await requireAuth(request, ['ADMIN']);
+    const { batchId } = await context.params;
+    const force = new URL(request.url).searchParams.get('force') === 'true';
+
+    const result = await deleteBatch(batchId, force);
+    if (result.error?.includes('not found')) {
+      throw notFound(result.error);
+    }
+    if (result.error) {
+      throw conflict(result.error);
+    }
+    return jsonResponse(result);
   } catch (err) {
     return errorResponse(err, requestId, request);
   }

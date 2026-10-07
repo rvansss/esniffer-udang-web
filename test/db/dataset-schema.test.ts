@@ -23,7 +23,7 @@ let chamberId: string;
 function batchData(overrides: Record<string, unknown> = {}) {
   return {
     batchId: BATCH,
-    procuredAtUtc: new Date('2099-01-01T00:00:00.000Z'),
+    procuredAtUtc: new Date('2099-01-01T00:30:00.000Z'),
     marketSource: 'Pasar Bebas Ketik Manual',
     sourceType: 'MARKET' as const,
     shrimpCount: 12,
@@ -187,6 +187,17 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
           batchId: 'BT-20990101-04',
           departedAtUtc: new Date('2099-01-01T05:00:00.000Z'),
           arrivedAtUtc: new Date('2099-01-01T02:00:00.000Z'),
+        }),
+      })
+    );
+  });
+
+  it('CHECK: jam beli di luar rentang berangkat–tiba ditolak', async () => {
+    await assert.rejects(
+      prisma.collectionBatch.create({
+        data: batchData({
+          batchId: 'BT-20990101-06',
+          procuredAtUtc: new Date('2099-01-01T00:00:00.000Z'), // 07:00 WIB, sebelum berangkat 07:15
         }),
       })
     );

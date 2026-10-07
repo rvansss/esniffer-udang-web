@@ -66,7 +66,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
     const batch = await prisma.collectionBatch.create({
       data: {
         batchId: `${PREFIX}-01`,
-        procuredAtUtc: new Date(`${DAY}T00:00:00.000Z`),
+        procuredAtUtc: new Date(`${DAY}T00:30:00.000Z`),
         marketSource: 'Pasar Reopen',
         sourceType: 'MARKET',
         shrimpCount: 12,

@@ -70,7 +70,7 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
     await prisma.collectionBatch.create({
       data: {
         batchId: BATCH,
-        procuredAtUtc: new Date('2099-05-05T00:00:00.000Z'),
+        procuredAtUtc: new Date('2099-05-05T00:30:00.000Z'),
         marketSource: 'Pasar Backfill',
         sourceType: 'MARKET',
         shrimpCount: 12,
@@ -183,6 +183,9 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
 
     const session = await prisma.measurementSession.findUniqueOrThrow({ where: { id: sessionId } });
     assert.strictEqual(session.status, 'COMPLETE');
+    assert.strictEqual(Number(session.baselineMq137), 1.8);
+    assert.strictEqual(Number(session.baselineMq136), 0.9);
+    assert.strictEqual(Number(session.baselineMq4), 1.1);
 
     const sample = await prisma.sensorReading.findFirstOrThrow({
       where: { messageId: `bf-${runId}-125` },

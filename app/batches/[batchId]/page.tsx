@@ -3,7 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
-import { TIMEPOINT_SEQUENCES } from '../../../shared/dataset.ts';
+import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
+import { TIMEPOINT_SEQUENCES, MAX_BATCH_PHOTOS, MAX_PHOTO_BYTES } from '../../../shared/dataset.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -61,8 +63,11 @@ export default function BatchDetailPage() {
   const [devSel, setDevSel] = useState<Record<string, string>>({});
   const [chambers, setChambers] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [devices, setDevices] = useState<Array<{ id: string; mqttDeviceId: string; name: string }>>([]);
-  const [files, setFiles] = useState<FileList | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [confirmPhoto, setConfirmPhoto] = useState<{ message: string; photoUrl: string } | null>(null);
+  const { message: notice, notify, dismiss } = useSuccessNotice();
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -156,6 +161,7 @@ export default function BatchDetailPage() {
     setError(null);
     try {
       await callJson(`/api/v1/sessions/${encodeURIComponent(s.sessionId)}/reopen`, {});
+      notify(`Sesi ${s.timepointCode} berhasil dibuka kembali.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuka ulang sesi');
@@ -185,6 +191,7 @@ export default function BatchDetailPage() {
         chamberId: chSel[g.groupId] || null,
         deviceId: devSel[g.groupId] || null,
       });
+      notify(`Sesi ${timepointCode} berhasil dimulai.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuat sesi');
@@ -204,6 +211,7 @@ export default function BatchDetailPage() {
       await callJson(`/api/v1/sessions/${encodeURIComponent(s.sessionId)}/complete`, {
         cleaningDone: true,
       });
+      notify(`Sesi ${s.timepointCode} berhasil diselesaikan.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal complete sesi');
@@ -212,8 +220,29 @@ export default function BatchDetailPage() {
     }
   };
 
+  /** Pilih foto: tambah ke yang sudah ada (bukan mengganti). */
+  const handlePhotoSelect = (list: FileList | null, input: HTMLInputElement) => {
+    const incoming = Array.from(list ?? []);
+    const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
+    const fitting = usable.filter((f) => f.size <= MAX_PHOTO_BYTES);
+    const room = Math.max(MAX_BATCH_PHOTOS - (batch?.photoUrls.length ?? 0) - files.length, 0);
+    const accepted = fitting.slice(0, room);
+    if (accepted.length < incoming.length) {
+      setError('Ada file yang dilewati: hanya JPG/PNG, maksimal 5 MB, dan maksimal 10 foto per batch.');
+    }
+    setFiles((prev) => [...prev, ...accepted]);
+    setFilePreviews((prev) => [...prev, ...accepted.map((f) => URL.createObjectURL(f))]);
+    input.value = '';
+  };
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(filePreviews[index]);
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setFilePreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleUpload = async () => {
-    if (!files || files.length === 0) {
+    if (files.length === 0) {
       setError('Pilih minimal 1 file foto dulu');
       return;
     }
@@ -221,7 +250,7 @@ export default function BatchDetailPage() {
     setError(null);
     try {
       const form = new FormData();
-      for (const f of Array.from(files)) {
+      for (const f of files) {
         form.append('photos', f);
       }
       const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
@@ -232,7 +261,10 @@ export default function BatchDetailPage() {
       if (!res.ok) {
         throw new Error(body.error?.message || `Gagal (${res.status})`);
       }
-      setFiles(null);
+      notify(`Berhasil mengunggah ${files.length} foto.`);
+      filePreviews.forEach((src) => URL.revokeObjectURL(src));
+      setFiles([]);
+      setFilePreviews([]);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal upload foto');
@@ -249,9 +281,33 @@ export default function BatchDetailPage() {
     setError(null);
     try {
       await callJson(`/api/v1/batches/${encodeURIComponent(batchId)}/lock`, {});
+      notify(`Batch ${batchId} berhasil dikunci.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal mengunci batch');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photoUrl: string) => {
+    setConfirmPhoto(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoUrls: [photoUrl] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error?.message || `Gagal (${res.status})`);
+      }
+      notify('Foto berhasil dihapus.');
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus foto');
     } finally {
       setBusy(false);
     }
@@ -329,34 +385,92 @@ export default function BatchDetailPage() {
         </div>
       </div>
 
+      <ConfirmDialog
+        open={confirmPhoto !== null}
+        title="Hapus foto ini?"
+        message={confirmPhoto?.message ?? ''}
+        confirmLabel="Ya, hapus"
+        busy={busy}
+        onConfirm={() => {
+          if (confirmPhoto) {
+            void handleDeletePhoto(confirmPhoto.photoUrl);
+          }
+        }}
+        onCancel={() => setConfirmPhoto(null)}
+      />
+
       {error && (
         <div role="alert" className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-mono">
           {error}
         </div>
       )}
 
+      <SuccessNotice message={notice} onDismiss={dismiss} />
+
       <div className={cardCls}>
         <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photoUrls.length}/10)</h3>
         {batch.photoUrls.length > 0 && (
           <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-            {batch.photoUrls.map((u) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img key={u} src={`/${u}`} alt="Dokumentasi batch" className="w-full h-20 object-cover rounded-lg border border-white/10" />
+            {batch.photoUrls.map((u, i) => (
+              <div key={u} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/${u}`} alt={`Dokumentasi batch ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                {isAdmin && !locked && (
+                  <button
+                    onClick={() => setConfirmPhoto({
+                      photoUrl: u,
+                      message: `Hapus foto ${i + 1} dari batch ini? File dihapus permanen.`,
+                    })}
+                    disabled={busy}
+                    aria-label={`Hapus foto ${i + 1}`}
+                    title={`Hapus foto ${i + 1}`}
+                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-rose-500/80 border border-white/20 text-white text-xs font-bold leading-none transition-colors disabled:opacity-50"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
         {isAdmin && !locked && (
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="file"
-              accept="image/jpeg,image/png"
-              multiple
-              onChange={(e) => setFiles(e.target.files)}
-              className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
-            />
-            <button onClick={() => void handleUpload()} disabled={busy} className={btnPrimary}>
-              Upload
-            </button>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                onChange={(e) => handlePhotoSelect(e.target.files, e.currentTarget)}
+                className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
+              />
+              <button
+                onClick={() => void handleUpload()}
+                disabled={busy || files.length === 0}
+                className={btnPrimary}
+              >
+                Upload{files.length > 0 ? ` (${files.length})` : ''}
+              </button>
+            </div>
+            {files.length === 0 ? (
+              <p className="text-[11px] font-mono text-white/50">Belum ada foto dipilih — pratinjau tampil di sini sebelum diunggah.</p>
+            ) : (
+              <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                {filePreviews.map((src, i) => (
+                  <div key={src} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      aria-label={`Hapus foto ${i + 1} dari pilihan`}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500/90 text-white text-[10px] font-bold leading-none hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -89,7 +89,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     await prisma.collectionBatch.create({
       data: {
         batchId: BATCH,
-        procuredAtUtc: new Date('2099-06-06T00:00:00.000Z'),
+        procuredAtUtc: new Date('2099-06-06T00:30:00.000Z'),
         marketSource: 'Pasar Export',
         sourceType: 'MARKET',
         shrimpCount: 12,

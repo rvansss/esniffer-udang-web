@@ -53,9 +53,21 @@ export async function backfillSessionReadings(sessionId: string): Promise<Backfi
   });
   const baseline = grouped.find((g) => g.isBaseline === true)?._count._all ?? 0;
 
+  // Rata-rata baseline otomatis dari row is_baseline (diabaikan bila tak ada):
+  // inilah yang mengisi kolom baseline_mq137/136/4 di export metadata.
+  const stats = await prisma.sensorReading.aggregate({
+    where: { sessionId, isBaseline: true },
+    _avg: { mq137Raw: true, mq136Raw: true, mq4Raw: true },
+  });
+
   await prisma.measurementSession.update({
     where: { id: sessionId },
-    data: { status: linked === 0 && baseline === 0 ? 'INCOMPLETE' : 'COMPLETE' },
+    data: {
+      status: linked === 0 && baseline === 0 ? 'INCOMPLETE' : 'COMPLETE',
+      baselineMq137: stats._avg.mq137Raw ?? undefined,
+      baselineMq136: stats._avg.mq136Raw ?? undefined,
+      baselineMq4: stats._avg.mq4Raw ?? undefined,
+    },
   });
 
   return { linked, baseline, skipped: false };

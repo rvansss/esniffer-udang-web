@@ -186,13 +186,15 @@ test('T-ING-07: Message ID sama dengan isi berbeda ditolak sebagai MESSAGE_ID_CO
   const validPayload = loadRawFixture('valid-telemetry.json');
   const conflictPayload = loadRawFixture('id-conflict.json');
   const topic = 'esniffer/v1/devices/esp32-001/telemetry';
+  // Waktu terima tetap agar tidak lewat jendela backlog 7 hari dari fixture.
+  const receivedAt = new Date('2026-09-30T07:15:35.000Z');
 
   // Simpan pesan pertama
-  const res1 = await processTelemetryMessage(topic, validPayload, storage);
+  const res1 = await processTelemetryMessage(topic, validPayload, storage, receivedAt);
   assert.strictEqual(res1.status, 'accepted');
 
   // Kirim payload berbeda dengan message_id sama
-  const resConflict = await processTelemetryMessage(topic, conflictPayload, storage);
+  const resConflict = await processTelemetryMessage(topic, conflictPayload, storage, receivedAt);
   assert.strictEqual(resConflict.status, 'rejected');
   assert.strictEqual(resConflict.reasonCode, 'MESSAGE_ID_CONFLICT');
 
@@ -204,9 +206,11 @@ test('T-ING-08 & T-ING-09: Retry committed tetap memperoleh duplicate saat devic
   const storage = createSetupStorage();
   const rawPayload = loadRawFixture('valid-telemetry.json');
   const topic = 'esniffer/v1/devices/esp32-001/telemetry';
+  // Waktu terima tetap agar tidak lewat jendela backlog 7 hari dari fixture.
+  const receivedAt = new Date('2026-09-30T07:15:35.000Z');
 
   // 1. Pesan awal commit sukses
-  const res1 = await processTelemetryMessage(topic, rawPayload, storage);
+  const res1 = await processTelemetryMessage(topic, rawPayload, storage, receivedAt);
   assert.strictEqual(res1.status, 'accepted');
 
   // 2. Sekarang nonaktifkan perangkat
@@ -214,7 +218,7 @@ test('T-ING-08 & T-ING-09: Retry committed tetap memperoleh duplicate saat devic
 
   // 3. Retry pesan yang sudah committed
   // Sesuai KF-ING-003: dedupe lookup mendahului status device, sehingga duplicate berhasil
-  const resRetry = await processTelemetryMessage(topic, rawPayload, storage);
+  const resRetry = await processTelemetryMessage(topic, rawPayload, storage, receivedAt);
   assert.strictEqual(resRetry.status, 'duplicate');
   assert.strictEqual(resRetry.readingId, res1.readingId);
 });
