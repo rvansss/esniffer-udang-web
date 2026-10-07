@@ -63,7 +63,7 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Resolved image tag: ${TAG}"
 
-      - name: Docker metadata for Web & Worker (target: runtime)
+      - name: "Docker metadata for Web & Worker (target: runtime)"
         id: meta-app
         uses: docker/metadata-action@v5
         with:
@@ -75,7 +75,7 @@ jobs:
             type=raw,value=sha-${{ github.sha }}
             type=ref,event=tag
 
-      - name: Docker metadata for Database Migration (target: migration)
+      - name: "Docker metadata for Database Migration (target: migration)"
         id: meta-migration
         uses: docker/metadata-action@v5
         with:
@@ -87,7 +87,7 @@ jobs:
             type=raw,value=sha-${{ github.sha }}
             type=ref,event=tag
 
-      - name: Build and push Web & Worker image
+      - name: "Build and push Web & Worker image"
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -98,7 +98,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push Migration image
+      - name: "Build and push Migration image"
         uses: docker/build-push-action@v6
         with:
           context: .
