@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
+import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import { TIMEPOINT_SEQUENCES } from '../../../shared/dataset.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
@@ -63,6 +64,7 @@ export default function BatchDetailPage() {
   const [devices, setDevices] = useState<Array<{ id: string; mqttDeviceId: string; name: string }>>([]);
   const [files, setFiles] = useState<FileList | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [confirmPhoto, setConfirmPhoto] = useState<{ message: string; photoUrl: string } | null>(null);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -257,6 +259,28 @@ export default function BatchDetailPage() {
     }
   };
 
+  const handleDeletePhoto = async (photoUrl: string) => {
+    setConfirmPhoto(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoUrls: [photoUrl] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error?.message || `Gagal (${res.status})`);
+      }
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus foto');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (isLoading || !user) {
     return (
       <div className="flex justify-center py-16">
@@ -329,6 +353,20 @@ export default function BatchDetailPage() {
         </div>
       </div>
 
+      <ConfirmDialog
+        open={confirmPhoto !== null}
+        title="Hapus foto ini?"
+        message={confirmPhoto?.message ?? ''}
+        confirmLabel="Ya, hapus"
+        busy={busy}
+        onConfirm={() => {
+          if (confirmPhoto) {
+            void handleDeletePhoto(confirmPhoto.photoUrl);
+          }
+        }}
+        onCancel={() => setConfirmPhoto(null)}
+      />
+
       {error && (
         <div role="alert" className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-mono">
           {error}
@@ -339,9 +377,25 @@ export default function BatchDetailPage() {
         <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photoUrls.length}/10)</h3>
         {batch.photoUrls.length > 0 && (
           <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-            {batch.photoUrls.map((u) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img key={u} src={`/${u}`} alt="Dokumentasi batch" className="w-full h-20 object-cover rounded-lg border border-white/10" />
+            {batch.photoUrls.map((u, i) => (
+              <div key={u} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/${u}`} alt={`Dokumentasi batch ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                {isAdmin && !locked && (
+                  <button
+                    onClick={() => setConfirmPhoto({
+                      photoUrl: u,
+                      message: `Hapus foto ${i + 1} dari batch ini? File dihapus permanen.`,
+                    })}
+                    disabled={busy}
+                    aria-label={`Hapus foto ${i + 1}`}
+                    title={`Hapus foto ${i + 1}`}
+                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-rose-500/80 border border-white/20 text-white text-xs font-bold leading-none transition-colors disabled:opacity-50"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
