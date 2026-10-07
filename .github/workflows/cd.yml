@@ -154,6 +154,10 @@ jobs:
 
             echo "=== [1/6] Navigating to deployment directory ==="
             cd "${DEPLOY_PATH}"
+            if [ -d .git ]; then
+              echo "Syncing latest configuration files via git..."
+              git pull origin main || true
+            fi
 
             echo "=== [2/6] Logging in to GitHub Container Registry on VPS ==="
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -177,10 +181,22 @@ jobs:
             fi
 
             echo "=== [5/6] Running Prisma Migration ==="
-            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml --profile tools run --rm migrate
+            COMPOSE_FILES="-f deploy/compose.production.yml"
+            if [ -f deploy/compose.vps.override.yml ]; then
+              echo "Detected VPS override configuration (CloudPanel/Host proxy mode)"
+              COMPOSE_FILES="${COMPOSE_FILES} -f deploy/compose.vps.override.yml"
+            fi
+
+            docker compose --env-file deploy/.env.production ${COMPOSE_FILES} --profile tools run --rm migrate
 
             echo "=== [6/6] Updating Services (Zero-downtime rolling restart) ==="
-            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --remove-orphans web worker proxy
+            if [ -f deploy/compose.vps.override.yml ]; then
+              # CloudPanel handles port 80/443 SSL termination; web is mapped to 127.0.0.1:8095.
+              # Docker proxy container is omitted to prevent port collision with CloudPanel's Nginx.
+              docker compose --env-file deploy/.env.production ${COMPOSE_FILES} up -d --remove-orphans web worker
+            else
+              docker compose --env-file deploy/.env.production ${COMPOSE_FILES} up -d --remove-orphans web worker proxy
+            fi
 
             echo "=== Deployment Succeeded! Verifying container status ==="
-            docker compose --env-file deploy/.env.production -f deploy/compose.production.yml ps
+            docker compose --env-file deploy/.env.production ${COMPOSE_FILES} ps
