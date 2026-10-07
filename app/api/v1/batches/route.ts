@@ -3,7 +3,7 @@ import { requireAuth, verifyCsrfAndOrigin } from '../../../../lib/auth/guard.ts'
 import { jsonResponse, errorResponse, getRequestId } from '../../../../lib/api/response.ts';
 import { parseLimit, parseIsoDate, parseRequiredString, parseOptionalString } from '../../../../lib/api/validation.ts';
 import { conflict, validationError } from '../../../../lib/api/errors.ts';
-import { buildBatchId } from '../../../../shared/dataset.ts';
+import { buildBatchId, wibDateStamp } from '../../../../shared/dataset.ts';
 import {
   serializeBatch,
   parseSourceType,
@@ -89,7 +89,9 @@ export async function POST(request: Request): Promise<Response> {
     let batch = null;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-      const prefix = `BT-${procuredAtUtc.toISOString().slice(0, 10).replace(/-/g, '')}`;
+      // Prefix harus zona WIB sama seperti buildBatchId; memakai tanggal UTC
+      // membuat hitungan sekuens salah pada 00:00–06:59 UTC (= pagi WIB).
+      const prefix = `BT-${wibDateStamp(procuredAtUtc)}`;
       const existing = await prisma.collectionBatch.count({
         where: { batchId: { startsWith: prefix } },
       });
