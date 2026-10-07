@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
 import { TIMEPOINT_SEQUENCES } from '../../../shared/dataset.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
@@ -65,6 +66,7 @@ export default function BatchDetailPage() {
   const [files, setFiles] = useState<FileList | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmPhoto, setConfirmPhoto] = useState<{ message: string; photoUrl: string } | null>(null);
+  const { message: notice, notify, dismiss } = useSuccessNotice();
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -158,6 +160,7 @@ export default function BatchDetailPage() {
     setError(null);
     try {
       await callJson(`/api/v1/sessions/${encodeURIComponent(s.sessionId)}/reopen`, {});
+      notify(`Sesi ${s.timepointCode} berhasil dibuka kembali.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuka ulang sesi');
@@ -187,6 +190,7 @@ export default function BatchDetailPage() {
         chamberId: chSel[g.groupId] || null,
         deviceId: devSel[g.groupId] || null,
       });
+      notify(`Sesi ${timepointCode} berhasil dimulai.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuat sesi');
@@ -206,6 +210,7 @@ export default function BatchDetailPage() {
       await callJson(`/api/v1/sessions/${encodeURIComponent(s.sessionId)}/complete`, {
         cleaningDone: true,
       });
+      notify(`Sesi ${s.timepointCode} berhasil diselesaikan.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal complete sesi');
@@ -234,6 +239,7 @@ export default function BatchDetailPage() {
       if (!res.ok) {
         throw new Error(body.error?.message || `Gagal (${res.status})`);
       }
+      notify(`Berhasil mengunggah ${files.length} foto.`);
       setFiles(null);
       refresh();
     } catch (err) {
@@ -251,6 +257,7 @@ export default function BatchDetailPage() {
     setError(null);
     try {
       await callJson(`/api/v1/batches/${encodeURIComponent(batchId)}/lock`, {});
+      notify(`Batch ${batchId} berhasil dikunci.`);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal mengunci batch');
@@ -273,6 +280,7 @@ export default function BatchDetailPage() {
       if (!res.ok) {
         throw new Error(body.error?.message || `Gagal (${res.status})`);
       }
+      notify('Foto berhasil dihapus.');
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menghapus foto');
@@ -372,6 +380,8 @@ export default function BatchDetailPage() {
           {error}
         </div>
       )}
+
+      <SuccessNotice message={notice} onDismiss={dismiss} />
 
       <div className={cardCls}>
         <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photoUrls.length}/10)</h3>

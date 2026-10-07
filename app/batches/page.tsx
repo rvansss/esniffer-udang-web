@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../components/auth/AuthProvider';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import SuccessNotice, { useSuccessNotice } from '../../components/ui/SuccessNotice';
 
 interface BatchItem {
   batchId: string;
@@ -25,6 +26,7 @@ export default function BatchesPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirmBulk, setConfirmBulk] = useState<{ force: boolean; message: string } | null>(null);
+  const { message: notice, notify, dismiss } = useSuccessNotice();
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -100,6 +102,7 @@ export default function BatchesPage() {
       if (failed.length > 0) {
         throw new Error(failed.map((r) => r.error).join('; '));
       }
+      notify(`Berhasil menghapus ${selected.length} batch.`);
       setSelected([]);
       setRefreshKey((k) => k + 1);
     } catch (err) {
@@ -161,6 +164,8 @@ export default function BatchesPage() {
           </button>
         </div>
       )}
+
+      <SuccessNotice message={notice} onDismiss={dismiss} />
 
       {loading ? (
         <div className="flex justify-center py-12">
