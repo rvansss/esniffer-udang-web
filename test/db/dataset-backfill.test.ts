@@ -183,6 +183,9 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
 
     const session = await prisma.measurementSession.findUniqueOrThrow({ where: { id: sessionId } });
     assert.strictEqual(session.status, 'COMPLETE');
+    assert.strictEqual(Number(session.baselineMq137), 1.8);
+    assert.strictEqual(Number(session.baselineMq136), 0.9);
+    assert.strictEqual(Number(session.baselineMq4), 1.1);
 
     const sample = await prisma.sensorReading.findFirstOrThrow({
       where: { messageId: `bf-${runId}-125` },
