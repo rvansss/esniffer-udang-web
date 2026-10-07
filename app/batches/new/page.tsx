@@ -14,7 +14,7 @@ import {
 
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono font-semibold text-white/85';
-const hintCls = 'text-[11px] font-mono text-white/45';
+const hintCls = 'text-xs font-mono text-white/70';
 const inputCls =
   'w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-400/60 focus-visible:ring-2 focus-visible:ring-emerald-400/50 [color-scheme:dark] [tabular-nums]';
 const inputErrCls =
