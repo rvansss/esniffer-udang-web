@@ -11,6 +11,7 @@ import {
   MAX_BATCH_PHOTOS,
   DatasetValidationError,
 } from '../../../shared/dataset.ts';
+import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
 
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono font-semibold text-white/85';
@@ -26,6 +27,13 @@ const btnBack =
   'flex-1 py-3 rounded-xl bg-transparent hover:bg-white/10 border border-white/15 text-white/70 text-sm font-mono font-bold transition-colors touch-manipulation disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
 const stepBtn =
   'flex-1 px-2 py-2.5 rounded-xl font-mono text-xs font-bold border transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60';
+const btnGhost =
+  'px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-white/60 hover:text-white text-[11px] font-mono transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
+
+// Alat bantu tes fitur: isi otomatis seluruh form dengan nilai realistis.
+// Matikan (ganti ke false) saat pengujian sesungguhnya agar tombolnya
+// tidak muncul.
+const AUTO_FILL_ENABLED = true;
 
 interface GroupForm {
   labTempC: string;
@@ -70,6 +78,7 @@ export default function NewBatchPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Errors>({});
   const errorRef = useRef<HTMLDivElement>(null);
+  const { message: notice, notify, dismiss } = useSuccessNotice();
 
   // Tahap A — pengadaan
   const [procuredAt, setProcuredAt] = useState('');
@@ -148,6 +157,60 @@ export default function NewBatchPage() {
     if (!labTempTouched.sd) {
       setGroupSD((g) => ({ ...g, labTempC: v }));
     }
+  };
+
+  /**
+   * Isi seluruh form (pengadaan → transportasi → kelompok) dengan
+   * nilai yang realistis dan saling konsisten, agar alur fitur
+   * bisa diuji tanpa mengetar satu per satu. Foto tidak diisi:
+   * file asli tidak bisa dibuang-buang, jadi tetap dipilih manual.
+   */
+  const fillTestData = () => {
+    // Tanggal kalender WIB hari ini (UTC+7).
+    const wibDate = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+    // Berangkat dari lab 06:15 → beli di pasar 07:20 (dalam jendela
+    // 06:00–08:00) → tiba kembali di lab 07:55 (perjalanan 1j40).
+    const procured = `${wibDate}T07:20`;
+
+    // Isi ulang berarti mengganti seluruh form, jadi flag mirror direset.
+    setTempStartTouched(false);
+    setLabTempTouched({ sr: false, sd: false });
+    setLabSource(null);
+    setDeviationAck(false);
+
+    // Tahap A — pengadaan
+    setProcuredAt(procured);
+    setMarketSource('Pasar Ciroyom');
+    setSourceType('market');
+    setShrimpCount('12');
+    setSizeGrade('uniform_medium');
+    setTotalWeightG('480');
+    setInitialCondition('fresh_dead');
+    setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
+    // Tahap B — transportasi
+    setDepartedAt(`${wibDate}T06:15`);
+    setArrivedAt(`${wibDate}T07:55`);
+    setCoolerMin('1.2');
+    setCoolerMax('3.6');
+    setTempStart('8.5');
+    setTempEnd('6.4'); // suhu tusuk saat tiba di lab
+    // Tahap C — kelompok SR (suhu ruang) dan SD (dingin)
+    setGroupSR({
+      labTempC: '6.4',
+      visualCheck: 'normal',
+      labWeightG: '472',
+      sampleShrimpCount: '4',
+      sampleWeightG: '158',
+    });
+    setGroupSD({
+      labTempC: '6.4',
+      visualCheck: 'normal',
+      labWeightG: '472',
+      sampleShrimpCount: '4',
+      sampleWeightG: '156',
+    });
+    setFieldErrors({});
+    notify('Form terisi data tes — periksa dulu sebelum Simpan batch.');
   };
 
   useEffect(() => {
@@ -715,6 +778,16 @@ export default function NewBatchPage() {
             <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-emerald-400/80' : 'bg-white/10'}`} />
           ))}
         </div>
+        {AUTO_FILL_ENABLED && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button type="button" onClick={fillTestData} className={btnGhost}>
+              Isi otomatis (data tes)
+            </button>
+            <span className="text-[11px] font-mono text-white/40">
+              Uji cepat: mengisi pengadaan → transportasi → kelompok dengan nilai realistis; foto tetap dipilih manual.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2" role="tablist" aria-label="Tahap pengisian">
@@ -752,6 +825,8 @@ export default function NewBatchPage() {
           </button>
         )}
       </div>
+
+      <SuccessNotice message={notice} onDismiss={dismiss} />
 
       {step === 0 && (
         <form
