@@ -252,8 +252,9 @@ export function serializeSession(s: DbSession) {
 }
 
 /**
- * GATE B: tolak urutan waktu yang tidak mungkin (beli → berangkat → tiba)
- * dan cold-chain >3 jam tanpa pengakuan deviasi eksplisit dari operator.
+ * GATE B: urutan waktu perjalanan lab → pasar → lab. Belanja terjadi di
+ * pasar, sehingga waktu beli wajib berada DI ANTARA berangkat dan tiba;
+ * durasi berangkat → tiba >3 jam tetap butuh pengakuan deviasi eksplisit.
  */
 export function assertTransportGates(
   procuredAtUtc: Date,
@@ -261,13 +262,13 @@ export function assertTransportGates(
   arrivedAtUtc: Date,
   deviationAcknowledged: unknown
 ): void {
-  // `< 0` saja tak cukup: cek DB menuntut urutan *ketat* (A < B), jadi waktu
-  // yang sama persis juga harus ditolak di sini.
-  if (transportDurationMs(procuredAtUtc, departedAtUtc) <= 0) {
-    throw validationError('Waktu berangkat harus setelah waktu beli');
+  // `<= 0` (bukan `< 0`) karena cek DB menuntut urutan ketat, jadi waktu yang
+  // sama persis pun harus ditolak di lapisan aplikasi.
+  if (transportDurationMs(departedAtUtc, procuredAtUtc) <= 0) {
+    throw validationError('Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar');
   }
-  if (transportDurationMs(departedAtUtc, arrivedAtUtc) <= 0) {
-    throw validationError('Waktu tiba harus setelah waktu berangkat');
+  if (transportDurationMs(procuredAtUtc, arrivedAtUtc) <= 0) {
+    throw validationError('Waktu tiba di lab harus setelah waktu beli udang');
   }
   if (!isColdChainCompliant(departedAtUtc, arrivedAtUtc) && deviationAcknowledged !== true) {
     throw validationError(

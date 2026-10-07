@@ -67,7 +67,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
       prisma.collectionBatch.create({
         data: {
           batchId: `${PREFIX}-${suffix}`,
-          procuredAtUtc: new Date(`${DAY}T00:00:00.000Z`),
+          procuredAtUtc: new Date(`${DAY}T00:30:00.000Z`),
           marketSource: 'Pasar Foto Test',
           sourceType: 'MARKET',
           shrimpCount: 12,

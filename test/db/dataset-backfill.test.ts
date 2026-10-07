@@ -70,7 +70,7 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
     await prisma.collectionBatch.create({
       data: {
         batchId: BATCH,
-        procuredAtUtc: new Date('2099-05-05T00:00:00.000Z'),
+        procuredAtUtc: new Date('2099-05-05T00:30:00.000Z'),
         marketSource: 'Pasar Backfill',
         sourceType: 'MARKET',
         shrimpCount: 12,

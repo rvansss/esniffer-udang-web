@@ -30,7 +30,7 @@ async function batchData(suffix: string, operatorId: string) {
   return prisma.collectionBatch.create({
     data: {
       batchId: `${PREFIX}-${suffix}`,
-      procuredAtUtc: new Date(`${DAY}T00:00:00.000Z`),
+      procuredAtUtc: new Date(`${DAY}T00:30:00.000Z`),
       marketSource: 'Pasar Hapus',
       sourceType: 'MARKET',
       shrimpCount: 12,

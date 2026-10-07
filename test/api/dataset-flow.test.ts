@@ -124,7 +124,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
   it('kriteria #2: batch cold-chain >3 jam ditolak tanpa acknowledgement', async () => {
     const res = await createBatch(
       post(adminCookie, 'http://localhost:3000/api/v1/batches', {
-        procuredAtUtc: `${DAY}T00:00:00.000Z`,
+        procuredAtUtc: `${DAY}T00:30:00.000Z`,
         marketSource: 'Pasar Flow',
         sourceType: 'market',
         shrimpCount: 12,
@@ -146,7 +146,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
   it('membuat batch + 2 grup + sesi H0 dengan split baseline/sampel benar', async () => {
     const batchRes = await createBatch(
       post(adminCookie, 'http://localhost:3000/api/v1/batches', {
-        procuredAtUtc: `${DAY}T00:00:00.000Z`,
+        procuredAtUtc: `${DAY}T00:30:00.000Z`,
         marketSource: 'Pasar Flow',
         sourceType: 'market',
         shrimpCount: 12,

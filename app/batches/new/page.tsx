@@ -219,8 +219,10 @@ export default function NewBatchPage() {
     }
     if (!dep.error && !arr.error) {
       const proc = parseWib(procuredAt);
-      if (!proc.error && dep.date!.getTime() <= proc.date!.getTime()) {
-        e.departedAt = 'Waktu berangkat harus setelah waktu beli.';
+      if (!proc.error && transportDurationMs(dep.date!, proc.date!) <= 0) {
+        e.departedAt = 'Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar.';
+      } else if (!proc.error && transportDurationMs(proc.date!, arr.date!) <= 0) {
+        e.arrivedAt = 'Waktu tiba di lab harus setelah waktu beli udang.';
       } else if (transportDurationMs(dep.date!, arr.date!) < 0) {
         e.arrivedAt = 'Waktu tiba harus setelah waktu berangkat.';
       } else if (!isColdChainCompliant(dep.date!, arr.date!) && !deviationAck) {
@@ -780,7 +782,7 @@ export default function NewBatchPage() {
             {fieldErrors.procuredAt ? (
               fieldMessage('procuredAt')
             ) : (
-              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB. Otomatis tersimpan sebagai UTC.</p>
+              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus di antara waktu berangkat serta tiba. Tersimpan sebagai UTC.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -957,7 +959,11 @@ export default function NewBatchPage() {
                 }}
                 className={clsFor('departedAt')}
               />
-              {fieldMessage('departedAt')}
+              {fieldErrors.departedAt ? (
+                fieldMessage('departedAt')
+              ) : (
+                <p className={hintCls}>Berangkat dari lab menuju pasar; jam beli harus sesudah ini.</p>
+              )}
             </div>
             <div className={fieldCls}>
               <label className={labelCls} htmlFor="arrivedAt">
@@ -976,7 +982,11 @@ export default function NewBatchPage() {
                 }}
                 className={clsFor('arrivedAt')}
               />
-              {fieldMessage('arrivedAt')}
+              {fieldErrors.arrivedAt ? (
+                fieldMessage('arrivedAt')
+              ) : (
+                <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
+              )}
             </div>
           </div>
           {durationHours !== null && !fieldErrors.arrivedAt && (
