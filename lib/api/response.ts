@@ -64,12 +64,37 @@ export function jsonResponse<T>(
 }
 
 /**
+ * Kode PostgreSQL asli di balik pembungkusan error Prisma.
+ *
+ * Dengan driver adapter, `prisma.*` melempar PrismaClientKnownRequestError
+ * yang `code`-nya kode Prisma (mis. P2039), sedangkan kode PostgreSQL asli ada
+ * di `meta.driverAdapterError.cause.originalCode`. Tanpa membongkar bungkusan
+ * itu, "23514" tidak pernah cocok dan pelanggaran aturan database jatuh ke
+ * pesan generik 500.
+ */
+export function postgresErrorCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const meta = (err as { meta?: unknown }).meta;
+  if (typeof meta !== 'object' || meta === null) return undefined;
+  const adapter = (meta as { driverAdapterError?: unknown }).driverAdapterError;
+  if (typeof adapter !== 'object' || adapter === null) return undefined;
+  const cause = (adapter as { cause?: unknown }).cause;
+  const source = (typeof cause === 'object' && cause !== null ? cause : adapter) as Record<string, unknown>;
+  for (const key of ['originalCode', 'code'] as const) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim() !== '') return value;
+    if (typeof value === 'number') return String(value);
+  }
+  return undefined;
+}
+
+/**
  * Handles errors uniformly, logs appropriately, and returns standard error envelope.
  */
 export function errorResponse(err: unknown, requestId: string, request?: Request): Response {
   let status = 500;
   let code = 'INTERNAL_SERVER_ERROR';
-  let message = 'An unexpected error occurred';
+  let message = 'Terjadi kesalahan tak terduga di server. Coba lagi, lalu ulangi dengan requestId bila berulang.';
   let details: unknown[] | undefined;
 
   if (err instanceof HttpError) {
@@ -81,24 +106,26 @@ export function errorResponse(err: unknown, requestId: string, request?: Request
     status = 400;
     code = 'MALFORMED_JSON';
     message = 'Invalid JSON in request body';
-  } else if (typeof err === 'object' && err !== null && 'code' in err) {
-    // Prisma or PostgreSQL known codes
-    const dbErr = err as { code?: string; message?: string };
-    if (dbErr.code === 'P2002') {
+  } else if (typeof err === 'object' && err !== null) {
+    const errCode = (err as { code?: unknown }).code;
+    // Kode DB: prioritas kode PostgreSQL asli, fallback ke kode pada err
+    // (error mentah tanpa pembungkusan Prisma sudah berisi kode PostgreSQL).
+    const dbCode = postgresErrorCode(err) ?? (typeof errCode === 'string' ? errCode : undefined);
+    if (errCode === 'P2002' || dbCode === '23505') {
       status = 409;
       code = 'UNIQUE_CONSTRAINT_VIOLATION';
       message = 'A resource with the specified unique field already exists';
-    } else if (dbErr.code === '23P01') { // exclusion_violation
+    } else if (dbCode === '23P01') { // exclusion_violation
       status = 409;
       code = 'EXCLUSION_CONFLICT';
       message = 'Operation violates exclusion constraint (e.g. overlapping device assignment)';
-    } else if (dbErr.code === '23514') { // check_violation
+    } else if (dbCode === '23514') { // check_violation
       // Aturan cek basis data (mis. urutan beli → berangkat → tiba) bocor ke
       // sini hanya jika lolos validasi aplikasi: laporkan sebagai 422, bukan 500.
       status = 422;
       code = 'VALIDATION_ERROR';
       message = 'Data tidak lolos salah satu aturan validasi penyimpanan.';
-    } else if (dbErr.code === 'ECONNREFUSED' || dbErr.code === 'P1001') {
+    } else if (errCode === 'ECONNREFUSED' || errCode === 'P1001' || dbCode === 'ECONNREFUSED') {
       status = 503;
       code = 'SERVICE_UNAVAILABLE';
       message = 'Database service is currently unreachable';
