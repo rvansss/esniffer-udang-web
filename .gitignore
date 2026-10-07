@@ -53,6 +53,9 @@ docker/mosquitto/data/
 docker/mosquitto/certs/
 docker/mosquitto/secrets/
 
+# firmware sketch berisi kredensial WiFi dan MQTT alat (jangan di-commit)
+/esniffer_esp32_nextion/
+
 # production deployment material (templates remain tracked)
 deploy/.env.production
 deploy/secrets/
