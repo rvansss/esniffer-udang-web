@@ -79,6 +79,7 @@ jobs:
         run: npm run build -- --webpack
 
       - name: Real Next.js HTTP Smoke Test
+        timeout-minutes: 5
         run: node --experimental-strip-types --test test/e2e/http-smoke.test.ts
 
   docker-validation:
