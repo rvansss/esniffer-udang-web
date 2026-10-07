@@ -80,7 +80,7 @@ export default function NewBatchPage() {
   const [totalWeightG, setTotalWeightG] = useState('');
   const [initialCondition, setInitialCondition] = useState('fresh_dead');
   const [initialTempC, setInitialTempC] = useState('');
-  // Tahap B — transport
+  // Tahap B — transportasi
   const [departedAt, setDepartedAt] = useState('');
   const [arrivedAt, setArrivedAt] = useState('');
   const [coolerMin, setCoolerMin] = useState('');
@@ -95,6 +95,60 @@ export default function NewBatchPage() {
   // Tahap C — grup SR/SD
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
   const [groupSD, setGroupSD] = useState<GroupForm>(emptyGroup());
+
+  // Berat di lab & suhu tusuk saat tiba selalu sama di kedua kartu (diukur
+  // sekali sebelum dibagi): kartu pertama yang disentuh menyalin ke kartu
+  // satunya; begitu kartu kedua disentuh manual, keduanya independen.
+  const [labSource, setLabSource] = useState<'sr' | 'sd' | null>(null);
+  const [labTempTouched, setLabTempTouched] = useState({ sr: false, sd: false });
+  const setSR = (v: GroupForm) => {
+    if (v.labWeightG !== groupSR.labWeightG) {
+      if (labSource !== 'sd') {
+        setGroupSD((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+      }
+      setLabSource('sr');
+    }
+    if (v.labTempC !== groupSR.labTempC) {
+      setLabTempTouched((prev) => ({ ...prev, sr: true }));
+    }
+    setGroupSR(v);
+  };
+  const setSD = (v: GroupForm) => {
+    if (v.labWeightG !== groupSD.labWeightG) {
+      if (labSource !== 'sr') {
+        setGroupSR((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+      }
+      setLabSource('sd');
+    }
+    if (v.labTempC !== groupSD.labTempC) {
+      setLabTempTouched((prev) => ({ ...prev, sd: true }));
+    }
+    setGroupSD(v);
+  };
+
+  // Suhu awal udang = suhu awal transportasi (masuk box segera setelah beli):
+  // tersalin hidup selama kolom transportasi belum disentuh manual.
+  const [tempStartTouched, setTempStartTouched] = useState(false);
+  const changeInitialTempC = (v: string) => {
+    setInitialTempC(v);
+    if (!tempStartTouched) {
+      setTempStart(v);
+    }
+  };
+  const changeTempStart = (v: string) => {
+    setTempStartTouched(true);
+    setTempStart(v);
+  };
+  // Suhu akhir transportasi = suhu tusuk saat tiba (kedua kartu, sampai disentuh).
+  const changeTempEnd = (v: string) => {
+    setTempEnd(v);
+    if (!labTempTouched.sr) {
+      setGroupSR((g) => ({ ...g, labTempC: v }));
+    }
+    if (!labTempTouched.sd) {
+      setGroupSD((g) => ({ ...g, labTempC: v }));
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -256,6 +310,21 @@ export default function NewBatchPage() {
         return;
       }
     }
+    // Suhu awal udang (dibeli lalu langsung masuk box) = suhu awal transportasi:
+    // praktis satu pembacaan fisik, jadi cukup isi sekali lalu tersalin.
+    if (next >= 1 && tempStart.trim() === '' && initialTempC.trim() !== '') {
+      setTempStart(initialTempC);
+    }
+    // Suhu akhir transportasi (udang tiba di lab) = suhu tusuk saat tiba:
+    // praktis satu pembacaan, jadi cukup isi sekali lalu tersalin ke tiap kartu.
+    if (next >= 2 && tempEnd.trim() !== '') {
+      if (groupSR.labTempC.trim() === '') {
+        setGroupSR((prev) => ({ ...prev, labTempC: tempEnd }));
+      }
+      if (groupSD.labTempC.trim() === '') {
+        setGroupSD((prev) => ({ ...prev, labTempC: tempEnd }));
+      }
+    }
     setFieldErrors({});
     setStep(next);
   };
@@ -411,7 +480,7 @@ export default function NewBatchPage() {
     );
   }
 
-  const steps = ['Pengadaan', 'Transport', 'Kelompok'];
+  const steps = ['Pengadaan', 'Transportasi', 'Kelompok'];
 
   const radioRow = (
     name: string,
@@ -521,7 +590,11 @@ export default function NewBatchPage() {
               placeholder="6.5…"
               className={clsFor(`${prefix}-labTempC`)}
             />
-            {fieldMessage(`${prefix}-labTempC`)}
+            {fieldErrors[`${prefix}-labTempC`] ? (
+              fieldMessage(`${prefix}-labTempC`)
+            ) : (
+              <p className={hintCls}>Tersalin dari suhu akhir transportasi; ubah bila beda.</p>
+            )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-visualCheck`}>
@@ -574,7 +647,11 @@ export default function NewBatchPage() {
               placeholder="482.0…"
               className={clsFor(`${prefix}-labWeightG`)}
             />
-            {fieldMessage(`${prefix}-labWeightG`)}
+            {fieldErrors[`${prefix}-labWeightG`] ? (
+              fieldMessage(`${prefix}-labWeightG`)
+            ) : (
+              <p className={hintCls}>Otomatis sama dengan kartu satunya; boleh diubah bila perlu.</p>
+            )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-sampleShrimpCount`}>
@@ -797,7 +874,7 @@ export default function NewBatchPage() {
               revalidateLive(0, { totalWeightG: fieldErrors.totalWeightG });
             }, { placeholder: '485.5…', hint: 'Timbang dengan timbangan digital.' })}
             {numberField('initialTempC', 'Suhu awal udang (°C)', initialTempC, (v) => {
-              setInitialTempC(v);
+              changeInitialTempC(v);
               revalidateLive(0, { initialTempC: fieldErrors.initialTempC });
             }, { placeholder: '8.2…', hint: 'Ukur dengan termometer tusuk.' })}
           </div>
@@ -848,7 +925,7 @@ export default function NewBatchPage() {
             )}
           </div>
           <button type="submit" className={btnPrimary}>
-            Lanjut ke Transport
+            Lanjut ke Transportasi
           </button>
         </form>
       )}
@@ -919,14 +996,14 @@ export default function NewBatchPage() {
           </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
           <div className="grid grid-cols-2 gap-3">
-            {numberField('tempStart', 'Suhu awal transport (°C)', tempStart, (v) => {
-              setTempStart(v);
+            {numberField('tempStart', 'Suhu awal transportasi (°C)', tempStart, (v) => {
+              changeTempStart(v);
               revalidateLive(1, { tempStart: fieldErrors.tempStart });
-            }, { placeholder: '3.0…' })}
-            {numberField('tempEnd', 'Suhu akhir transport (°C)', tempEnd, (v) => {
-              setTempEnd(v);
+            }, { placeholder: '3.0…', hint: 'Tersalin dari Suhu awal udang; ubah hanya bila beda.' })}
+            {numberField('tempEnd', 'Suhu akhir transportasi (°C)', tempEnd, (v) => {
+              changeTempEnd(v);
               revalidateLive(1, { tempEnd: fieldErrors.tempEnd });
-            }, { placeholder: '3.5…' })}
+            }, { placeholder: '3.5…', hint: 'Tersalin ke suhu tusuk saat tiba di tiap kelompok.' })}
           </div>
           {overDuration && (
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-mono text-rose-200 cursor-pointer">
@@ -961,7 +1038,7 @@ export default function NewBatchPage() {
             'Kelompok suhu ruang (25 ± 2 °C)',
             'Diukur tiap 6 jam selama 36–48 jam.',
             groupSR,
-            setGroupSR
+            setSR
           )}
           {groupCard(
             'sd',
@@ -969,7 +1046,7 @@ export default function NewBatchPage() {
             'Kelompok dingin (4 ± 1 °C)',
             'Diukur tiap 24 jam selama 10–14 hari.',
             groupSD,
-            setGroupSD
+            setSD
           )}
           <div className="flex gap-2">
             <button type="button" onClick={() => goToStep(1)} disabled={submitting} className={btnBack}>
