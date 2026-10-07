@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../components/auth/AuthProvider';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 interface BatchItem {
   batchId: string;
@@ -21,6 +22,9 @@ export default function BatchesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState<{ force: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -44,6 +48,7 @@ export default function BatchesPage() {
       .then((items) => {
         if (cancelled) return;
         setBatches(items);
+        setSelected((prev) => prev.filter((id) => items.some((b) => b.batchId === id)));
         setError(null);
         setLoading(false);
       })
@@ -56,6 +61,53 @@ export default function BatchesPage() {
       cancelled = true;
     };
   }, [user, apiFetch, refreshKey]);
+
+  const toggleSelect = (batchId: string) => {
+    setSelected((prev) => (prev.includes(batchId) ? prev.filter((id) => id !== batchId) : [...prev, batchId]));
+  };
+
+  const handleBulkDelete = async (force: boolean) => {
+    if (selected.length === 0) {
+      return;
+    }
+    setConfirmBulk(null);
+    setBulkBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch('/api/v1/batches/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchIds: selected, force }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error?.message || `Gagal (${res.status})`);
+      }
+      const failed = (body.data as Array<{ batchId: string; deleted: boolean; error?: string }>).filter(
+        (r) => !r.deleted
+      );
+      if (failed.length > 0 && !force) {
+        const linked = failed.filter((r) => r.error?.includes('data tertaut'));
+        if (linked.length === failed.length) {
+          setConfirmBulk({
+            force: true,
+            message: `${failed.length} batch memiliki data tertaut (${linked.map((r) => r.batchId).join(', ')}). Hapus dan putuskan tautannya?`,
+          });
+          return;
+        }
+        throw new Error(failed.map((r) => r.error).join('; '));
+      }
+      if (failed.length > 0) {
+        throw new Error(failed.map((r) => r.error).join('; '));
+      }
+      setSelected([]);
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus batch');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   if (isLoading || !user) {
     return (
@@ -77,12 +129,27 @@ export default function BatchesPage() {
           </p>
         </div>
         {user.role === 'ADMIN' && (
-          <Link
-            href="/batches/new"
-            className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-mono font-bold tracking-wider transition-all"
-          >
-            ＋ Batch Baru
-          </Link>
+          <div className="flex items-center gap-2">
+            {selected.length > 0 && (
+              <button
+                onClick={() => setConfirmBulk({
+                  force: false,
+                  message: `Hapus ${selected.length} batch terpilih (${selected.join(', ')})? Tindakan ini tidak bisa dibatalkan.`,
+                })}
+                disabled={bulkBusy}
+                title={`Hapus ${selected.length} batch terpilih`}
+                className="px-4 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 text-xs font-mono font-bold tracking-wider transition-colors disabled:opacity-50"
+              >
+                Hapus ({selected.length})
+              </button>
+            )}
+            <Link
+              href="/batches/new"
+              className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-mono font-bold tracking-wider transition-all"
+            >
+              ＋ Batch Baru
+            </Link>
+          </div>
         )}
       </div>
 
@@ -106,30 +173,61 @@ export default function BatchesPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {batches.map((b) => (
-            <Link
+            <div
               key={b.batchId}
-              href={`/batches/${encodeURIComponent(b.batchId)}`}
-              className="block p-5 rounded-2xl bg-white/10 hover:bg-white/15 backdrop-blur-lg border border-white/20 transition-all"
+              className="p-5 rounded-2xl bg-white/10 hover:bg-white/15 backdrop-blur-lg border border-white/20 transition-colors"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono font-bold text-white">{b.batchId}</span>
-                {b.lockedAt ? (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded border uppercase bg-white/10 text-white/60 border-white/20">
-                    Terkunci
+              <Link
+                href={`/batches/${encodeURIComponent(b.batchId)}`}
+                className="block"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono font-bold text-white">{b.batchId}</span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    {b.lockedAt ? (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded border uppercase bg-white/10 text-white/60 border-white/20">
+                        Terkunci
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded border uppercase bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                        Terbuka
+                      </span>
+                    )}
+                    {user.role === 'ADMIN' && (
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(b.batchId)}
+                        onChange={() => toggleSelect(b.batchId)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Pilih batch ${b.batchId}`}
+                        title="Pilih untuk hapus banyak"
+                        className="w-5 h-5 accent-rose-400 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 rounded"
+                      />
+                    )}
                   </span>
-                ) : (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded border uppercase bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
-                    Terbuka
-                  </span>
-                )}
-              </div>
-              <p className="mt-2 text-xs font-mono text-white/60">
-                {b.marketSource} • {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
-              </p>
-            </Link>
+                </div>
+                <p className="mt-2 text-xs font-mono text-white/60">
+                  {b.marketSource} • {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
+                </p>
+              </Link>
+            </div>
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmBulk !== null}
+        title={confirmBulk?.force ? 'Hapus dan putuskan tautan?' : 'Hapus batch terpilih?'}
+        message={confirmBulk?.message ?? ''}
+        confirmLabel="Ya, hapus"
+        busy={bulkBusy}
+        onConfirm={() => {
+          if (confirmBulk) {
+            void handleBulkDelete(confirmBulk.force);
+          }
+        }}
+        onCancel={() => setConfirmBulk(null)}
+      />
     </div>
   );
 }
