@@ -252,16 +252,26 @@ export function serializeSession(s: DbSession) {
 }
 
 /**
- * GATE B: tolak urutan terbalik (422) dan cold-chain >3 jam tanpa
- * pengakuan deviasi eksplisit dari operator.
+ * GATE B: tolak urutan waktu yang tidak mungkin (beli → berangkat → tiba)
+ * dan cold-chain >3 jam tanpa pengakuan deviasi eksplisit dari operator.
  */
-export function assertTransportGates(departedAtUtc: Date, arrivedAtUtc: Date, deviationAcknowledged: unknown): void {
-  if (transportDurationMs(departedAtUtc, arrivedAtUtc) < 0) {
-    throw validationError('Waktu berangkat harus sebelum waktu tiba');
+export function assertTransportGates(
+  procuredAtUtc: Date,
+  departedAtUtc: Date,
+  arrivedAtUtc: Date,
+  deviationAcknowledged: unknown
+): void {
+  // `< 0` saja tak cukup: cek DB menuntut urutan *ketat* (A < B), jadi waktu
+  // yang sama persis juga harus ditolak di sini.
+  if (transportDurationMs(procuredAtUtc, departedAtUtc) <= 0) {
+    throw validationError('Waktu berangkat harus setelah waktu beli');
+  }
+  if (transportDurationMs(departedAtUtc, arrivedAtUtc) <= 0) {
+    throw validationError('Waktu tiba harus setelah waktu berangkat');
   }
   if (!isColdChainCompliant(departedAtUtc, arrivedAtUtc) && deviationAcknowledged !== true) {
     throw validationError(
-      'Durasi transport melebihi 3 jam; ulangi dengan deviationAcknowledged=true untuk mencatat sebagai deviasi'
+      'Durasi transportasi melebihi 3 jam; ulangi dengan deviationAcknowledged=true untuk mencatat sebagai deviasi'
     );
   }
 }

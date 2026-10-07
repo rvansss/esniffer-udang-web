@@ -164,7 +164,10 @@ export default function NewBatchPage() {
       e.arrivedAt = arr.error;
     }
     if (!dep.error && !arr.error) {
-      if (transportDurationMs(dep.date!, arr.date!) < 0) {
+      const proc = parseWib(procuredAt);
+      if (!proc.error && dep.date!.getTime() <= proc.date!.getTime()) {
+        e.departedAt = 'Waktu berangkat harus setelah waktu beli.';
+      } else if (transportDurationMs(dep.date!, arr.date!) < 0) {
         e.arrivedAt = 'Waktu tiba harus setelah waktu berangkat.';
       } else if (!isColdChainCompliant(dep.date!, arr.date!) && !deviationAck) {
         e.arrivedAt = 'Melebihi 3 jam — centang deviasi di bawah untuk lanjut.';

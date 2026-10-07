@@ -92,6 +92,12 @@ export function errorResponse(err: unknown, requestId: string, request?: Request
       status = 409;
       code = 'EXCLUSION_CONFLICT';
       message = 'Operation violates exclusion constraint (e.g. overlapping device assignment)';
+    } else if (dbErr.code === '23514') { // check_violation
+      // Aturan cek basis data (mis. urutan beli → berangkat → tiba) bocor ke
+      // sini hanya jika lolos validasi aplikasi: laporkan sebagai 422, bukan 500.
+      status = 422;
+      code = 'VALIDATION_ERROR';
+      message = 'Data tidak lolos salah satu aturan validasi penyimpanan.';
     } else if (dbErr.code === 'ECONNREFUSED' || dbErr.code === 'P1001') {
       status = 503;
       code = 'SERVICE_UNAVAILABLE';

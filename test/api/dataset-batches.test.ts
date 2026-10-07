@@ -133,7 +133,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
   });
 
   it('3. POST /batches menolak urutan transport terbalik (422)', async () => {
-    const res = await createBatch(
+    const reversed = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
         method: 'POST',
         headers: postHeaders(adminCookie),
@@ -142,7 +142,18 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
         ),
       })
     );
-    assert.strictEqual(res.status, 422);
+    assert.strictEqual(reversed.status, 422);
+
+    // Beli tercatat setelah berangkat: lolos pintu klien → harus tetap 422, bukan 500.
+    const beforePurchase = await createBatch(
+      new Request('http://localhost:3000/api/v1/batches', {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify(batchBody({ procuredAtUtc: `${DAY}T00:30:00.000Z` })), // 07:30 WIB, berangkat 07:15
+      })
+    );
+    assert.strictEqual(beforePurchase.status, 422);
+    assert.strictEqual((await beforePurchase.json()).error.message, 'Waktu berangkat harus setelah waktu beli');
   });
 
   it('4. POST /batches menolak cold-chain >3 jam tanpa deviasi (422) dan menerima dengan deviasi', async () => {

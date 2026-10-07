@@ -83,7 +83,7 @@ export async function POST(request: Request): Promise<Response> {
         : (() => { throw validationError('Field "photoUrls" harus array string path (diisi via upload Fase 4)'); })();
 
     assertProcurementWindow(procuredAtUtc);
-    assertTransportGates(departedAtUtc, arrivedAtUtc, body?.deviationAcknowledged);
+    assertTransportGates(procuredAtUtc, departedAtUtc, arrivedAtUtc, body?.deviationAcknowledged);
 
     // Auto batch_id server-side; retry naik bila balapan request bersamaan.
     let batch = null;
