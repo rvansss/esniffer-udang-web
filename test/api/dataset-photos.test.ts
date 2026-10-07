@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma, closeDb } from '../../lib/db/client.ts';
-import { POST as uploadPhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
+import { POST as uploadPhotos, DELETE as deletePhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
@@ -225,5 +225,54 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
       {}
     );
     assert.strictEqual(locked.status, 200);
+  });
+
+  it('7. DELETE foto menghapus file + entri URL', async () => {
+    const list = await prisma.collectionBatch.findUniqueOrThrow({ where: { batchId } });
+    assert.ok(list.photoUrls.length >= 2);
+    const target = list.photoUrls[0];
+
+    const delReq = (cookie: string | null, payload: unknown) =>
+      deletePhotos(
+        new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
+          method: 'DELETE',
+          headers: {
+            ...(cookie ? authHeaders(cookie) : {}),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }),
+        { params: Promise.resolve({ batchId }) }
+      );
+
+    assert.strictEqual((await delReq(viewerCookie, { photoUrls: [target] })).status, 403);
+    assert.strictEqual((await delReq(null, { photoUrls: [target] })).status, 401);
+    assert.strictEqual((await delReq(adminCookie, { photoUrls: [] })).status, 422);
+    assert.strictEqual(
+      (await delReq(adminCookie, { photoUrls: [`uploads/${batchNoPhoto}/${target.split('/').pop()}`] })).status,
+      422
+    );
+    assert.strictEqual((await delReq(adminCookie, { photoUrls: ['uploads/lain/x.jpg'] })).status, 422);
+
+    const res = await delReq(adminCookie, { photoUrls: [target] });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(!body.data.photoUrls.includes(target));
+    await assert.rejects(stat(path.join(process.cwd(), 'public', target)));
+
+    const gone = await delReq(adminCookie, { photoUrls: [target] });
+    assert.strictEqual(gone.status, 404);
+  });
+
+  it('8. DELETE foto pada batch terkunci ditolak 409', async () => {
+    const res = await deletePhotos(
+      new Request(`http://localhost:3000/api/v1/batches/${batchNoPhoto}/photos`, {
+        method: 'DELETE',
+        headers: { ...authHeaders(adminCookie), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoUrls: ['uploads/x.jpg'] }),
+      }),
+      { params: Promise.resolve({ batchId: batchNoPhoto }) }
+    );
+    assert.strictEqual(res.status, 409);
   });
 });
