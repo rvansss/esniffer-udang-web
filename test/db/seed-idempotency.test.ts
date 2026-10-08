@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 
 describe('Seed Idempotency & Protection Tests', () => {
   let customPasswordHash: string;
+  let originalPasswordHash: string | null = null;
   let testWatermark: bigint;
 
   before(async () => {
@@ -28,7 +29,14 @@ describe('Seed Idempotency & Protection Tests', () => {
       WHERE id = 1;
     `);
 
-    // 2. Modifikasi password admin ke hash khusus
+    // 2. Modifikasi password admin ke hash khusus.
+    // Hash asli disimpan dulu agar after() bisa mengembalikannya:
+    // suite test tidak boleh merusak kredensial dev.
+    const adminBefore = await prisma.user.findUnique({
+      where: { email: 'admin@esniffer.local' },
+      select: { passwordHash: true },
+    });
+    originalPasswordHash = adminBefore?.passwordHash ?? null;
     customPasswordHash = 'custom_secret_hashed_password_xyz_987';
     await prisma.user.upsert({
       where: { email: 'admin@esniffer.local' },
@@ -42,7 +50,18 @@ describe('Seed Idempotency & Protection Tests', () => {
   });
 
   after(async () => {
-    await closeDb();
+    try {
+      // Kembalikan password admin seperti sebelum test berjalan.
+      // Tanpa ini, tiap test:db meninggalkan hash palsu dan login admin123 rusak.
+      if (originalPasswordHash !== null) {
+        await prisma.user.update({
+          where: { email: 'admin@esniffer.local' },
+          data: { passwordHash: originalPasswordHash },
+        });
+      }
+    } finally {
+      await closeDb();
+    }
   });
 
   it('Re-running seed tidak mereset watermark, tidak mengubah password, dan tidak menimpa assignment', async () => {
