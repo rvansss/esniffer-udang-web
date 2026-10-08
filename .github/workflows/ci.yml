@@ -34,7 +34,7 @@ jobs:
       DATABASE_URL: postgresql://esniffer:esniffer@localhost:5432/esniffer_test
       AUTH_SECRET: ci-auth-secret-at-least-32-characters-long
       CURSOR_SIGNING_SECRET: ci-cursor-secret-at-least-32-characters-long
-      APP_BASE_URL: http://localhost:3000
+      APP_BASE_URL: https://ci.esniffer.test
 
     steps:
       - name: Checkout repository
@@ -79,6 +79,7 @@ jobs:
         run: npm run build -- --webpack
 
       - name: Real Next.js HTTP Smoke Test
+        timeout-minutes: 5
         run: node --experimental-strip-types --test test/e2e/http-smoke.test.ts
 
   docker-validation:
@@ -97,7 +98,7 @@ jobs:
           docker compose --env-file deploy/.env.production.example -f deploy/compose.production.yml config --quiet
           echo "Compose configuration syntax and environment bindings valid."
 
-      - name: Build Web/Worker runtime image (target: runtime)
+      - name: "Build Web/Worker runtime image (target: runtime)"
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -107,7 +108,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build Database migration image (target: migration)
+      - name: "Build Database migration image (target: migration)"
         uses: docker/build-push-action@v6
         with:
           context: .

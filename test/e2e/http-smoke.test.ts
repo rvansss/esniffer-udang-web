@@ -27,8 +27,9 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
     userId = user.id;
 
     // 2. Jalankan server Next.js asli pada port 3098 dengan konfigurasi produksi yang valid
-    serverProcess = spawn('npx', ['next', 'start', '-p', String(PORT)], {
+    serverProcess = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(PORT)], {
       cwd: process.cwd(),
+      detached: process.platform !== 'win32',
       env: {
         ...process.env,
         PORT: String(PORT),
@@ -37,7 +38,7 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
         AUTH_SECRET: 'smoke-test-auth-secret-key-for-e2e-testing',
         CURSOR_SIGNING_SECRET: 'smoke-test-cursor-signing-secret-key-testing',
       },
-      stdio: 'pipe',
+      stdio: 'ignore',
     });
 
     // 3. Tunggu hingga server siap melayani permintaan HTTP
@@ -64,15 +65,31 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
   });
 
   after(async () => {
-    // Matikan proses server
-    if (serverProcess && !serverProcess.killed) {
-      serverProcess.kill('SIGTERM');
+    // Matikan seluruh grup proses server Next.js secara tuntas
+    if (serverProcess && serverProcess.pid) {
+      try {
+        if (process.platform !== 'win32') {
+          process.kill(-serverProcess.pid, 'SIGKILL');
+        } else {
+          serverProcess.kill('SIGKILL');
+        }
+      } catch {
+        try {
+          serverProcess.kill('SIGKILL');
+        } catch {
+          // Abaikan jika proses sudah mati
+        }
+      }
     }
 
     // Bersihkan sesi dan user
-    await prisma.authSession.deleteMany({ where: { userId } });
-    await prisma.user.deleteMany({ where: { id: userId } });
-    await closeDb();
+    try {
+      await prisma.authSession.deleteMany({ where: { userId } });
+      await prisma.user.deleteMany({ where: { id: userId } });
+      await closeDb();
+    } catch {
+      // Abaikan jika db sudah tertutup
+    }
   });
 
   it('Siklus Lengkap HTTP: Login -> Cookie -> Protected Endpoint -> Logout -> 401', async () => {
