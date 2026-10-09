@@ -138,7 +138,6 @@ type DbBatch = {
   totalWeightG: { toNumber(): number };
   initialCondition: string;
   initialTempC: { toNumber(): number };
-  departedAtUtc: Date;
   arrivedAtUtc: Date;
   coolerTempMinC: { toNumber(): number };
   coolerTempMaxC: { toNumber(): number };
@@ -163,7 +162,6 @@ export function serializeBatch(b: DbBatch) {
     totalWeightG: dec(b.totalWeightG),
     initialCondition: DB_TO_CONDITION[b.initialCondition] ?? b.initialCondition,
     initialTempC: dec(b.initialTempC),
-    departedAtUtc: b.departedAtUtc.toISOString(),
     arrivedAtUtc: b.arrivedAtUtc.toISOString(),
     coolerTempMinC: dec(b.coolerTempMinC),
     coolerTempMaxC: dec(b.coolerTempMaxC),
@@ -266,25 +264,21 @@ export function serializeSession(s: DbSession) {
 }
 
 /**
- * GATE B: urutan waktu perjalanan lab → pasar → lab. Belanja terjadi di
- * pasar, sehingga waktu beli wajib berada DI ANTARA berangkat dan tiba;
- * durasi berangkat → tiba >3 jam tetap butuh pengakuan deviasi eksplisit.
+ * GATE B: urutan waktu beli → tiba di lab. Cukup dua titik waktu ini yang
+ * dicatat; durasi tiba dikurangi beli >3 jam tetap butuh pengakuan
+ * deviasi eksplisit.
  */
 export function assertTransportGates(
   procuredAtUtc: Date,
-  departedAtUtc: Date,
   arrivedAtUtc: Date,
   deviationAcknowledged: unknown
 ): void {
   // `<= 0` (bukan `< 0`) karena cek DB menuntut urutan ketat, jadi waktu yang
   // sama persis pun harus ditolak di lapisan aplikasi.
-  if (transportDurationMs(departedAtUtc, procuredAtUtc) <= 0) {
-    throw validationError('Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar');
-  }
   if (transportDurationMs(procuredAtUtc, arrivedAtUtc) <= 0) {
     throw validationError('Waktu tiba di lab harus setelah waktu beli udang');
   }
-  if (!isColdChainCompliant(departedAtUtc, arrivedAtUtc) && deviationAcknowledged !== true) {
+  if (!isColdChainCompliant(procuredAtUtc, arrivedAtUtc) && deviationAcknowledged !== true) {
     throw validationError(
       'Durasi transportasi melebihi 3 jam; ulangi dengan deviationAcknowledged=true untuk mencatat sebagai deviasi'
     );

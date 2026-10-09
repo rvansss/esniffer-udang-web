@@ -242,7 +242,6 @@ model CollectionBatch {
   totalWeightG      Decimal              @map("total_weight_g") @db.Decimal(8, 2)
   initialCondition  InitialCondition     @map("initial_condition")
   initialTempC      Decimal              @map("initial_temp_c") @db.Decimal(5, 2)
-  departedAtUtc     DateTime             @map("departed_at_utc") @db.Timestamptz(3)
   arrivedAtUtc      DateTime             @map("arrived_at_utc") @db.Timestamptz(3)
   coolerTempMinC    Decimal              @map("cooler_temp_min_c") @db.Decimal(5, 2)
   coolerTempMaxC    Decimal              @map("cooler_temp_max_c") @db.Decimal(5, 2)

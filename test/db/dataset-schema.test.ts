@@ -33,7 +33,6 @@ function batchData(overrides: Record<string, unknown> = {}) {
     totalWeightG: 485.5,
     initialCondition: 'DEAD' as const,
     initialTempC: 8.2,
-    departedAtUtc: new Date('2099-01-01T00:15:00.000Z'),
     arrivedAtUtc: new Date('2099-01-01T02:00:00.000Z'),
     coolerTempMinC: 1.2,
     coolerTempMaxC: 3.8,
@@ -181,24 +180,20 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
     );
   });
 
-  it('CHECK: urutan waktu transport terbalik ditolak', async () => {
+  it('CHECK: tiba sebelum/saat beli ditolak', async () => {
     await assert.rejects(
       prisma.collectionBatch.create({
         data: batchData({
           batchId: 'BT-20990101-04',
-          departedAtUtc: new Date('2099-01-01T05:00:00.000Z'),
-          arrivedAtUtc: new Date('2099-01-01T02:00:00.000Z'),
+          arrivedAtUtc: new Date('2099-01-01T00:00:00.000Z'), // tiba 07:00, beli 07:30
         }),
       })
     );
-  });
-
-  it('CHECK: jam beli di luar rentang berangkat–tiba ditolak', async () => {
     await assert.rejects(
       prisma.collectionBatch.create({
         data: batchData({
           batchId: 'BT-20990101-06',
-          procuredAtUtc: new Date('2099-01-01T00:00:00.000Z'), // 07:00 WIB, sebelum berangkat 07:15
+          arrivedAtUtc: new Date('2099-01-01T00:30:00.000Z'), // tiba tepat saat beli
         }),
       })
     );

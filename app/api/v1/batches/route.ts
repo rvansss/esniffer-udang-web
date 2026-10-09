@@ -66,7 +66,6 @@ export async function POST(request: Request): Promise<Response> {
     const shrimpLengthCm = parseBoundedNumber(body?.shrimpLengthCm, 'shrimpLengthCm', 1, 50);
     const initialCondition = parseInitialCondition(body?.initialCondition);
     const initialTempC = parseBoundedNumber(body?.initialTempC, 'initialTempC', -2, 30);
-    const departedAtUtc = parseIsoDate(body?.departedAtUtc, 'departedAtUtc', true)!;
     const arrivedAtUtc = parseIsoDate(body?.arrivedAtUtc, 'arrivedAtUtc', true)!;
     const coolerTempMinC = parseBoundedNumber(body?.coolerTempMinC, 'coolerTempMinC', 0, 4);
     const coolerTempMaxC = parseBoundedNumber(body?.coolerTempMaxC, 'coolerTempMaxC', 0, 4);
@@ -82,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
     // Foto selalu mulai kosong dan diisi lewat upload (tabel batch_photos).
 
     assertProcurementWindow(procuredAtUtc);
-    assertTransportGates(procuredAtUtc, departedAtUtc, arrivedAtUtc, body?.deviationAcknowledged);
+    assertTransportGates(procuredAtUtc, arrivedAtUtc, body?.deviationAcknowledged);
 
     // Auto batch_id server-side; retry naik bila balapan request bersamaan.
     let batch = null;
@@ -108,7 +107,6 @@ export async function POST(request: Request): Promise<Response> {
             totalWeightG,
             initialCondition,
             initialTempC,
-            departedAtUtc,
             arrivedAtUtc,
             coolerTempMinC,
             coolerTempMaxC,

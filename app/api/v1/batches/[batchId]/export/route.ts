@@ -64,7 +64,6 @@ export async function GET(
         num(full.totalWeightG),
         String(full.initialCondition).toLowerCase(),
         num(full.initialTempC),
-        dt(full.departedAtUtc),
         dt(full.arrivedAtUtc),
         num(full.coolerTempMinC),
         num(full.coolerTempMaxC),

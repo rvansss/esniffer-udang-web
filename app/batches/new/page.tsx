@@ -92,8 +92,7 @@ export default function NewBatchPage() {
   const [totalWeightG, setTotalWeightG] = useState('');
   const [initialCondition, setInitialCondition] = useState('dead');
   const [initialTempC, setInitialTempC] = useState('');
-  // Tahap B — transportasi
-  const [departedAt, setDepartedAt] = useState('');
+  // Tahap A — pengadaan (termasuk cool box dan tiba, pindahan tahap B)
   const [arrivedAt, setArrivedAt] = useState('');
   const [coolerMin, setCoolerMin] = useState('');
   const [coolerMax, setCoolerMax] = useState('');
@@ -164,7 +163,7 @@ export default function NewBatchPage() {
   };
 
   /**
-   * Isi seluruh form (pengadaan → transportasi → kelompok) dengan
+   * Isi seluruh form (pengadaan → kelompok) dengan
    * nilai yang realistis dan saling konsisten, agar alur fitur
    * bisa diuji tanpa mengetar satu per satu. Foto tidak diisi:
    * file asli tidak bisa dibuang-buang, jadi tetap dipilih manual.
@@ -172,8 +171,8 @@ export default function NewBatchPage() {
   const fillTestData = () => {
     // Tanggal kalender WIB hari ini (UTC+7).
     const wibDate = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
-    // Berangkat dari lab 06:15 → beli di pasar 07:20 (dalam jendela
-    // 06:00–08:00) → tiba kembali di lab 07:55 (perjalanan 1j40).
+    // Beli di pasar 07:20 (dalam jendela 06:00–08:00) → tiba kembali
+    // di lab 07:55 (perjalanan 35 menit).
     const procured = `${wibDate}T07:20`;
 
     // Isi ulang berarti mengganti seluruh form, jadi flag mirror direset.
@@ -191,8 +190,7 @@ export default function NewBatchPage() {
     setTotalWeightG('480');
     setInitialCondition('dead');
     setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
-    // Tahap B — transportasi
-    setDepartedAt(`${wibDate}T06:15`);
+    // Tiba di lab (bagian pengadaan)
     setArrivedAt(`${wibDate}T07:55`);
     setCoolerMin('1.2');
     setCoolerMax('3.6');
@@ -232,8 +230,8 @@ export default function NewBatchPage() {
   }, [error]);
 
   const durationHours =
-    departedAt && arrivedAt
-      ? (new Date(arrivedAt).getTime() - new Date(departedAt).getTime()) / 3_600_000
+    procuredAt && arrivedAt
+      ? (new Date(arrivedAt).getTime() - new Date(procuredAt).getTime()) / 3_600_000
       : null;
   const overDuration = durationHours !== null && durationHours > 3;
 
@@ -276,28 +274,15 @@ export default function NewBatchPage() {
     } else if (t < -2 || t > 30) {
       e.initialTempC = 'Harus -2 sampai 30 °C.';
     }
-    return e;
-  };
-
-  const validateStepB = (): Errors => {
-    const e: Errors = {};
-    const dep = parseWib(departedAt);
+    // Tiba di lab + cool box (pindahan tahap B): cukup beli dan tiba.
     const arr = parseWib(arrivedAt);
-    if (dep.error) {
-      e.departedAt = dep.error;
-    }
     if (arr.error) {
       e.arrivedAt = arr.error;
-    }
-    if (!dep.error && !arr.error) {
+    } else {
       const proc = parseWib(procuredAt);
-      if (!proc.error && transportDurationMs(dep.date!, proc.date!) <= 0) {
-        e.departedAt = 'Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar.';
-      } else if (!proc.error && transportDurationMs(proc.date!, arr.date!) <= 0) {
+      if (!proc.error && transportDurationMs(proc.date!, arr.date!) <= 0) {
         e.arrivedAt = 'Waktu tiba di lab harus setelah waktu beli udang.';
-      } else if (transportDurationMs(dep.date!, arr.date!) < 0) {
-        e.arrivedAt = 'Waktu tiba harus setelah waktu berangkat.';
-      } else if (!isColdChainCompliant(dep.date!, arr.date!) && !deviationAck) {
+      } else if (!proc.error && !isColdChainCompliant(proc.date!, arr.date!) && !deviationAck) {
         e.arrivedAt = 'Melebihi 3 jam — centang deviasi di bawah untuk lanjut.';
       }
     }
@@ -365,7 +350,7 @@ export default function NewBatchPage() {
     ...validateGroup('sd', groupSD),
   });
 
-  const validators = [validateStepA, validateStepB, validateStepC];
+  const validators = [validateStepA, validateStepC];
 
   const focusFirstError = (errs: Errors) => {
     const first = Object.keys(errs)[0];
@@ -397,7 +382,7 @@ export default function NewBatchPage() {
     }
     // Suhu akhir transportasi (udang tiba di lab) = suhu tusuk saat tiba:
     // praktis satu pembacaan, jadi cukup isi sekali lalu tersalin ke tiap kartu.
-    if (next >= 2 && tempEnd.trim() !== '') {
+    if (next >= 1 && tempEnd.trim() !== '') {
       if (groupSR.labTempC.trim() === '') {
         setGroupSR((prev) => ({ ...prev, labTempC: tempEnd }));
       }
@@ -493,7 +478,7 @@ export default function NewBatchPage() {
   };
 
   const handleSubmit = async () => {
-    const errs = { ...validateStepA(), ...validateStepB(), ...validateStepC() };
+    const errs = { ...validateStepA(), ...validateStepC() };
     const badCaption = photoFiles.length > 0
       ? photoCaptions.findIndex((c) => c.trim() === '' || c.trim().length > MAX_PHOTO_CAPTION_LENGTH)
       : -1;
@@ -503,11 +488,9 @@ export default function NewBatchPage() {
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       const stepOf = (k: string) =>
-        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC', 'photos'].includes(k)
+        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC', 'photos', 'arrivedAt', 'coolerMin', 'coolerMax', 'tempStart', 'tempEnd'].includes(k)
           ? 0
-          : ['departedAt', 'arrivedAt', 'coolerMin', 'coolerMax', 'tempStart', 'tempEnd'].includes(k)
-            ? 1
-            : 2;
+          : 1;
       setStep(stepOf(Object.keys(errs)[0]));
       focusFirstError(errs);
       return;
@@ -524,7 +507,6 @@ export default function NewBatchPage() {
         totalWeightG: Number(totalWeightG),
         initialCondition,
         initialTempC: Number(initialTempC),
-        departedAtUtc: new Date(departedAt).toISOString(),
         arrivedAtUtc: new Date(arrivedAt).toISOString(),
         coolerTempMinC: Number(coolerMin),
         coolerTempMaxC: Number(coolerMax),
@@ -570,7 +552,7 @@ export default function NewBatchPage() {
     );
   }
 
-  const steps = ['Pengadaan', 'Transportasi', 'Kelompok'];
+  const steps = ['Pengadaan', 'Kelompok'];
 
   const radioRow = (
     name: string,
@@ -821,7 +803,7 @@ export default function NewBatchPage() {
         <h2 className="text-xl md:text-2xl font-mono font-black text-white tracking-wide text-balance">Batch baru</h2>
         <p className="text-xs font-mono text-white/60 mt-1">ID batch dan grup dibuat otomatis oleh server.</p>
         <p className="text-xs font-mono text-white/60 mt-1" aria-live="polite">
-          Langkah {step + 1} dari 3
+          Langkah {step + 1} dari 2
         </p>
         <div className="mt-2 flex gap-1.5" aria-hidden="true">
           {steps.map((_, i) => (
@@ -834,7 +816,7 @@ export default function NewBatchPage() {
               Isi otomatis (data tes)
             </button>
             <span className="text-[11px] font-mono text-white/40">
-              Uji cepat: mengisi pengadaan → transportasi → kelompok dengan nilai realistis; foto tetap dipilih manual.
+              Uji cepat: mengisi pengadaan dan kelompok dengan nilai realistis; foto tetap dipilih manual.
             </span>
           </div>
         )}
@@ -907,7 +889,7 @@ export default function NewBatchPage() {
             {fieldErrors.procuredAt ? (
               fieldMessage('procuredAt')
             ) : (
-              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus di antara waktu berangkat serta tiba. Tersimpan sebagai UTC.</p>
+              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus sebelum waktu tiba. Tersimpan sebagai UTC.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -1041,68 +1023,28 @@ export default function NewBatchPage() {
               </div>
             )}
           </div>
-          <button type="submit" className={btnPrimary}>
-            Lanjut ke Transportasi
-          </button>
-        </form>
-      )}
-
-      {step === 1 && (
-        <form
-          className={cardCls}
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault();
-            goToStep(2);
-          }}
-        >
-          <div className="grid grid-cols-2 gap-3">
-            <div className={fieldCls}>
-              <label className={labelCls} htmlFor="departedAt">
-                Waktu berangkat (WIB)
-              </label>
-              <input
-                id="departedAt"
-                name="departedAt"
-                type="datetime-local"
-                autoComplete="off"
-                value={departedAt}
-                aria-invalid={!!fieldErrors.departedAt}
-                onChange={(e) => {
-                  setDepartedAt(e.target.value);
-                  revalidateLive(1, { departedAt: fieldErrors.departedAt });
-                }}
-                className={clsFor('departedAt')}
-              />
-              {fieldErrors.departedAt ? (
-                fieldMessage('departedAt')
-              ) : (
-                <p className={hintCls}>Berangkat dari lab menuju pasar; jam beli harus sesudah ini.</p>
-              )}
-            </div>
-            <div className={fieldCls}>
-              <label className={labelCls} htmlFor="arrivedAt">
-                Waktu tiba di lab (WIB)
-              </label>
-              <input
-                id="arrivedAt"
-                name="arrivedAt"
-                type="datetime-local"
-                autoComplete="off"
-                value={arrivedAt}
-                aria-invalid={!!fieldErrors.arrivedAt}
-                onChange={(e) => {
-                  setArrivedAt(e.target.value);
-                  revalidateLive(1, { arrivedAt: fieldErrors.arrivedAt });
-                }}
-                className={clsFor('arrivedAt')}
-              />
-              {fieldErrors.arrivedAt ? (
-                fieldMessage('arrivedAt')
-              ) : (
-                <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
-              )}
-            </div>
+          <div className={fieldCls}>
+            <label className={labelCls} htmlFor="arrivedAt">
+              Waktu tiba di lab (WIB)
+            </label>
+            <input
+              id="arrivedAt"
+              name="arrivedAt"
+              type="datetime-local"
+              autoComplete="off"
+              value={arrivedAt}
+              aria-invalid={!!fieldErrors.arrivedAt}
+              onChange={(e) => {
+                setArrivedAt(e.target.value);
+                revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
+              }}
+              className={clsFor('arrivedAt')}
+            />
+            {fieldErrors.arrivedAt ? (
+              fieldMessage('arrivedAt')
+            ) : (
+              <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
+            )}
           </div>
           {durationHours !== null && !fieldErrors.arrivedAt && (
             <p aria-live="polite" className={`text-xs font-mono ${overDuration ? 'text-rose-300' : 'text-emerald-300'}`}>
@@ -1112,22 +1054,22 @@ export default function NewBatchPage() {
           <div className="grid grid-cols-2 gap-3">
             {numberField('coolerMin', 'Suhu cool box min (°C)', coolerMin, (v) => {
               setCoolerMin(v);
-              revalidateLive(1, { coolerMin: fieldErrors.coolerMin });
+              revalidateLive(0, { coolerMin: fieldErrors.coolerMin });
             }, { placeholder: '1.2…' })}
             {numberField('coolerMax', 'Suhu cool box max (°C)', coolerMax, (v) => {
               setCoolerMax(v);
-              revalidateLive(1, { coolerMax: fieldErrors.coolerMax });
+              revalidateLive(0, { coolerMax: fieldErrors.coolerMax });
             }, { placeholder: '3.8…' })}
           </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
           <div className="grid grid-cols-2 gap-3">
             {numberField('tempStart', 'Suhu awal transportasi (°C)', tempStart, (v) => {
               changeTempStart(v);
-              revalidateLive(1, { tempStart: fieldErrors.tempStart });
+              revalidateLive(0, { tempStart: fieldErrors.tempStart });
             }, { placeholder: '3.0…', hint: 'Tersalin dari Suhu awal udang; ubah hanya bila beda.' })}
             {numberField('tempEnd', 'Suhu akhir transportasi (°C)', tempEnd, (v) => {
               changeTempEnd(v);
-              revalidateLive(1, { tempEnd: fieldErrors.tempEnd });
+              revalidateLive(0, { tempEnd: fieldErrors.tempEnd });
             }, { placeholder: '3.5…', hint: 'Tersalin ke suhu tusuk saat tiba di tiap kelompok.' })}
           </div>
           {overDuration && (
@@ -1137,25 +1079,20 @@ export default function NewBatchPage() {
                 checked={deviationAck}
                 onChange={(e) => {
                   setDeviationAck(e.target.checked);
-                  revalidateLive(1, { arrivedAt: fieldErrors.arrivedAt });
+                  revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
                 }}
                 className="mt-0.5 w-4 h-4 accent-rose-400"
               />
               Catat sebagai deviasi cold-chain (durasi lebih dari 3 jam)
             </label>
           )}
-          <div className="flex gap-2">
-            <button type="button" onClick={() => goToStep(0)} className={btnBack}>
-              Kembali
-            </button>
-            <button type="submit" className={`${btnPrimary} flex-[2]`}>
-              Lanjut ke Kelompok
-            </button>
-          </div>
+          <button type="submit" className={btnPrimary}>
+            Lanjut ke Kelompok
+          </button>
         </form>
       )}
 
-      {step === 2 && (
+      {step === 1 && (
         <div className="flex flex-col gap-4">
           {groupCard(
             'sr',
@@ -1174,7 +1111,7 @@ export default function NewBatchPage() {
             setSD
           )}
           <div className="flex gap-2">
-            <button type="button" onClick={() => goToStep(1)} disabled={submitting} className={btnBack}>
+            <button type="button" onClick={() => goToStep(0)} disabled={submitting} className={btnBack}>
               Kembali
             </button>
             <button

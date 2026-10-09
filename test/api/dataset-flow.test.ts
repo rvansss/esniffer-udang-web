@@ -132,7 +132,6 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         totalWeightG: 485.5,
         initialCondition: 'dead',
         initialTempC: 8.2,
-        departedAtUtc: `${DAY}T00:15:00.000Z`,
         arrivedAtUtc: `${DAY}T05:00:00.000Z`, // ~4h45m
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
@@ -154,7 +153,6 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         totalWeightG: 485.5,
         initialCondition: 'dead',
         initialTempC: 8.2,
-        departedAtUtc: `${DAY}T00:15:00.000Z`,
         arrivedAtUtc: `${DAY}T02:00:00.000Z`,
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,

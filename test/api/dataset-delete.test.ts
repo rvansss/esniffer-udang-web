@@ -40,7 +40,6 @@ async function batchData(suffix: string, operatorId: string) {
       totalWeightG: 400,
       initialCondition: 'DEAD',
       initialTempC: 8,
-      departedAtUtc: new Date(`${DAY}T00:15:00.000Z`),
       arrivedAtUtc: new Date(`${DAY}T02:00:00.000Z`),
       coolerTempMinC: 1,
       coolerTempMaxC: 3,

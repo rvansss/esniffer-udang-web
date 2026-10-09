@@ -13,7 +13,7 @@ import { hashPassword } from '../../lib/auth/password.ts';
 import { createSession as createAuthSession, buildSessionCookie } from '../../lib/auth/session.ts';
 
 const DAY = '2099-02-02';
-const PROCURED = `${DAY}T00:30:00.000Z`; // 07:30 WIB — dalam jendela 06:00–08:00, sesudah berangkat 07:15
+const PROCURED = `${DAY}T00:30:00.000Z`; // 07:30 WIB — dalam jendela 06:00–08:00
 
 function postHeaders(cookie: string): Record<string, string> {
   return {
@@ -34,7 +34,6 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     totalWeightG: 485.5,
     initialCondition: 'dead',
     initialTempC: 8.2,
-    departedAtUtc: `${DAY}T00:15:00.000Z`,
     arrivedAtUtc: `${DAY}T02:00:00.000Z`,
     coolerTempMinC: 1.2,
     coolerTempMaxC: 3.8,
@@ -175,42 +174,30 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     );
   });
 
-  it('3. POST /batches menolak urutan waktu perjalanan yang mustahil (422)', async () => {
-    const reversed = await createBatch(
+  it('3. POST /batches menolak tiba sebelum/saat beli (422)', async () => {
+    // Tiba sebelum beli → tolak 422, bukan 500.
+    const early = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
         method: 'POST',
         headers: postHeaders(adminCookie),
-        body: JSON.stringify(
-          batchBody({ departedAtUtc: `${DAY}T05:00:00.000Z`, arrivedAtUtc: `${DAY}T02:00:00.000Z` })
-        ),
+        body: JSON.stringify(batchBody({ arrivedAtUtc: `${DAY}T00:00:00.000Z` })), // tiba 07:00 WIB, beli 07:30
       })
     );
-    assert.strictEqual(reversed.status, 422);
-
-    // Belanja tercatat sebelum berangkat dari lab → tolak 422, bukan 500.
-    const beforeDeparture = await createBatch(
-      new Request('http://localhost:3000/api/v1/batches', {
-        method: 'POST',
-        headers: postHeaders(adminCookie),
-        body: JSON.stringify(batchBody({ procuredAtUtc: `${DAY}T00:00:00.000Z` })), // 07:00 WIB, berangkat 07:15
-      })
-    );
-    assert.strictEqual(beforeDeparture.status, 422);
+    assert.strictEqual(early.status, 422);
     assert.strictEqual(
-      (await beforeDeparture.json()).error.message,
-      'Waktu berangkat (dari lab) harus sebelum waktu beli udang di pasar'
+      (await early.json()).error.message,
+      'Waktu tiba di lab harus setelah waktu beli udang'
     );
 
-    // Belanja tercatat sesudah tiba kembali di lab → juga tolak.
-    const afterArrival = await createBatch(
+    // Tiba tepat saat beli → juga tolak (urutan ketat).
+    const equal = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
         method: 'POST',
         headers: postHeaders(adminCookie),
-        body: JSON.stringify(batchBody({ arrivedAtUtc: '2099-02-01T23:45:00.000Z' })), // tiba 06:45 WIB, beli 07:30
+        body: JSON.stringify(batchBody({ arrivedAtUtc: PROCURED })),
       })
     );
-    assert.strictEqual(afterArrival.status, 422);
-    assert.strictEqual((await afterArrival.json()).error.message, 'Waktu tiba di lab harus setelah waktu beli udang');
+    assert.strictEqual(equal.status, 422);
   });
 
   it('4. POST /batches menolak cold-chain >3 jam tanpa deviasi (422) dan menerima dengan deviasi', async () => {

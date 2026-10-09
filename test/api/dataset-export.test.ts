@@ -99,7 +99,6 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         totalWeightG: 485.5,
         initialCondition: 'DEAD',
         initialTempC: 8.2,
-        departedAtUtc: new Date('2099-06-06T00:15:00.000Z'),
         arrivedAtUtc: new Date('2099-06-06T02:00:00.000Z'),
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
@@ -254,22 +253,22 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.strictEqual(sr[2], 'Pasar Export');
     assert.strictEqual(sr[6], '12.5'); // shrimp_length_cm batch
     assert.strictEqual(sr[7], '485.5');
-    assert.strictEqual(sr[20], GROUP);
-    assert.strictEqual(sr[21], 'room_temp');
-    assert.strictEqual(sr[25], '482');
-    assert.strictEqual(sr[26], '12.4'); // shrimp_length_cm grup
-    assert.strictEqual(sr[28], '162.3');
-    assert.strictEqual(sr[29], SESSION);
-    assert.strictEqual(sr[31], '0');
-    assert.strictEqual(sr[34], 'complete');
-    assert.strictEqual(sr[35], 'true');
+    assert.strictEqual(sr[19], GROUP);
+    assert.strictEqual(sr[20], 'room_temp');
+    assert.strictEqual(sr[24], '482');
+    assert.strictEqual(sr[25], '12.4'); // shrimp_length_cm grup
+    assert.strictEqual(sr[27], '162.3');
+    assert.strictEqual(sr[28], SESSION);
+    assert.strictEqual(sr[30], '0');
+    assert.strictEqual(sr[33], 'complete');
+    assert.strictEqual(sr[34], 'true');
 
     const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
-    assert.strictEqual(sd[20], `${BATCH}-SD`);
-    assert.strictEqual(sd[21], 'cold');
-    assert.strictEqual(sd[26], '12.6'); // shrimp_length_cm grup dingin
-    assert.strictEqual(sd[29], ''); // session_id kosong
-    assert.strictEqual(sd[34], 'no_session'); // ditandai jelas
+    assert.strictEqual(sd[19], `${BATCH}-SD`);
+    assert.strictEqual(sd[20], 'cold');
+    assert.strictEqual(sd[25], '12.6'); // shrimp_length_cm grup dingin
+    assert.strictEqual(sd[28], ''); // session_id kosong
+    assert.strictEqual(sd[33], 'no_session'); // ditandai jelas
   });
 
   it('5. format tidak dikenal ditolak 422', async () => {

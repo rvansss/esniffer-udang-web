@@ -89,7 +89,6 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
           totalWeightG: 485.5,
           initialCondition: 'DEAD',
           initialTempC: 8.2,
-          departedAtUtc: new Date(`${DAY}T00:15:00.000Z`),
           arrivedAtUtc: new Date(`${DAY}T02:00:00.000Z`),
           coolerTempMinC: 1.2,
           coolerTempMaxC: 3.8,

@@ -127,7 +127,6 @@ export const DATASET_METADATA_CSV_HEADERS = [
   'total_weight_g',
   'initial_condition',
   'initial_temp_c',
-  'departed_at_utc',
   'arrived_at_utc',
   'cooler_temp_min_c',
   'cooler_temp_max_c',
