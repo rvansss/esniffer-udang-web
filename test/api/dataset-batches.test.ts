@@ -182,7 +182,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(early.status, 422);
     assert.strictEqual(
       (await early.json()).error.message,
-      'Waktu tiba di lab harus setelah waktu beli udang'
+      'Tanggal dan jam tiba harus setelah tanggal dan jam beli'
     );
 
     // Tiba tepat saat beli → juga tolak (urutan ketat).

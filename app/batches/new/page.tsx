@@ -111,26 +111,10 @@ export default function NewBatchPage() {
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
   const [groupSD, setGroupSD] = useState<GroupForm>(emptyGroup());
 
-  // Berat sebelum observasi selalu sama di kedua kartu (ditimbang sekali
-  // sebelum dibagi): kartu pertama yang disentuh menyalin ke kartu satunya;
-  // berat sesudah observasi diisi per kartu (hasil tiap perlakuan bisa beda).
-  const [labSource, setLabSource] = useState<'sr' | 'sd' | null>(null);
   const setSR = (v: GroupForm) => {
-    if (v.labWeightBeforeG !== groupSR.labWeightBeforeG) {
-      if (labSource !== 'sd') {
-        setGroupSD((prev) => ({ ...prev, labWeightBeforeG: v.labWeightBeforeG }));
-      }
-      setLabSource('sr');
-    }
     setGroupSR(v);
   };
   const setSD = (v: GroupForm) => {
-    if (v.labWeightBeforeG !== groupSD.labWeightBeforeG) {
-      if (labSource !== 'sr') {
-        setGroupSR((prev) => ({ ...prev, labWeightBeforeG: v.labWeightBeforeG }));
-      }
-      setLabSource('sd');
-    }
     setGroupSD(v);
   };
 
@@ -151,8 +135,7 @@ export default function NewBatchPage() {
     // di lab 07:55 (perjalanan 35 menit).
     const procured = `${wibDate}T07:20`;
 
-    // Isi ulang berarti mengganti seluruh form, jadi penanda mirror direset.
-    setLabSource(null);
+    // Isi ulang berarti mengganti seluruh form.
     setDeviationAck(false);
 
     // Tahap A — pengadaan
@@ -251,7 +234,7 @@ export default function NewBatchPage() {
     } else {
       const proc = parseWib(procuredAt);
       if (!proc.error && transportDurationMs(proc.date!, arr.date!) <= 0) {
-        e.arrivedAt = 'Waktu tiba di lab harus setelah waktu beli udang.';
+        e.arrivedAt = 'Tanggal dan jam tiba harus setelah tanggal dan jam beli.';
       } else if (!proc.error && !isColdChainCompliant(proc.date!, arr.date!) && !deviationAck) {
         e.arrivedAt = 'Melebihi 3 jam — centang deviasi di bawah untuk lanjut.';
       }
@@ -696,7 +679,7 @@ export default function NewBatchPage() {
             {fieldErrors[`${prefix}-labWeightBeforeG`] ? (
               fieldMessage(`${prefix}-labWeightBeforeG`)
             ) : (
-              <p className={hintCls}>Ditimbang saat tiba; otomatis sama dengan kartu satunya.</p>
+              <p className={hintCls}>Ditimbang saat tiba, isi di tiap kartu.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -827,12 +810,12 @@ export default function NewBatchPage() {
             {fieldErrors.procuredAt ? (
               fieldMessage('procuredAt')
             ) : (
-              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus sebelum waktu tiba. Tersimpan sebagai UTC.</p>
+              <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus sebelum tanggal dan jam tiba. Tersimpan sebagai UTC.</p>
             )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="arrivedAt">
-              Waktu tiba di lab (WIB)
+              Tanggal dan jam tiba di lab (WIB)
               {reqMark}
             </label>
             <input
@@ -852,7 +835,7 @@ export default function NewBatchPage() {
             {fieldErrors.arrivedAt ? (
               fieldMessage('arrivedAt')
             ) : (
-              <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
+              <p className={hintCls}>Tiba kembali di lab; tanggal dan jam beli harus sebelum ini.</p>
             )}
           </div>
           </div>
@@ -1041,7 +1024,7 @@ export default function NewBatchPage() {
           {groupCard(
             'sr',
             'group-title-sr',
-            'Kelompok suhu ruang (25 ± 2 °C)',
+            'Suhu Ruang (25 ± 2 °C)',
             'Diukur tiap 6 jam selama 36–48 jam.',
             groupSR,
             setSR
@@ -1049,7 +1032,7 @@ export default function NewBatchPage() {
           {groupCard(
             'sd',
             'group-title-sd',
-            'Kelompok dingin (4 ± 1 °C)',
+            'Suhu Dingin (4 ± 1 °C)',
             'Diukur tiap 24 jam selama 10–14 hari.',
             groupSD,
             setSD

@@ -270,7 +270,7 @@ export function assertTransportGates(
   // `<= 0` (bukan `< 0`) karena cek DB menuntut urutan ketat, jadi waktu yang
   // sama persis pun harus ditolak di lapisan aplikasi.
   if (transportDurationMs(procuredAtUtc, arrivedAtUtc) <= 0) {
-    throw validationError('Waktu tiba di lab harus setelah waktu beli udang');
+    throw validationError('Tanggal dan jam tiba harus setelah tanggal dan jam beli');
   }
   if (!isColdChainCompliant(procuredAtUtc, arrivedAtUtc) && deviationAcknowledged !== true) {
     throw validationError(
