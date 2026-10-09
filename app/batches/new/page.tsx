@@ -1100,7 +1100,6 @@ export default function NewBatchPage() {
               </div>
             )}
           </div>
-          <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
           <button type="submit" className={btnPrimary}>
             Lanjut ke Pengelompokan
           </button>
