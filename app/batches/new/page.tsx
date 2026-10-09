@@ -514,7 +514,7 @@ export default function NewBatchPage() {
     );
   }
 
-  const steps = ['Pengadaan', 'Kelompok'];
+  const steps = ['Pengadaan', 'Pengelompokan'];
 
   const radioRow = (
     name: string,
@@ -672,6 +672,31 @@ export default function NewBatchPage() {
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div className={fieldCls}>
+            <label className={labelCls} htmlFor={`${prefix}-sampleShrimpCount`}>
+              Ekor per sesi
+              {reqMark}
+            </label>
+            <input
+              id={`${prefix}-sampleShrimpCount`}
+              name={`${prefix}-sampleShrimpCount`}
+              type="number"
+              min={3}
+              max={5}
+              inputMode="numeric"
+              autoComplete="off"
+              value={g.sampleShrimpCount}
+              aria-required="true"
+              aria-invalid={!!fieldErrors[`${prefix}-sampleShrimpCount`]}
+              onChange={(e) => set({ sampleShrimpCount: e.target.value })}
+              className={clsFor(`${prefix}-sampleShrimpCount`)}
+            />
+            {fieldErrors[`${prefix}-sampleShrimpCount`] ? (
+              fieldMessage(`${prefix}-sampleShrimpCount`)
+            ) : (
+              <p className={hintCls}>3–5 ekor.</p>
+            )}
+          </div>
+          <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-labWeightBeforeG`}>
               Berat sebelum observasi (g)
               {reqMark}
@@ -719,31 +744,6 @@ export default function NewBatchPage() {
               fieldMessage(`${prefix}-labWeightAfterG`)
             ) : (
               <p className={hintCls}>Ditimbang setelah sesi terakhir kartu ini.</p>
-            )}
-          </div>
-          <div className={fieldCls}>
-            <label className={labelCls} htmlFor={`${prefix}-sampleShrimpCount`}>
-              Ekor per sesi
-              {reqMark}
-            </label>
-            <input
-              id={`${prefix}-sampleShrimpCount`}
-              name={`${prefix}-sampleShrimpCount`}
-              type="number"
-              min={3}
-              max={5}
-              inputMode="numeric"
-              autoComplete="off"
-              value={g.sampleShrimpCount}
-              aria-required="true"
-              aria-invalid={!!fieldErrors[`${prefix}-sampleShrimpCount`]}
-              onChange={(e) => set({ sampleShrimpCount: e.target.value })}
-              className={clsFor(`${prefix}-sampleShrimpCount`)}
-            />
-            {fieldErrors[`${prefix}-sampleShrimpCount`] ? (
-              fieldMessage(`${prefix}-sampleShrimpCount`)
-            ) : (
-              <p className={hintCls}>3–5 ekor.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -821,7 +821,7 @@ export default function NewBatchPage() {
               Isi otomatis (data tes)
             </button>
             <span className="text-[11px] font-mono text-white/40">
-              Uji cepat: mengisi pengadaan dan kelompok dengan nilai realistis; foto tetap dipilih manual.
+              Uji cepat: mengisi pengadaan dan pengelompokan dengan nilai realistis; foto tetap dipilih manual.
             </span>
           </div>
         )}
@@ -874,6 +874,7 @@ export default function NewBatchPage() {
             goToStep(1);
           }}
         >
+          <div className="grid grid-cols-2 gap-3">
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="procuredAt">
               Tanggal dan jam beli (WIB)
@@ -899,6 +900,51 @@ export default function NewBatchPage() {
               <p className={hintCls}>Wajib pagi 06:00–08:00 WIB, dan harus sebelum waktu tiba. Tersimpan sebagai UTC.</p>
             )}
           </div>
+          <div className={fieldCls}>
+            <label className={labelCls} htmlFor="arrivedAt">
+              Waktu tiba di lab (WIB)
+              {reqMark}
+            </label>
+            <input
+              id="arrivedAt"
+              name="arrivedAt"
+              type="datetime-local"
+              autoComplete="off"
+              value={arrivedAt}
+              aria-required="true"
+              aria-invalid={!!fieldErrors.arrivedAt}
+              onChange={(e) => {
+                setArrivedAt(e.target.value);
+                revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
+              }}
+              className={clsFor('arrivedAt')}
+            />
+            {fieldErrors.arrivedAt ? (
+              fieldMessage('arrivedAt')
+            ) : (
+              <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
+            )}
+          </div>
+          </div>
+          {durationHours !== null && !fieldErrors.arrivedAt && (
+            <p aria-live="polite" className={`text-xs font-mono ${overDuration ? 'text-rose-300' : 'text-emerald-300'}`}>
+              Durasi: {durationFmt.format(durationHours)} jam {overDuration ? '(melebihi 3 jam)' : '(dalam batas 3 jam)'}
+            </p>
+          )}
+          {overDuration && (
+            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-mono text-rose-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deviationAck}
+                onChange={(e) => {
+                  setDeviationAck(e.target.checked);
+                  revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
+                }}
+                className="mt-0.5 w-4 h-4 accent-rose-400"
+              />
+              Catat sebagai deviasi cold-chain (durasi lebih dari 3 jam)
+            </label>
+          )}
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="marketSource">
               Sumber pasar
@@ -926,6 +972,7 @@ export default function NewBatchPage() {
               <p className={hintCls}>Tulis bebas nama pasar tempat membeli.</p>
             )}
           </div>
+          <div className="grid grid-cols-2 gap-3">
           <div className={fieldCls}>
             <span className={labelCls}>
               Jenis sumber
@@ -978,6 +1025,17 @@ export default function NewBatchPage() {
               revalidateLive(0, { initialTempC: fieldErrors.initialTempC });
             }, { placeholder: '8.2…', hint: 'Ukur dengan termometer tusuk.' })}
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            {numberField('coolerMin', 'Suhu cool box min (°C)', coolerMin, (v) => {
+              setCoolerMin(v);
+              revalidateLive(0, { coolerMin: fieldErrors.coolerMin });
+            }, { placeholder: '1.2…' })}
+            {numberField('coolerMax', 'Suhu cool box max (°C)', coolerMax, (v) => {
+              setCoolerMax(v);
+              revalidateLive(0, { coolerMax: fieldErrors.coolerMax });
+            }, { placeholder: '3.8…' })}
+          </div>
+          <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
           <div className={fieldCls}>
             <span className={labelCls}>
               Kondisi awal
@@ -987,6 +1045,7 @@ export default function NewBatchPage() {
               ['dead', 'Mati'],
               ['alive', 'Hidup'],
             ])}
+          </div>
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="photos">
@@ -1041,63 +1100,9 @@ export default function NewBatchPage() {
               </div>
             )}
           </div>
-          <div className={fieldCls}>
-            <label className={labelCls} htmlFor="arrivedAt">
-              Waktu tiba di lab (WIB)
-              {reqMark}
-            </label>
-            <input
-              id="arrivedAt"
-              name="arrivedAt"
-              type="datetime-local"
-              autoComplete="off"
-              value={arrivedAt}
-              aria-required="true"
-              aria-invalid={!!fieldErrors.arrivedAt}
-              onChange={(e) => {
-                setArrivedAt(e.target.value);
-                revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
-              }}
-              className={clsFor('arrivedAt')}
-            />
-            {fieldErrors.arrivedAt ? (
-              fieldMessage('arrivedAt')
-            ) : (
-              <p className={hintCls}>Tiba kembali di lab; jam beli harus sebelum ini.</p>
-            )}
-          </div>
-          {durationHours !== null && !fieldErrors.arrivedAt && (
-            <p aria-live="polite" className={`text-xs font-mono ${overDuration ? 'text-rose-300' : 'text-emerald-300'}`}>
-              Durasi: {durationFmt.format(durationHours)} jam {overDuration ? '(melebihi 3 jam)' : '(dalam batas 3 jam)'}
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            {numberField('coolerMin', 'Suhu cool box min (°C)', coolerMin, (v) => {
-              setCoolerMin(v);
-              revalidateLive(0, { coolerMin: fieldErrors.coolerMin });
-            }, { placeholder: '1.2…' })}
-            {numberField('coolerMax', 'Suhu cool box max (°C)', coolerMax, (v) => {
-              setCoolerMax(v);
-              revalidateLive(0, { coolerMax: fieldErrors.coolerMax });
-            }, { placeholder: '3.8…' })}
-          </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
-          {overDuration && (
-            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-mono text-rose-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={deviationAck}
-                onChange={(e) => {
-                  setDeviationAck(e.target.checked);
-                  revalidateLive(0, { arrivedAt: fieldErrors.arrivedAt });
-                }}
-                className="mt-0.5 w-4 h-4 accent-rose-400"
-              />
-              Catat sebagai deviasi cold-chain (durasi lebih dari 3 jam)
-            </label>
-          )}
           <button type="submit" className={btnPrimary}>
-            Lanjut ke Kelompok
+            Lanjut ke Pengelompokan
           </button>
         </form>
       )}
