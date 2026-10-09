@@ -10,11 +10,19 @@ import SuccessNotice, { useSuccessNotice } from '../../components/ui/SuccessNoti
 interface BatchItem {
   batchId: string;
   marketSource: string;
+  procuredAtUtc: string;
   shrimpCount: number;
   totalWeightG: number | null;
   lockedAt: string | null;
   createdAt: string;
 }
+
+const dateFmt = new Intl.DateTimeFormat('id-ID', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Jakarta',
+});
 
 export default function BatchesPage() {
   const { user, isLoading, apiFetch } = useAuth();
@@ -237,7 +245,7 @@ export default function BatchesPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-xs font-mono text-white/60">
-                  {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
+                  {dateFmt.format(new Date(b.procuredAtUtc))} • {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
                 </p>
               </Link>
                   </div>
