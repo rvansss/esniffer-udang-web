@@ -59,7 +59,7 @@ export async function POST(request: Request): Promise<Response> {
     const marketSource = parseRequiredString(body?.marketSource, 'marketSource', 1, 100);
     const sourceType = parseSourceType(body?.sourceType);
     const shrimpCount = parseIntMinimum(body?.shrimpCount, 'shrimpCount', 10);
-    const sizeGrade = parseRequiredString(body?.sizeGrade, 'sizeGrade', 1, 32);
+    const sizeGrade = parseIntMinimum(body?.sizeGrade, 'sizeGrade', 1);
     const totalWeightG = parsePositiveNumber(body?.totalWeightG, 'totalWeightG', 2000);
     const initialCondition = parseInitialCondition(body?.initialCondition);
     const initialTempC = parseBoundedNumber(body?.initialTempC, 'initialTempC', -2, 30);

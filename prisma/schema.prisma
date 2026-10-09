@@ -238,7 +238,7 @@ model CollectionBatch {
   marketSource      String               @map("market_source") @db.VarChar(100)
   sourceType        CollectionSourceType @default(MARKET) @map("source_type")
   shrimpCount       Int                  @map("shrimp_count")
-  sizeGrade         String               @map("size_grade") @db.VarChar(32)
+  sizeGrade         Int                  @map("size_grade")
   totalWeightG      Decimal              @map("total_weight_g") @db.Decimal(8, 2)
   initialCondition  InitialCondition     @map("initial_condition")
   initialTempC      Decimal              @map("initial_temp_c") @db.Decimal(5, 2)

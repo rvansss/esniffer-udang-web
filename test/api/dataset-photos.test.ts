@@ -71,7 +71,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
           marketSource: 'Pasar Foto Test',
           sourceType: 'MARKET',
           shrimpCount: 12,
-          sizeGrade: 'uniform_medium',
+          sizeGrade: 60,
           totalWeightG: 485.5,
           initialCondition: 'FRESH_DEAD',
           initialTempC: 8.2,

@@ -85,7 +85,7 @@ export default function NewBatchPage() {
   const [marketSource, setMarketSource] = useState('');
   const [sourceType, setSourceType] = useState('market');
   const [shrimpCount, setShrimpCount] = useState('12');
-  const [sizeGrade, setSizeGrade] = useState('uniform_medium');
+  const [sizeGrade, setSizeGrade] = useState('');
   const [totalWeightG, setTotalWeightG] = useState('');
   const [initialCondition, setInitialCondition] = useState('fresh_dead');
   const [initialTempC, setInitialTempC] = useState('');
@@ -183,7 +183,7 @@ export default function NewBatchPage() {
     setMarketSource('Pasar Ciroyom');
     setSourceType('market');
     setShrimpCount('12');
-    setSizeGrade('uniform_medium');
+    setSizeGrade('25'); // 12 ekor / 480 g → 25 ekor per kg
     setTotalWeightG('480');
     setInitialCondition('fresh_dead');
     setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
@@ -252,8 +252,11 @@ export default function NewBatchPage() {
     } else if (!Number.isInteger(count) || count < 10) {
       e.shrimpCount = 'Minimal 10 ekor (bilangan bulat).';
     }
-    if (sizeGrade.trim() === '') {
-      e.sizeGrade = 'Wajib dipilih.';
+    const size = toNum(sizeGrade);
+    if (size === null) {
+      e.sizeGrade = 'Wajib diisi.';
+    } else if (!Number.isInteger(size) || size < 1) {
+      e.sizeGrade = 'Minimal 1 ekor/kg (bilangan bulat).';
     }
     const w = toNum(totalWeightG);
     if (w === null) {
@@ -496,7 +499,7 @@ export default function NewBatchPage() {
         marketSource: marketSource.trim(),
         sourceType,
         shrimpCount: Number(shrimpCount),
-        sizeGrade,
+        sizeGrade: Number(sizeGrade),
         totalWeightG: Number(totalWeightG),
         initialCondition,
         initialTempC: Number(initialTempC),
@@ -916,11 +919,16 @@ export default function NewBatchPage() {
             </div>
             <div className={fieldCls}>
               <label className={labelCls} htmlFor="sizeGrade">
-                Ukuran
+                Ukuran (ekor/kg)
               </label>
-              <select
+              <input
                 id="sizeGrade"
                 name="sizeGrade"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                autoComplete="off"
                 value={sizeGrade}
                 aria-invalid={!!fieldErrors.sizeGrade}
                 onChange={(e) => {
@@ -928,21 +936,8 @@ export default function NewBatchPage() {
                   revalidateLive(0, { sizeGrade: fieldErrors.sizeGrade });
                 }}
                 className={clsFor('sizeGrade')}
-              >
-                <option value="uniform_medium" className="bg-slate-900">
-                  Seragam sedang
-                </option>
-                <option value="uniform_small" className="bg-slate-900">
-                  Seragam kecil
-                </option>
-                <option value="uniform_large" className="bg-slate-900">
-                  Seragam besar
-                </option>
-                <option value="mixed" className="bg-slate-900">
-                  Campuran
-                </option>
-              </select>
-              {fieldMessage('sizeGrade')}
+              />
+              {fieldErrors.sizeGrade ? fieldMessage('sizeGrade') : <p className={hintCls}>Jumlah ekor per kg, bilangan bulat.</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

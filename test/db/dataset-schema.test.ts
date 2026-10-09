@@ -27,7 +27,7 @@ function batchData(overrides: Record<string, unknown> = {}) {
     marketSource: 'Pasar Bebas Ketik Manual',
     sourceType: 'MARKET' as const,
     shrimpCount: 12,
-    sizeGrade: 'uniform_medium',
+    sizeGrade: 60,
     totalWeightG: 485.5,
     initialCondition: 'FRESH_DEAD' as const,
     initialTempC: 8.2,

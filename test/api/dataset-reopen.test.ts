@@ -70,7 +70,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         marketSource: 'Pasar Reopen',
         sourceType: 'MARKET',
         shrimpCount: 12,
-        sizeGrade: 'uniform_medium',
+        sizeGrade: 60,
         totalWeightG: 400,
         initialCondition: 'FRESH_DEAD',
         initialTempC: 8,

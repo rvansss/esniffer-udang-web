@@ -30,7 +30,7 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     marketSource: 'Pasar Bebas Ketik Manual',
     sourceType: 'market',
     shrimpCount: 12,
-    sizeGrade: 'uniform_medium',
+    sizeGrade: 60,
     totalWeightG: 485.5,
     initialCondition: 'fresh_dead',
     initialTempC: 8.2,
@@ -130,6 +130,19 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
       })
     );
     assert.strictEqual(res.status, 422);
+  });
+
+  it('2b. POST /batches menolak sizeGrade bukan bilangan bulat ≥ 1 (422)', async () => {
+    for (const sizeGrade of [0, 1.5, 'uniform_medium', '']) {
+      const res = await createBatch(
+        new Request('http://localhost:3000/api/v1/batches', {
+          method: 'POST',
+          headers: postHeaders(adminCookie),
+          body: JSON.stringify(batchBody({ sizeGrade })),
+        })
+      );
+      assert.strictEqual(res.status, 422, `sizeGrade ${JSON.stringify(sizeGrade)} harus ditolak`);
+    }
   });
 
   it('3. POST /batches menolak urutan waktu perjalanan yang mustahil (422)', async () => {

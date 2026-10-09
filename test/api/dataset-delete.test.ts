@@ -34,7 +34,7 @@ async function batchData(suffix: string, operatorId: string) {
       marketSource: 'Pasar Hapus',
       sourceType: 'MARKET',
       shrimpCount: 12,
-      sizeGrade: 'uniform_medium',
+      sizeGrade: 60,
       totalWeightG: 400,
       initialCondition: 'FRESH_DEAD',
       initialTempC: 8,

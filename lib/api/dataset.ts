@@ -121,7 +121,7 @@ type DbBatch = {
   marketSource: string;
   sourceType: string;
   shrimpCount: number;
-  sizeGrade: string;
+  sizeGrade: number;
   totalWeightG: { toNumber(): number };
   initialCondition: string;
   initialTempC: { toNumber(): number };

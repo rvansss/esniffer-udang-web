@@ -74,7 +74,7 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         marketSource: 'Pasar Backfill',
         sourceType: 'MARKET',
         shrimpCount: 12,
-        sizeGrade: 'uniform_medium',
+        sizeGrade: 60,
         totalWeightG: 485.5,
         initialCondition: 'FRESH_DEAD',
         initialTempC: 8.2,

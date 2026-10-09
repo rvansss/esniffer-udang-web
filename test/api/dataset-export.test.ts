@@ -93,7 +93,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         marketSource: 'Pasar Export',
         sourceType: 'MARKET',
         shrimpCount: 12,
-        sizeGrade: 'uniform_medium',
+        sizeGrade: 60,
         totalWeightG: 485.5,
         initialCondition: 'FRESH_DEAD',
         initialTempC: 8.2,
