@@ -34,7 +34,9 @@ async function batchData(suffix: string, operatorId: string) {
       marketSource: 'Pasar Hapus',
       sourceType: 'MARKET',
       shrimpCount: 12,
-      sizeGrade: 60,
+      // Langsung via Prisma (melewati API): isi turunan manual sesuai rumus server.
+      sizeGrade: 30, // Math.round(12 / 400 * 1000)
+      shrimpLengthCm: 12.5,
       totalWeightG: 400,
       initialCondition: 'FRESH_DEAD',
       initialTempC: 8,

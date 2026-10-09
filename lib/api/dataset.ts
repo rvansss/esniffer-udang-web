@@ -122,6 +122,7 @@ type DbBatch = {
   sourceType: string;
   shrimpCount: number;
   sizeGrade: number;
+  shrimpLengthCm: { toNumber(): number } | null;
   totalWeightG: { toNumber(): number };
   initialCondition: string;
   initialTempC: { toNumber(): number };
@@ -147,6 +148,7 @@ export function serializeBatch(b: DbBatch) {
     sourceType: DB_TO_SOURCE[b.sourceType] ?? b.sourceType,
     shrimpCount: b.shrimpCount,
     sizeGrade: b.sizeGrade,
+    shrimpLengthCm: dec(b.shrimpLengthCm),
     totalWeightG: dec(b.totalWeightG),
     initialCondition: DB_TO_CONDITION[b.initialCondition] ?? b.initialCondition,
     initialTempC: dec(b.initialTempC),
@@ -174,6 +176,7 @@ type DbGroup = {
   labTempC: { toNumber(): number };
   visualCheck: string;
   labWeightG: { toNumber(): number };
+  shrimpLengthCm: { toNumber(): number } | null;
   sampleShrimpCount: number;
   sampleWeightG: { toNumber(): number };
   createdAt: Date;
@@ -190,6 +193,7 @@ export function serializeGroup(g: DbGroup) {
     labTempC: dec(g.labTempC),
     visualCheck: DB_TO_VISUAL[g.visualCheck] ?? g.visualCheck,
     labWeightG: dec(g.labWeightG),
+    shrimpLengthCm: dec(g.shrimpLengthCm),
     sampleShrimpCount: g.sampleShrimpCount,
     sampleWeightG: dec(g.sampleWeightG),
     createdAt: g.createdAt.toISOString(),

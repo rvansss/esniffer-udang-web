@@ -39,6 +39,7 @@ interface GroupForm {
   labTempC: string;
   visualCheck: string;
   labWeightG: string;
+  shrimpLengthCm: string;
   sampleShrimpCount: string;
   sampleWeightG: string;
 }
@@ -47,6 +48,7 @@ const emptyGroup = (): GroupForm => ({
   labTempC: '',
   visualCheck: 'normal',
   labWeightG: '',
+  shrimpLengthCm: '',
   sampleShrimpCount: '4',
   sampleWeightG: '',
 });
@@ -85,7 +87,7 @@ export default function NewBatchPage() {
   const [marketSource, setMarketSource] = useState('');
   const [sourceType, setSourceType] = useState('market');
   const [shrimpCount, setShrimpCount] = useState('12');
-  const [sizeGrade, setSizeGrade] = useState('');
+  const [shrimpLengthCm, setShrimpLengthCm] = useState('');
   const [totalWeightG, setTotalWeightG] = useState('');
   const [initialCondition, setInitialCondition] = useState('fresh_dead');
   const [initialTempC, setInitialTempC] = useState('');
@@ -183,7 +185,7 @@ export default function NewBatchPage() {
     setMarketSource('Pasar Ciroyom');
     setSourceType('market');
     setShrimpCount('12');
-    setSizeGrade('25'); // 12 ekor / 480 g → 25 ekor per kg
+    setShrimpLengthCm('12.5'); // panjang representatif saat beli
     setTotalWeightG('480');
     setInitialCondition('fresh_dead');
     setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
@@ -199,6 +201,7 @@ export default function NewBatchPage() {
       labTempC: '6.4',
       visualCheck: 'normal',
       labWeightG: '472',
+      shrimpLengthCm: '12.4',
       sampleShrimpCount: '4',
       sampleWeightG: '158',
     });
@@ -206,6 +209,7 @@ export default function NewBatchPage() {
       labTempC: '6.4',
       visualCheck: 'normal',
       labWeightG: '472',
+      shrimpLengthCm: '12.6',
       sampleShrimpCount: '4',
       sampleWeightG: '156',
     });
@@ -252,11 +256,11 @@ export default function NewBatchPage() {
     } else if (!Number.isInteger(count) || count < 10) {
       e.shrimpCount = 'Minimal 10 ekor (bilangan bulat).';
     }
-    const size = toNum(sizeGrade);
-    if (size === null) {
-      e.sizeGrade = 'Wajib diisi.';
-    } else if (!Number.isInteger(size) || size < 1) {
-      e.sizeGrade = 'Minimal 1 ekor/kg (bilangan bulat).';
+    const len = toNum(shrimpLengthCm);
+    if (len === null) {
+      e.shrimpLengthCm = 'Wajib diisi.';
+    } else if (!(len >= 1 && len <= 50)) {
+      e.shrimpLengthCm = 'Harus 1 sampai 50 cm.';
     }
     const w = toNum(totalWeightG);
     if (w === null) {
@@ -332,6 +336,12 @@ export default function NewBatchPage() {
       e[`${prefix}-labWeightG`] = 'Wajib diisi.';
     } else if (!(lw > 0)) {
       e[`${prefix}-labWeightG`] = 'Harus lebih dari 0.';
+    }
+    const gl = toNum(g.shrimpLengthCm);
+    if (gl === null) {
+      e[`${prefix}-shrimpLengthCm`] = 'Wajib diisi.';
+    } else if (!(gl >= 1 && gl <= 50)) {
+      e[`${prefix}-shrimpLengthCm`] = 'Harus 1 sampai 50 cm.';
     }
     const c = toNum(g.sampleShrimpCount);
     if (c === null) {
@@ -482,7 +492,7 @@ export default function NewBatchPage() {
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       const stepOf = (k: string) =>
-        ['procuredAt', 'marketSource', 'shrimpCount', 'sizeGrade', 'totalWeightG', 'initialTempC'].includes(k)
+        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC'].includes(k)
           ? 0
           : ['departedAt', 'arrivedAt', 'coolerMin', 'coolerMax', 'tempStart', 'tempEnd'].includes(k)
             ? 1
@@ -499,7 +509,7 @@ export default function NewBatchPage() {
         marketSource: marketSource.trim(),
         sourceType,
         shrimpCount: Number(shrimpCount),
-        sizeGrade: Number(sizeGrade),
+        shrimpLengthCm: Number(shrimpLengthCm),
         totalWeightG: Number(totalWeightG),
         initialCondition,
         initialTempC: Number(initialTempC),
@@ -516,6 +526,7 @@ export default function NewBatchPage() {
         labTempC: Number(g.labTempC),
         visualCheck: g.visualCheck,
         labWeightG: Number(g.labWeightG),
+        shrimpLengthCm: Number(g.shrimpLengthCm),
         sampleShrimpCount: Number(g.sampleShrimpCount),
         sampleWeightG: Number(g.sampleWeightG),
       });
@@ -763,6 +774,31 @@ export default function NewBatchPage() {
             />
             {fieldMessage(`${prefix}-sampleWeightG`)}
           </div>
+          <div className={fieldCls}>
+            <label className={labelCls} htmlFor={`${prefix}-shrimpLengthCm`}>
+              Panjang udang (cm)
+            </label>
+            <input
+              id={`${prefix}-shrimpLengthCm`}
+              name={`${prefix}-shrimpLengthCm`}
+              type="number"
+              min={1}
+              max={50}
+              step="0.1"
+              inputMode="decimal"
+              autoComplete="off"
+              value={g.shrimpLengthCm}
+              aria-invalid={!!fieldErrors[`${prefix}-shrimpLengthCm`]}
+              onChange={(e) => set({ shrimpLengthCm: e.target.value })}
+              placeholder="12.5…"
+              className={clsFor(`${prefix}-shrimpLengthCm`)}
+            />
+            {fieldErrors[`${prefix}-shrimpLengthCm`] ? (
+              fieldMessage(`${prefix}-shrimpLengthCm`)
+            ) : (
+              <p className={hintCls}>Bekas potongan kepala sampai telson.</p>
+            )}
+          </div>
         </div>
       </fieldset>
     );
@@ -917,28 +953,12 @@ export default function NewBatchPage() {
               />
               {fieldErrors.shrimpCount ? fieldMessage('shrimpCount') : <p className={hintCls}>Minimal 10 ekor.</p>}
             </div>
-            <div className={fieldCls}>
-              <label className={labelCls} htmlFor="sizeGrade">
-                Ukuran (ekor/kg)
-              </label>
-              <input
-                id="sizeGrade"
-                name="sizeGrade"
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                autoComplete="off"
-                value={sizeGrade}
-                aria-invalid={!!fieldErrors.sizeGrade}
-                onChange={(e) => {
-                  setSizeGrade(e.target.value);
-                  revalidateLive(0, { sizeGrade: fieldErrors.sizeGrade });
-                }}
-                className={clsFor('sizeGrade')}
-              />
-              {fieldErrors.sizeGrade ? fieldMessage('sizeGrade') : <p className={hintCls}>Jumlah ekor per kg, bilangan bulat.</p>}
-            </div>
+            {numberField('shrimpLengthCm', 'Panjang udang (cm)', shrimpLengthCm, setShrimpLengthCm, {
+              min: 1,
+              max: 50,
+              step: '0.1',
+              hint: 'Dari bekas potongan kepala sampai ujung ekor (telson).',
+            })}
           </div>
           <div className="grid grid-cols-2 gap-3">
             {numberField('totalWeightG', 'Berat total (gram)', totalWeightG, (v) => {

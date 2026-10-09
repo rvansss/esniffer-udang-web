@@ -59,8 +59,11 @@ export async function POST(request: Request): Promise<Response> {
     const marketSource = parseRequiredString(body?.marketSource, 'marketSource', 1, 100);
     const sourceType = parseSourceType(body?.sourceType);
     const shrimpCount = parseIntMinimum(body?.shrimpCount, 'shrimpCount', 10);
-    const sizeGrade = parseIntMinimum(body?.sizeGrade, 'sizeGrade', 1);
+    // Ukuran ekor/kg terhitung otomatis (tidak dibaca dari input):
+    // jumlah ekor ÷ berat total (gram) × 1000, dibulatkan ke bilangan bulat.
     const totalWeightG = parsePositiveNumber(body?.totalWeightG, 'totalWeightG', 2000);
+    const sizeGrade = Math.round((shrimpCount / totalWeightG) * 1000);
+    const shrimpLengthCm = parseBoundedNumber(body?.shrimpLengthCm, 'shrimpLengthCm', 1, 50);
     const initialCondition = parseInitialCondition(body?.initialCondition);
     const initialTempC = parseBoundedNumber(body?.initialTempC, 'initialTempC', -2, 30);
     const departedAtUtc = parseIsoDate(body?.departedAtUtc, 'departedAtUtc', true)!;
@@ -105,6 +108,7 @@ export async function POST(request: Request): Promise<Response> {
             sourceType,
             shrimpCount,
             sizeGrade,
+            shrimpLengthCm,
             totalWeightG,
             initialCondition,
             initialTempC,

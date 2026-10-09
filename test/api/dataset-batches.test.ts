@@ -30,7 +30,7 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     marketSource: 'Pasar Bebas Ketik Manual',
     sourceType: 'market',
     shrimpCount: 12,
-    sizeGrade: 60,
+    shrimpLengthCm: 12.5,
     totalWeightG: 485.5,
     initialCondition: 'fresh_dead',
     initialTempC: 8.2,
@@ -52,6 +52,7 @@ function groupsBody() {
         labTempC: 6.5,
         visualCheck: 'normal',
         labWeightG: 482.0,
+        shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
         sampleWeightG: 162.3,
       },
@@ -60,6 +61,7 @@ function groupsBody() {
         labTempC: 5.0,
         visualCheck: 'normal',
         labWeightG: 480.0,
+        shrimpLengthCm: 12.6,
         sampleShrimpCount: 4,
         sampleWeightG: 160.0,
       },
@@ -132,16 +134,29 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(res.status, 422);
   });
 
-  it('2b. POST /batches menolak sizeGrade bukan bilangan bulat ≥ 1 (422)', async () => {
-    for (const sizeGrade of [0, 1.5, 'uniform_medium', '']) {
+  it('2b. POST /batches menurunkan sizeGrade kiriman dan mewajibkan shrimpLengthCm', async () => {
+    // Nilai sizeGrade kiriman diabaikan: server selalu menghitung
+    // jumlah ekor ÷ berat (gram) × 1000 lalu membulatkan.
+    const ignored = await createBatch(
+      new Request('http://localhost:3000/api/v1/batches', {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify(batchBody({ sizeGrade: 9999 })),
+      })
+    );
+    assert.strictEqual(ignored.status, 201);
+    assert.strictEqual((await ignored.json()).data.sizeGrade, 25); // Math.round(12 / 485.5 * 1000)
+
+    // Panjang wajib 1–50 cm.
+    for (const shrimpLengthCm of [0, 60, '', 'dua belas']) {
       const res = await createBatch(
         new Request('http://localhost:3000/api/v1/batches', {
           method: 'POST',
           headers: postHeaders(adminCookie),
-          body: JSON.stringify(batchBody({ sizeGrade })),
+          body: JSON.stringify(batchBody({ shrimpLengthCm })),
         })
       );
-      assert.strictEqual(res.status, 422, `sizeGrade ${JSON.stringify(sizeGrade)} harus ditolak`);
+      assert.strictEqual(res.status, 422, `shrimpLengthCm ${JSON.stringify(shrimpLengthCm)} harus ditolak`);
     }
   });
 

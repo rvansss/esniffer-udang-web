@@ -72,11 +72,12 @@ export async function GET(
         full.rejectionNotes ?? '',
         full.photoUrls.length,
         dt(full.lockedAt),
+        num(full.shrimpLengthCm),
       ];
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
       if (full.sampleGroups.length === 0) {
-        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
+        rows.push([...batchBlock, ...Array(9).fill(''), ...noSessionBlock]);
       }
       for (const g of full.sampleGroups) {
         const groupBlock = [
@@ -86,6 +87,7 @@ export async function GET(
           num(g.labTempC),
           String(g.visualCheck).toLowerCase(),
           num(g.labWeightG),
+          num(g.shrimpLengthCm),
           g.sampleShrimpCount,
           num(g.sampleWeightG),
         ];

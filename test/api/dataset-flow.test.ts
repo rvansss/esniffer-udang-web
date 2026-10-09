@@ -128,7 +128,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         marketSource: 'Pasar Flow',
         sourceType: 'market',
         shrimpCount: 12,
-        sizeGrade: 60,
+        shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
         initialCondition: 'fresh_dead',
         initialTempC: 8.2,
@@ -150,7 +150,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         marketSource: 'Pasar Flow',
         sourceType: 'market',
         shrimpCount: 12,
-        sizeGrade: 60,
+        shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
         initialCondition: 'fresh_dead',
         initialTempC: 8.2,
@@ -169,8 +169,8 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const groupRes = await createGroups(
       post(adminCookie, `http://localhost:3000/api/v1/batches/${batchId}/groups`, {
         groups: [
-          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightG: 482, sampleShrimpCount: 4, sampleWeightG: 162.3 },
-          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightG: 480, sampleShrimpCount: 4, sampleWeightG: 160 },
+          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightG: 482, shrimpLengthCm: 12.4, sampleShrimpCount: 4, sampleWeightG: 162.3 },
+          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightG: 480, shrimpLengthCm: 12.6, sampleShrimpCount: 4, sampleWeightG: 160 },
         ],
       }),
       { params: Promise.resolve({ batchId }) }

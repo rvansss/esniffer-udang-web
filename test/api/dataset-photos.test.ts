@@ -72,7 +72,9 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
           marketSource: 'Pasar Foto Test',
           sourceType: 'MARKET',
           shrimpCount: 12,
-          sizeGrade: 60,
+          // Langsung via Prisma (melewati API): isi turunan manual sesuai rumus server.
+          sizeGrade: 25, // Math.round(12 / 485.5 * 1000)
+          shrimpLengthCm: 12.5,
           totalWeightG: 485.5,
           initialCondition: 'FRESH_DEAD',
           initialTempC: 8.2,
@@ -210,6 +212,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
             labTempC: 6.5,
             visualCheck: 'normal',
             labWeightG: 482,
+            shrimpLengthCm: 12.4,
             sampleShrimpCount: 4,
             sampleWeightG: 162,
           },

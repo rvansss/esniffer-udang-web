@@ -74,7 +74,9 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         marketSource: 'Pasar Backfill',
         sourceType: 'MARKET',
         shrimpCount: 12,
-        sizeGrade: 60,
+        // Langsung via Prisma (melewati API): isi turunan manual sesuai rumus server.
+        sizeGrade: 25, // Math.round(12 / 485.5 * 1000)
+        shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
         initialCondition: 'FRESH_DEAD',
         initialTempC: 8.2,

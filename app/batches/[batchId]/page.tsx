@@ -21,6 +21,7 @@ interface GroupItem {
   groupId: string;
   storageCondition: string;
   targetTempC: number | null;
+  shrimpLengthCm: number | null;
   sampleShrimpCount: number;
   sampleWeightG: number | null;
   sessions: SessionItem[];
@@ -31,6 +32,7 @@ interface BatchDetail {
   marketSource: string;
   shrimpCount: number;
   totalWeightG: number | null;
+  shrimpLengthCm: number | null;
   photoUrls: string[];
   lockedAt: string | null;
   sampleGroups: GroupItem[];
@@ -350,7 +352,7 @@ export default function BatchDetailPage() {
         <div>
           <h2 className="text-xl md:text-2xl font-mono font-black text-white tracking-widest">{batch.batchId}</h2>
           <p className="text-xs font-mono text-white/60 mt-1">
-            {batch.marketSource} • {batch.shrimpCount} ekor • {batch.totalWeightG ?? '--'} g
+            {batch.marketSource} • {batch.shrimpCount} ekor • {batch.totalWeightG ?? '--'} g • {batch.shrimpLengthCm ?? '--'} cm
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -485,7 +487,7 @@ export default function BatchDetailPage() {
           <div key={g.groupId} className={cardCls}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-mono font-bold text-white tracking-widest">
-                {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor
+                {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor • {g.shrimpLengthCm ?? '--'} cm
               </h3>
               <p className="text-[11px] font-mono text-white/45">
                 Jadwal timepoint: {seq.join(' · ')}

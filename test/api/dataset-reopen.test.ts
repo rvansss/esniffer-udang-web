@@ -70,7 +70,9 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         marketSource: 'Pasar Reopen',
         sourceType: 'MARKET',
         shrimpCount: 12,
-        sizeGrade: 60,
+        // Langsung via Prisma (melewati API): isi turunan manual sesuai rumus server.
+        sizeGrade: 30, // Math.round(12 / 400 * 1000)
+        shrimpLengthCm: 12.5,
         totalWeightG: 400,
         initialCondition: 'FRESH_DEAD',
         initialTempC: 8,
@@ -94,6 +96,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         labTempC: 6,
         visualCheck: 'NORMAL',
         labWeightG: 400,
+        shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
         sampleWeightG: 150,
       },
