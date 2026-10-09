@@ -98,7 +98,6 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         labWeightBeforeG: 482.0,
         labWeightAfterG: 478.5,
         sampleShrimpCount: 4,
-        sampleWeightG: 162.3,
       },
     });
     const endedAt = new Date(START.getTime() + 15 * 60_000);

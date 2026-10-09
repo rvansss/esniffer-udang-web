@@ -112,7 +112,6 @@ describe('HTTP API v1: Dataset Batch Delete Single & Bulk', () => {
         labWeightBeforeG: 400,
         labWeightAfterG: 395.5,
         sampleShrimpCount: 4,
-        sampleWeightG: 150,
       },
     });
 

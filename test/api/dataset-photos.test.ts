@@ -244,9 +244,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
             visualCheck: 'normal',
             labWeightBeforeG: 482,
             labWeightAfterG: 478.5,
-            shrimpLengthCm: 12.4,
             sampleShrimpCount: 4,
-            sampleWeightG: 162,
           },
         ],
       }

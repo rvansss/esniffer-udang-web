@@ -75,7 +75,6 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
         labWeightBeforeG: 482.0,
         labWeightAfterG: 478.5,
         sampleShrimpCount: 4,
-        sampleWeightG: 162.3,
       },
     });
     await prisma.measurementSession.create({
@@ -145,7 +144,6 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
           labWeightBeforeG: 480.0,
           labWeightAfterG: 476.2,
           sampleShrimpCount: 4,
-          sampleWeightG: 160.0,
         },
       }),
       (err: unknown) => {
@@ -224,7 +222,6 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
           labWeightBeforeG: 480.0,
           labWeightAfterG: 476.2,
           sampleShrimpCount: 9,
-          sampleWeightG: 300.0,
         },
       })
     );
@@ -325,7 +322,6 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
         labWeightBeforeG: 480.0,
         labWeightAfterG: 476.2,
         sampleShrimpCount: 4,
-        sampleWeightG: 160.0,
       },
     });
     const groups = await prisma.sampleGroup.findMany({ where: { batchId: BATCH } });

@@ -48,9 +48,7 @@ interface GroupForm {
   visualCheck: string;
   labWeightBeforeG: string;
   labWeightAfterG: string;
-  shrimpLengthCm: string;
   sampleShrimpCount: string;
-  sampleWeightG: string;
 }
 
 const emptyGroup = (): GroupForm => ({
@@ -58,9 +56,7 @@ const emptyGroup = (): GroupForm => ({
   visualCheck: 'normal',
   labWeightBeforeG: '',
   labWeightAfterG: '',
-  shrimpLengthCm: '',
   sampleShrimpCount: '4',
-  sampleWeightG: '',
 });
 
 const durationFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 });
@@ -178,18 +174,14 @@ export default function NewBatchPage() {
       visualCheck: 'normal',
       labWeightBeforeG: '472',
       labWeightAfterG: '468.5',
-      shrimpLengthCm: '12.4',
       sampleShrimpCount: '4',
-      sampleWeightG: '158',
     });
     setGroupSD({
       labTempC: '6.4',
       visualCheck: 'normal',
       labWeightBeforeG: '472',
       labWeightAfterG: '469.2',
-      shrimpLengthCm: '12.6',
       sampleShrimpCount: '4',
-      sampleWeightG: '156',
     });
     setFieldErrors({});
     notify('Form terisi data tes — periksa dulu sebelum Simpan batch.');
@@ -302,23 +294,11 @@ export default function NewBatchPage() {
     } else if (!(lwAfter > 0)) {
       e[`${prefix}-labWeightAfterG`] = 'Harus lebih dari 0.';
     }
-    const gl = toNum(g.shrimpLengthCm);
-    if (gl === null) {
-      e[`${prefix}-shrimpLengthCm`] = 'Wajib diisi.';
-    } else if (!(gl >= 1 && gl <= 50)) {
-      e[`${prefix}-shrimpLengthCm`] = 'Harus 1 sampai 50 cm.';
-    }
     const c = toNum(g.sampleShrimpCount);
     if (c === null) {
       e[`${prefix}-sampleShrimpCount`] = 'Wajib diisi.';
     } else if (!Number.isInteger(c) || c < 3 || c > 5) {
       e[`${prefix}-sampleShrimpCount`] = 'Harus 3–5 ekor.';
-    }
-    const sw = toNum(g.sampleWeightG);
-    if (sw === null) {
-      e[`${prefix}-sampleWeightG`] = 'Wajib diisi.';
-    } else if (!(sw > 0)) {
-      e[`${prefix}-sampleWeightG`] = 'Harus lebih dari 0.';
     }
     return e;
   };
@@ -481,9 +461,7 @@ export default function NewBatchPage() {
         visualCheck: g.visualCheck,
         labWeightBeforeG: Number(g.labWeightBeforeG),
         labWeightAfterG: Number(g.labWeightAfterG),
-        shrimpLengthCm: Number(g.shrimpLengthCm),
         sampleShrimpCount: Number(g.sampleShrimpCount),
-        sampleWeightG: Number(g.sampleWeightG),
       });
       await postJson(`/api/v1/batches/${encodeURIComponent(batch.batchId)}/groups`, {
         groups: [toGroup(groupSR, 'room_temp'), toGroup(groupSD, 'cold')],
@@ -744,54 +722,6 @@ export default function NewBatchPage() {
               fieldMessage(`${prefix}-labWeightAfterG`)
             ) : (
               <p className={hintCls}>Ditimbang setelah sesi terakhir kartu ini.</p>
-            )}
-          </div>
-          <div className={fieldCls}>
-            <label className={labelCls} htmlFor={`${prefix}-sampleWeightG`}>
-              Berat sesi (g)
-              {reqMark}
-            </label>
-            <input
-              id={`${prefix}-sampleWeightG`}
-              name={`${prefix}-sampleWeightG`}
-              type="number"
-              step="0.1"
-              inputMode="decimal"
-              autoComplete="off"
-              value={g.sampleWeightG}
-              aria-required="true"
-              aria-invalid={!!fieldErrors[`${prefix}-sampleWeightG`]}
-              onChange={(e) => set({ sampleWeightG: e.target.value })}
-              placeholder="162.3…"
-              className={clsFor(`${prefix}-sampleWeightG`)}
-            />
-            {fieldMessage(`${prefix}-sampleWeightG`)}
-          </div>
-          <div className={fieldCls}>
-            <label className={labelCls} htmlFor={`${prefix}-shrimpLengthCm`}>
-              Panjang udang (cm)
-              {reqMark}
-            </label>
-            <input
-              id={`${prefix}-shrimpLengthCm`}
-              name={`${prefix}-shrimpLengthCm`}
-              type="number"
-              min={1}
-              max={50}
-              step="0.1"
-              inputMode="decimal"
-              autoComplete="off"
-              value={g.shrimpLengthCm}
-              aria-required="true"
-              aria-invalid={!!fieldErrors[`${prefix}-shrimpLengthCm`]}
-              onChange={(e) => set({ shrimpLengthCm: e.target.value })}
-              placeholder="12.5…"
-              className={clsFor(`${prefix}-shrimpLengthCm`)}
-            />
-            {fieldErrors[`${prefix}-shrimpLengthCm`] ? (
-              fieldMessage(`${prefix}-shrimpLengthCm`)
-            ) : (
-              <p className={hintCls}>Bekas potongan kepala sampai telson.</p>
             )}
           </div>
         </div>

@@ -50,9 +50,7 @@ function groupsBody() {
         visualCheck: 'normal',
         labWeightBeforeG: 482.0,
         labWeightAfterG: 478.5,
-        shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
-        sampleWeightG: 162.3,
       },
       {
         storageCondition: 'cold',
@@ -60,9 +58,7 @@ function groupsBody() {
         visualCheck: 'normal',
         labWeightBeforeG: 480.0,
         labWeightAfterG: 476.2,
-        shrimpLengthCm: 12.6,
         sampleShrimpCount: 4,
-        sampleWeightG: 160.0,
       },
     ],
   };

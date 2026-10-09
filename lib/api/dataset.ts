@@ -181,9 +181,7 @@ type DbGroup = {
   visualCheck: string;
   labWeightBeforeG: { toNumber(): number };
   labWeightAfterG: { toNumber(): number } | null;
-  shrimpLengthCm: { toNumber(): number } | null;
   sampleShrimpCount: number;
-  sampleWeightG: { toNumber(): number };
   createdAt: Date;
 };
 
@@ -199,9 +197,7 @@ export function serializeGroup(g: DbGroup) {
     visualCheck: DB_TO_VISUAL[g.visualCheck] ?? g.visualCheck,
     labWeightBeforeG: dec(g.labWeightBeforeG),
     labWeightAfterG: dec(g.labWeightAfterG),
-    shrimpLengthCm: dec(g.shrimpLengthCm),
     sampleShrimpCount: g.sampleShrimpCount,
-    sampleWeightG: dec(g.sampleWeightG),
     createdAt: g.createdAt.toISOString(),
   };
 }

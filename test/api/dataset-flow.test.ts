@@ -163,8 +163,8 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const groupRes = await createGroups(
       post(adminCookie, `http://localhost:3000/api/v1/batches/${batchId}/groups`, {
         groups: [
-          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightBeforeG: 482, labWeightAfterG: 478.5, shrimpLengthCm: 12.4, sampleShrimpCount: 4, sampleWeightG: 162.3 },
-          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightBeforeG: 480, labWeightAfterG: 476.2, shrimpLengthCm: 12.6, sampleShrimpCount: 4, sampleWeightG: 160 },
+          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightBeforeG: 482, labWeightAfterG: 478.5, sampleShrimpCount: 4 },
+          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightBeforeG: 480, labWeightAfterG: 476.2, sampleShrimpCount: 4 },
         ],
       }),
       { params: Promise.resolve({ batchId }) }

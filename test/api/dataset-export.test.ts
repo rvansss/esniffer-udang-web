@@ -116,9 +116,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         visualCheck: 'NORMAL',
         labWeightBeforeG: 482.0,
         labWeightAfterG: 478.5,
-        shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
-        sampleWeightG: 162.3,
       },
     });
     // Grup dingin tanpa sesi — menguji baris 'no_session' pada metadata.
@@ -132,9 +130,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         visualCheck: 'NORMAL',
         labWeightBeforeG: 480.0,
         labWeightAfterG: 476.2,
-        shrimpLengthCm: 12.6,
         sampleShrimpCount: 4,
-        sampleWeightG: 160.0,
       },
     });
     const session = await prisma.measurementSession.create({
@@ -257,20 +253,18 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.strictEqual(sr[18], 'room_temp');
     assert.strictEqual(sr[22], '482'); // lab_weight_before_g
     assert.strictEqual(sr[23], '478.5'); // lab_weight_after_g
-    assert.strictEqual(sr[24], '12.4'); // shrimp_length_cm grup
-    assert.strictEqual(sr[26], '162.3');
-    assert.strictEqual(sr[27], SESSION);
-    assert.strictEqual(sr[29], '0');
-    assert.strictEqual(sr[32], 'complete');
-    assert.strictEqual(sr[33], 'true');
+    assert.strictEqual(sr[24], '4'); // sample_shrimp_count
+    assert.strictEqual(sr[25], SESSION);
+    assert.strictEqual(sr[27], '0');
+    assert.strictEqual(sr[30], 'complete');
+    assert.strictEqual(sr[31], 'true');
 
     const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
     assert.strictEqual(sd[17], `${BATCH}-SD`);
     assert.strictEqual(sd[18], 'cold');
     assert.strictEqual(sd[23], '476.2'); // lab_weight_after_g grup dingin
-    assert.strictEqual(sd[24], '12.6'); // shrimp_length_cm grup dingin
-    assert.strictEqual(sd[27], ''); // session_id kosong
-    assert.strictEqual(sd[32], 'no_session'); // ditandai jelas
+    assert.strictEqual(sd[25], ''); // session_id kosong
+    assert.strictEqual(sd[30], 'no_session'); // ditandai jelas
   });
 
   it('5. format tidak dikenal ditolak 422', async () => {

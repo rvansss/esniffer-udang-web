@@ -93,9 +93,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         visualCheck: 'NORMAL',
         labWeightBeforeG: 400,
         labWeightAfterG: 395.5,
-        shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
-        sampleWeightG: 150,
       },
     });
     groupId = group.groupId;

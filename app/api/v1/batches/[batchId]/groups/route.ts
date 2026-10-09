@@ -54,8 +54,6 @@ export async function POST(
         if (sampleShrimpCount > 5) {
           throw validationError('Field "sampleShrimpCount" harus 3–5 ekor per chamber');
         }
-        const sampleWeightG = parsePositiveNumber(item?.sampleWeightG, 'sampleWeightG', 2000);
-        const shrimpLengthCm = parseBoundedNumber(item?.shrimpLengthCm, 'shrimpLengthCm', 1, 50);
 
         const existing = await tx.sampleGroup.findUnique({
           where: { batchId_storageCondition: { batchId, storageCondition: storageDb } },
@@ -77,9 +75,7 @@ export async function POST(
               visualCheck,
               labWeightBeforeG,
               labWeightAfterG,
-              shrimpLengthCm,
               sampleShrimpCount,
-              sampleWeightG,
             },
           })
         );

@@ -86,9 +86,7 @@ export async function GET(
           String(g.visualCheck).toLowerCase(),
           num(g.labWeightBeforeG),
           num(g.labWeightAfterG),
-          num(g.shrimpLengthCm),
           g.sampleShrimpCount,
-          num(g.sampleWeightG),
         ];
         if (g.sessions.length === 0) {
           // Baris grup tanpa sesi: kolom sesi kosong, ditandai jelas agar tidak ambigu.

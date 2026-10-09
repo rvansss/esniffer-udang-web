@@ -21,9 +21,7 @@ interface GroupItem {
   groupId: string;
   storageCondition: string;
   targetTempC: number | null;
-  shrimpLengthCm: number | null;
   sampleShrimpCount: number;
-  sampleWeightG: number | null;
   sessions: SessionItem[];
 }
 
@@ -583,7 +581,7 @@ export default function BatchDetailPage() {
           <div key={g.groupId} className={cardCls}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-mono font-bold text-white tracking-widest">
-                {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor • {g.shrimpLengthCm ?? '--'} cm
+                {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor
               </h3>
               <p className="text-[11px] font-mono text-white/45">
                 Jadwal timepoint: {seq.join(' · ')}
