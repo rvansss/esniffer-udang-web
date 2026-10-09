@@ -973,7 +973,7 @@ export default function NewBatchPage() {
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
-          <div className={fieldCls}>
+            <div className={fieldCls}>
             <span className={labelCls}>
               Jenis sumber
               {reqMark}
@@ -982,6 +982,17 @@ export default function NewBatchPage() {
               ['market', 'Pasar'],
               ['farm', 'Tambak'],
             ])}
+          </div>
+          <div className={fieldCls}>
+            <span className={labelCls}>
+              Kondisi awal
+              {reqMark}
+            </span>
+            {radioRow('initialCondition', initialCondition, setInitialCondition, [
+              ['dead', 'Mati'],
+              ['alive', 'Hidup'],
+            ])}
+          </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className={fieldCls}>
@@ -1036,17 +1047,6 @@ export default function NewBatchPage() {
             }, { placeholder: '3.8…' })}
           </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
-          <div className={fieldCls}>
-            <span className={labelCls}>
-              Kondisi awal
-              {reqMark}
-            </span>
-            {radioRow('initialCondition', initialCondition, setInitialCondition, [
-              ['dead', 'Mati'],
-              ['alive', 'Hidup'],
-            ])}
-          </div>
-          </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="photos">
               Foto kondisi awal
