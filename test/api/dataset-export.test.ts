@@ -97,7 +97,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         sizeGrade: 25, // Math.round(12 / 485.5 * 1000)
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
-        initialCondition: 'FRESH_DEAD',
+        initialCondition: 'DEAD',
         initialTempC: 8.2,
         departedAtUtc: new Date('2099-06-06T00:15:00.000Z'),
         arrivedAtUtc: new Date('2099-06-06T02:00:00.000Z'),

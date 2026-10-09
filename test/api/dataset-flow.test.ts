@@ -130,7 +130,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         shrimpCount: 12,
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
-        initialCondition: 'fresh_dead',
+        initialCondition: 'dead',
         initialTempC: 8.2,
         departedAtUtc: `${DAY}T00:15:00.000Z`,
         arrivedAtUtc: `${DAY}T05:00:00.000Z`, // ~4h45m
@@ -152,7 +152,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         shrimpCount: 12,
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
-        initialCondition: 'fresh_dead',
+        initialCondition: 'dead',
         initialTempC: 8.2,
         departedAtUtc: `${DAY}T00:15:00.000Z`,
         arrivedAtUtc: `${DAY}T02:00:00.000Z`,

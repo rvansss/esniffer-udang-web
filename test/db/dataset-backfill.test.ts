@@ -78,7 +78,7 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         sizeGrade: 25, // Math.round(12 / 485.5 * 1000)
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
-        initialCondition: 'FRESH_DEAD',
+        initialCondition: 'DEAD',
         initialTempC: 8.2,
         departedAtUtc: new Date('2099-05-05T00:15:00.000Z'),
         arrivedAtUtc: new Date('2099-05-05T02:00:00.000Z'),

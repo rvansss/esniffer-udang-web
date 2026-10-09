@@ -74,7 +74,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         sizeGrade: 30, // Math.round(12 / 400 * 1000)
         shrimpLengthCm: 12.5,
         totalWeightG: 400,
-        initialCondition: 'FRESH_DEAD',
+        initialCondition: 'DEAD',
         initialTempC: 8,
         departedAtUtc: new Date(`${DAY}T00:15:00.000Z`),
         arrivedAtUtc: new Date(`${DAY}T02:00:00.000Z`),

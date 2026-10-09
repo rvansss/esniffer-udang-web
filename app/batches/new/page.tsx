@@ -89,7 +89,7 @@ export default function NewBatchPage() {
   const [shrimpCount, setShrimpCount] = useState('12');
   const [shrimpLengthCm, setShrimpLengthCm] = useState('');
   const [totalWeightG, setTotalWeightG] = useState('');
-  const [initialCondition, setInitialCondition] = useState('fresh_dead');
+  const [initialCondition, setInitialCondition] = useState('dead');
   const [initialTempC, setInitialTempC] = useState('');
   // Tahap B — transportasi
   const [departedAt, setDepartedAt] = useState('');
@@ -187,7 +187,7 @@ export default function NewBatchPage() {
     setShrimpCount('12');
     setShrimpLengthCm('12.5'); // panjang representatif saat beli
     setTotalWeightG('480');
-    setInitialCondition('fresh_dead');
+    setInitialCondition('dead');
     setInitialTempC('8.5'); // udang baru dibeli, masih ada esnya
     // Tahap B — transportasi
     setDepartedAt(`${wibDate}T06:15`);
@@ -973,7 +973,6 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <span className={labelCls}>Kondisi awal</span>
             {radioRow('initialCondition', initialCondition, setInitialCondition, [
-              ['fresh_dead', 'Segar (mati dingin)'],
               ['dead', 'Mati'],
               ['alive', 'Hidup'],
             ])}

@@ -14,15 +14,14 @@ import {
  */
 
 export type ApiSourceType = 'market' | 'farm';
-export type ApiInitialCondition = 'fresh_dead' | 'dead' | 'alive';
+export type ApiInitialCondition = 'dead' | 'alive';
 export type ApiVisualCheck = 'normal' | 'melanosis' | 'damaged' | 'mixed_species';
 
 const SOURCE_TO_DB = { market: 'MARKET', farm: 'FARM' } as const;
 const DB_TO_SOURCE: Record<string, ApiSourceType> = { MARKET: 'market', FARM: 'farm' };
 
-const CONDITION_TO_DB = { fresh_dead: 'FRESH_DEAD', dead: 'DEAD', alive: 'ALIVE' } as const;
+const CONDITION_TO_DB = { dead: 'DEAD', alive: 'ALIVE' } as const;
 const DB_TO_CONDITION: Record<string, ApiInitialCondition> = {
-  FRESH_DEAD: 'fresh_dead',
   DEAD: 'dead',
   ALIVE: 'alive',
 };
@@ -54,11 +53,11 @@ export function parseSourceType(val: unknown): 'MARKET' | 'FARM' {
   throw validationError('Field "sourceType" harus "market" atau "farm"');
 }
 
-export function parseInitialCondition(val: unknown): 'FRESH_DEAD' | 'DEAD' | 'ALIVE' {
-  if (val === 'fresh_dead' || val === 'dead' || val === 'alive') {
+export function parseInitialCondition(val: unknown): 'DEAD' | 'ALIVE' {
+  if (val === 'dead' || val === 'alive') {
     return CONDITION_TO_DB[val];
   }
-  throw validationError('Field "initialCondition" harus fresh_dead, dead, atau alive');
+  throw validationError('Field "initialCondition" harus dead atau alive');
 }
 
 export function parseVisualCheck(val: unknown): 'NORMAL' | 'MELANOSIS' | 'DAMAGED' | 'MIXED_SPECIES' {

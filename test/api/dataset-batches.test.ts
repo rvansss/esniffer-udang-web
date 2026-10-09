@@ -32,7 +32,7 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     shrimpCount: 12,
     shrimpLengthCm: 12.5,
     totalWeightG: 485.5,
-    initialCondition: 'fresh_dead',
+    initialCondition: 'dead',
     initialTempC: 8.2,
     departedAtUtc: `${DAY}T00:15:00.000Z`,
     arrivedAtUtc: `${DAY}T02:00:00.000Z`,
@@ -158,6 +158,21 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
       );
       assert.strictEqual(res.status, 422, `shrimpLengthCm ${JSON.stringify(shrimpLengthCm)} harus ditolak`);
     }
+  });
+
+  it('2c. POST /batches menolak initialCondition lama fresh_dead (422)', async () => {
+    const res = await createBatch(
+      new Request('http://localhost:3000/api/v1/batches', {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify(batchBody({ initialCondition: 'fresh_dead' })),
+      })
+    );
+    assert.strictEqual(res.status, 422);
+    assert.strictEqual(
+      (await res.json()).error.message,
+      'Field "initialCondition" harus dead atau alive'
+    );
   });
 
   it('3. POST /batches menolak urutan waktu perjalanan yang mustahil (422)', async () => {

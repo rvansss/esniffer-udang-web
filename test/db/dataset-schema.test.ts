@@ -31,7 +31,7 @@ function batchData(overrides: Record<string, unknown> = {}) {
     sizeGrade: 25, // Math.round(12 / 485.5 * 1000)
     shrimpLengthCm: 12.5,
     totalWeightG: 485.5,
-    initialCondition: 'FRESH_DEAD' as const,
+    initialCondition: 'DEAD' as const,
     initialTempC: 8.2,
     departedAtUtc: new Date('2099-01-01T00:15:00.000Z'),
     arrivedAtUtc: new Date('2099-01-01T02:00:00.000Z'),

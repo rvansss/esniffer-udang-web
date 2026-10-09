@@ -51,7 +51,6 @@ enum CollectionSourceType {
 }
 
 enum InitialCondition {
-  FRESH_DEAD
   DEAD
   ALIVE
 }
