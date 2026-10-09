@@ -3,21 +3,11 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../auth/AuthProvider';
+import { toHistoryRows, nextCursorOf, type HistoryRow } from '../../lib/api/history.ts';
 
 interface ExportPanelProps {
   chamberId?: string;
   activeDeviceId?: string | null;
-}
-
-interface HistoryRow {
-  id: string;
-  measuredAt: string | null;
-  temperatureC: number | null;
-  humidityPercent: number | null;
-  mq137Raw: number | null;
-  mq136Raw: number | null;
-  mq4Raw: number | null;
-  measurementTimeQuality: string;
 }
 
 export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: ExportPanelProps) {
@@ -120,9 +110,9 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
         throw new Error(errJson?.error?.message || `Gagal memuat riwayat (HTTP ${res.status})`);
       }
 
-      const json = await res.json();
-      setHistoryRows(Array.isArray(json.data) ? json.data : []);
-      setNextCursor(json.meta?.nextCursor || null);
+      const json: unknown = await res.json();
+      setHistoryRows(toHistoryRows(json));
+      setNextCursor(nextCursorOf(json));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memuat riwayat data';
       setHistoryError(msg);
