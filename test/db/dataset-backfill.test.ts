@@ -86,7 +86,6 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         coolerTempMaxC: 3.8,
         tempStartC: 3.0,
         tempEndC: 3.5,
-        photoUrls: [],
         operatorId: user.id,
       },
     });

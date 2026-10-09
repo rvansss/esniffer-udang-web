@@ -9,6 +9,7 @@ import {
   transportDurationMs,
   wibInputToUtc,
   MAX_BATCH_PHOTOS,
+  MAX_PHOTO_CAPTION_LENGTH,
   DatasetValidationError,
 } from '../../../shared/dataset.ts';
 import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
@@ -102,6 +103,7 @@ export default function NewBatchPage() {
   // Foto kondisi awal (diunggah setelah batch dibuat)
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const [photoCaptions, setPhotoCaptions] = useState<string[]>([]);
   const [createdBatchId, setCreatedBatchId] = useState<string | null>(null);
   // Tahap C — grup SR/SD
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
@@ -450,6 +452,7 @@ export default function NewBatchPage() {
     }
     setPhotoFiles((prev) => [...prev, ...accepted]);
     setPhotoPreviews((prev) => [...prev, ...accepted.map((f) => URL.createObjectURL(f))]);
+    setPhotoCaptions((prev) => [...prev, ...accepted.map(() => '')]);
     input.value = '';
   };
 
@@ -457,6 +460,7 @@ export default function NewBatchPage() {
     URL.revokeObjectURL(photoPreviews[index]);
     setPhotoFiles((prev) => prev.filter((_, i) => i !== index));
     setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
+    setPhotoCaptions((prev) => prev.filter((_, i) => i !== index));
   };
 
   const uploadPhotos = async (batchId: string) => {
@@ -464,6 +468,7 @@ export default function NewBatchPage() {
     for (const f of photoFiles) {
       form.append('photos', f);
     }
+    form.append('captions', JSON.stringify(photoCaptions));
     const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
       method: 'POST',
       body: form,
@@ -489,10 +494,16 @@ export default function NewBatchPage() {
 
   const handleSubmit = async () => {
     const errs = { ...validateStepA(), ...validateStepB(), ...validateStepC() };
+    const badCaption = photoFiles.length > 0
+      ? photoCaptions.findIndex((c) => c.trim() === '' || c.trim().length > MAX_PHOTO_CAPTION_LENGTH)
+      : -1;
+    if (badCaption >= 0) {
+      errs.photos = `Caption foto ke-${badCaption + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter).`;
+    }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       const stepOf = (k: string) =>
-        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC'].includes(k)
+        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC', 'photos'].includes(k)
           ? 0
           : ['departedAt', 'arrivedAt', 'coolerMin', 'coolerMax', 'tempStart', 'tempEnd'].includes(k)
             ? 1
@@ -990,7 +1001,7 @@ export default function NewBatchPage() {
               onChange={(e) => handlePhotoSelect(e.target.files, e.target)}
               className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
             />
-            <p className={hintCls}>JPG/PNG sampai 5 MB, maksimal 10 (bisa tambah bertahap). Minimal 1 foto sebelum batch dikunci.</p>
+            <p className={hintCls}>JPG/PNG sampai 5 MB, maksimal 10 (bisa tambah bertahap). Tiap foto wajib ber-caption (mis. di pasar, sebelum chamber). Minimal 1 foto sebelum batch dikunci.</p>
             {fieldErrors.photos && (
               <p className="text-[11px] font-mono text-amber-300" role="status">
                 {fieldErrors.photos}
@@ -999,9 +1010,24 @@ export default function NewBatchPage() {
             {photoPreviews.length > 0 && (
               <div className="grid grid-cols-4 gap-2">
                 {photoPreviews.map((src, i) => (
-                  <div key={src} className="relative">
+                  <div key={src} className="relative space-y-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
+                    <label className={`${labelCls} flex items-center gap-1`} htmlFor={`photo-caption-${i}`}>
+                      Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      id={`photo-caption-${i}`}
+                      name={`photo-caption-${i}`}
+                      type="text"
+                      maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                      autoComplete="off"
+                      value={photoCaptions[i] ?? ''}
+                      aria-required="true"
+                      onChange={(e) => setPhotoCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
+                      placeholder="Di pasar…"
+                      className={inputCls}
+                    />
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}

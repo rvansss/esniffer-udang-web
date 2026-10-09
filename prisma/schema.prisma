@@ -250,7 +250,6 @@ model CollectionBatch {
   tempStartC        Decimal              @map("temp_start_c") @db.Decimal(5, 2)
   tempEndC          Decimal              @map("temp_end_c") @db.Decimal(5, 2)
   rejectionNotes    String?              @map("rejection_notes") @db.VarChar(500)
-  photoUrls         String[]             @default([]) @map("photo_urls")
   operatorId        String               @map("operator_id") @db.Uuid
   lockedAt          DateTime?            @map("locked_at") @db.Timestamptz(3)
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -258,8 +257,23 @@ model CollectionBatch {
   sampleGroups      SampleGroup[]
   sessions          MeasurementSession[]
   readings          SensorReading[]
+  photos            BatchPhoto[]
 
   @@map("collection_batches")
+}
+
+model BatchPhoto {
+  id        String          @id @default(uuid()) @db.Uuid
+  batchId   String          @map("batch_id") @db.VarChar(16)
+  url       String          @db.VarChar(500)
+  caption   String          @db.VarChar(140)
+  sortOrder Int             @map("sort_order")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  batch     CollectionBatch @relation(fields: [batchId], references: [batchId], onDelete: Cascade)
+
+  @@unique([batchId, url])
+  @@index([batchId, sortOrder])
+  @@map("batch_photos")
 }
 
 model SampleGroup {

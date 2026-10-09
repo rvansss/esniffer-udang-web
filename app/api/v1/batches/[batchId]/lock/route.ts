@@ -32,7 +32,8 @@ export async function POST(
     if (batch.sessions.length === 0) {
       throw validationError(`Batch "${batchId}" belum memiliki sesi dan tidak bisa dikunci`);
     }
-    if (batch.photoUrls.length === 0) {
+    const photoCount = await prisma.batchPhoto.count({ where: { batchId } });
+    if (photoCount === 0) {
       throw validationError(`Batch "${batchId}" belum memiliki foto; upload minimal 1 foto dulu`);
     }
     const openCount = batch.sessions.filter((s) => s.status === 'OPEN' || s.status === 'INCOMPLETE').length;

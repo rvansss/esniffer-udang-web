@@ -46,7 +46,6 @@ async function batchData(suffix: string, operatorId: string) {
       coolerTempMaxC: 3,
       tempStartC: 3,
       tempEndC: 3.5,
-      photoUrls: [],
       operatorId,
     },
   });

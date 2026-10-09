@@ -32,8 +32,15 @@ export async function GET(
       throw notFound(`Batch "${batchId}" not found`);
     }
 
+    const photos = await prisma.batchPhoto.findMany({
+      where: { batchId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { url: true, caption: true },
+    });
+
     return jsonResponse({
       ...serializeBatch(batch),
+      photos: photos.map((p) => ({ url: p.url, caption: p.caption })),
       sampleGroups: batch.sampleGroups.map((g) => ({
         ...serializeGroup(g),
         sessions: g.sessions.map(serializeSession),

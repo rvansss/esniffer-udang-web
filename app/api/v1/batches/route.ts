@@ -79,11 +79,7 @@ export async function POST(request: Request): Promise<Response> {
     const tempStartC = parseFiniteNumber(body?.tempStartC, 'tempStartC');
     const tempEndC = parseFiniteNumber(body?.tempEndC, 'tempEndC');
     const rejectionNotes = parseOptionalString(body?.rejectionNotes, 'rejectionNotes', 500);
-    const photoUrls = body?.photoUrls === undefined
-      ? []
-      : Array.isArray(body.photoUrls) && body.photoUrls.every((u: unknown) => typeof u === 'string' && u.length > 0 && u.length <= 500)
-        ? (body.photoUrls as string[])
-        : (() => { throw validationError('Field "photoUrls" harus array string path (diisi via upload Fase 4)'); })();
+    // Foto selalu mulai kosong dan diisi lewat upload (tabel batch_photos).
 
     assertProcurementWindow(procuredAtUtc);
     assertTransportGates(procuredAtUtc, departedAtUtc, arrivedAtUtc, body?.deviationAcknowledged);
@@ -120,7 +116,6 @@ export async function POST(request: Request): Promise<Response> {
             tempStartC,
             tempEndC,
             rejectionNotes,
-            photoUrls,
             operatorId: auth.user.id,
           },
         });

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma, closeDb } from '../../lib/db/client.ts';
-import { POST as uploadPhotos, DELETE as deletePhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
+import { POST as uploadPhotos, PATCH as patchPhotos, DELETE as deletePhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { GET as getUpload, HEAD as headUpload } from '../../app/uploads/[...path]/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
@@ -19,10 +19,16 @@ function authHeaders(cookie: string): Record<string, string> {
   return { Cookie: cookie, Origin: 'http://localhost:3000', Host: 'localhost:3000' };
 }
 
-function photoForm(files: Array<{ name: string; type: string; bytes: Uint8Array }>): FormData {
+function photoForm(
+  files: Array<{ name: string; type: string; bytes: Uint8Array }>,
+  captions?: Array<string | null> | null
+): FormData {
   const form = new FormData();
   for (const f of files) {
     form.append('photos', new File([f.bytes as unknown as BlobPart], f.name, { type: f.type }));
+  }
+  if (captions !== null) {
+    form.append('captions', JSON.stringify(captions ?? files.map((_, i) => `Foto ${i + 1}`)));
   }
   return form;
 }
@@ -30,8 +36,13 @@ function photoForm(files: Array<{ name: string; type: string; bytes: Uint8Array 
 const JPG = { name: 'awal.jpg', type: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) };
 const PNG = { name: 'lab.png', type: 'image/png', bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) };
 
-async function photoReq(batchId: string, cookie: string, files: Array<{ name: string; type: string; bytes: Uint8Array }>) {
-  const body = files.length === 0 ? new FormData() : photoForm(files);
+async function photoReq(
+  batchId: string,
+  cookie: string,
+  files: Array<{ name: string; type: string; bytes: Uint8Array }>,
+  captions?: Array<string | null> | null
+) {
+  const body = photoForm(files, captions);
   return uploadPhotos(
     new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
       method: 'POST',
@@ -84,7 +95,6 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
           coolerTempMaxC: 3.8,
           tempStartC: 3.0,
           tempEndC: 3.5,
-          photoUrls: [],
           operatorId: admin.id,
         },
       });
@@ -107,12 +117,17 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     await closeDb();
   });
 
-  it('1. Upload 2 foto valid → 201 dan file ada di disk', async () => {
-    const res = await photoReq(batchId, adminCookie, [JPG, PNG]);
+  it('1. Upload 2 foto valid + caption → 201 dan file ada di disk', async () => {
+    const res = await photoReq(batchId, adminCookie, [JPG, PNG], ['Di pasar', 'Sebelum chamber']);
     assert.strictEqual(res.status, 201);
     const body = await res.json();
-    assert.strictEqual(body.data.photoUrls.length, 2);
-    for (const url of body.data.photoUrls as string[]) {
+    assert.strictEqual(body.data.photos.length, 2);
+    assert.deepStrictEqual(
+      body.data.photos.map((p: { caption: string }) => p.caption),
+      ['Di pasar', 'Sebelum chamber']
+    );
+    for (const photo of body.data.photos as Array<{ url: string }>) {
+      const url = photo.url;
       assert.match(url, new RegExp(`^uploads/${batchId}/${batchId}_\\d+_\\d+\\.(jpg|png)$`));
       const st = await stat(path.join(process.cwd(), 'public', url));
       assert.ok(st.isFile());
@@ -172,6 +187,25 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     assert.strictEqual(anon.status, 401);
 
     assert.strictEqual((await photoReq(batchId, viewerCookie, [JPG])).status, 403);
+  });
+
+  it('4b. Caption wajib: hilang, selisih jumlah, kosong, dan >140 ditolak (422)', async () => {
+    assert.strictEqual((await photoReq(batchId, adminCookie, [JPG], null)).status, 422);
+    assert.strictEqual((await photoReq(batchId, adminCookie, [JPG, PNG], ['Hanya satu'])).status, 422);
+    assert.strictEqual((await photoReq(batchId, adminCookie, [JPG], ['   '])).status, 422);
+    assert.strictEqual((await photoReq(batchId, adminCookie, [JPG], ['x'.repeat(141)])).status, 422);
+    const badJson = new FormData();
+    badJson.append('photos', new File([JPG.bytes as unknown as BlobPart], JPG.name, { type: JPG.type }));
+    badJson.append('captions', 'bukan-json');
+    const res = await uploadPhotos(
+      new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
+        method: 'POST',
+        headers: authHeaders(adminCookie),
+        body: badJson,
+      }),
+      { params: Promise.resolve({ batchId }) }
+    );
+    assert.strictEqual(res.status, 422);
   });
 
   it('5. Batch tidak ada 404, batch terkunci 409', async () => {
@@ -253,10 +287,10 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     assert.strictEqual(locked.status, 200);
   });
 
-  it('7. DELETE foto menghapus file + entri URL', async () => {
-    const list = await prisma.collectionBatch.findUniqueOrThrow({ where: { batchId } });
-    assert.ok(list.photoUrls.length >= 2);
-    const target = list.photoUrls[0];
+  it('7. DELETE foto menghapus file + baris caption', async () => {
+    const rows = await prisma.batchPhoto.findMany({ where: { batchId }, orderBy: { sortOrder: 'asc' } });
+    assert.ok(rows.length >= 2);
+    const target = rows[0].url;
 
     const delReq = (cookie: string | null, payload: unknown) =>
       deletePhotos(
@@ -283,7 +317,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     const res = await delReq(adminCookie, { photoUrls: [target] });
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    assert.ok(!body.data.photoUrls.includes(target));
+    assert.ok(!(body.data.photos as Array<{ url: string }>).some((p) => p.url === target));
     await assert.rejects(stat(path.join(process.cwd(), 'public', target)));
 
     const deletedServeRes = await getUpload(new Request(`http://localhost:3000/${target}`), {
@@ -293,6 +327,57 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
 
     const gone = await delReq(adminCookie, { photoUrls: [target] });
     assert.strictEqual(gone.status, 404);
+  });
+
+  it('7b. PATCH caption tersimpan, yang invalid ditolak', async () => {
+    const rows = await prisma.batchPhoto.findMany({ where: { batchId }, orderBy: { sortOrder: 'asc' } });
+    assert.ok(rows.length >= 1);
+    const target = rows[0].url;
+    const call = (cookie: string | null, payload: unknown) =>
+      patchPhotos(
+        new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
+          method: 'PATCH',
+          headers: {
+            ...(cookie ? authHeaders(cookie) : {}),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }),
+        { params: Promise.resolve({ batchId }) }
+      );
+
+    assert.strictEqual((await call(viewerCookie, { photos: [{ url: target, caption: 'x' }] })).status, 403);
+    assert.strictEqual((await call(null, { photos: [{ url: target, caption: 'x' }] })).status, 401);
+    assert.strictEqual((await call(adminCookie, { photos: [] })).status, 422);
+    assert.strictEqual((await call(adminCookie, { photos: [{ url: target, caption: '' }] })).status, 422);
+    assert.strictEqual((await call(adminCookie, { photos: [{ url: target, caption: 'y'.repeat(141) }] })).status, 422);
+    assert.strictEqual(
+      (await call(adminCookie, { photos: [{ url: `uploads/${batchNoPhoto}/asing.jpg`, caption: 'x' }] })).status,
+      422
+    );
+    assert.strictEqual(
+      (await call(adminCookie, { photos: [{ url: `uploads/${batchId}/tak-ada.jpg`, caption: 'x' }] })).status,
+      404
+    );
+
+    const ok = await call(adminCookie, { photos: [{ url: target, caption: 'Sesudah chamber' }] });
+    assert.strictEqual(ok.status, 200);
+    const saved = (await ok.json()).data.photos as Array<{ url: string; caption: string }>;
+    assert.strictEqual(saved.find((p) => p.url === target)?.caption, 'Sesudah chamber');
+    assert.strictEqual(
+      (await prisma.batchPhoto.findFirstOrThrow({ where: { batchId, url: target } })).caption,
+      'Sesudah chamber'
+    );
+
+    const lockedPatch = await patchPhotos(
+      new Request(`http://localhost:3000/api/v1/batches/${batchNoPhoto}/photos`, {
+        method: 'PATCH',
+        headers: { ...authHeaders(adminCookie), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photos: [{ url: target, caption: 'x' }] }),
+      }),
+      { params: Promise.resolve({ batchId: batchNoPhoto }) }
+    );
+    assert.strictEqual(lockedPatch.status, 409);
   });
 
   it('8. DELETE foto pada batch terkunci ditolak 409', async () => {

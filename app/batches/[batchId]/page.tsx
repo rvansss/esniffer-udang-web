@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
-import { TIMEPOINT_SEQUENCES, MAX_BATCH_PHOTOS, MAX_PHOTO_BYTES } from '../../../shared/dataset.ts';
+import { TIMEPOINT_SEQUENCES, MAX_BATCH_PHOTOS, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH } from '../../../shared/dataset.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -27,13 +27,18 @@ interface GroupItem {
   sessions: SessionItem[];
 }
 
+interface PhotoItem {
+  url: string;
+  caption: string;
+}
+
 interface BatchDetail {
   batchId: string;
   marketSource: string;
   shrimpCount: number;
   totalWeightG: number | null;
   shrimpLengthCm: number | null;
-  photoUrls: string[];
+  photos: PhotoItem[];
   lockedAt: string | null;
   sampleGroups: GroupItem[];
 }
@@ -67,6 +72,9 @@ export default function BatchDetailPage() {
   const [devices, setDevices] = useState<Array<{ id: string; mqttDeviceId: string; name: string }>>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
+  const [fileCaptions, setFileCaptions] = useState<string[]>([]);
+  const [captionEdits, setCaptionEdits] = useState<Record<string, string>>({});
+  const [savingCaption, setSavingCaption] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmPhoto, setConfirmPhoto] = useState<{ message: string; photoUrl: string } | null>(null);
   const { message: notice, notify, dismiss } = useSuccessNotice();
@@ -227,13 +235,14 @@ export default function BatchDetailPage() {
     const incoming = Array.from(list ?? []);
     const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
     const fitting = usable.filter((f) => f.size <= MAX_PHOTO_BYTES);
-    const room = Math.max(MAX_BATCH_PHOTOS - (batch?.photoUrls.length ?? 0) - files.length, 0);
+    const room = Math.max(MAX_BATCH_PHOTOS - (batch?.photos.length ?? 0) - files.length, 0);
     const accepted = fitting.slice(0, room);
     if (accepted.length < incoming.length) {
       setError('Ada file yang dilewati: hanya JPG/PNG, maksimal 5 MB, dan maksimal 10 foto per batch.');
     }
     setFiles((prev) => [...prev, ...accepted]);
     setFilePreviews((prev) => [...prev, ...accepted.map((f) => URL.createObjectURL(f))]);
+    setFileCaptions((prev) => [...prev, ...accepted.map(() => '')]);
     input.value = '';
   };
 
@@ -241,11 +250,19 @@ export default function BatchDetailPage() {
     URL.revokeObjectURL(filePreviews[index]);
     setFiles((prev) => prev.filter((_, i) => i !== index));
     setFilePreviews((prev) => prev.filter((_, i) => i !== index));
+    setFileCaptions((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleUpload = async () => {
     if (files.length === 0) {
       setError('Pilih minimal 1 file foto dulu');
+      return;
+    }
+    const badCaption = fileCaptions.findIndex(
+      (c) => c.trim() === '' || c.trim().length > MAX_PHOTO_CAPTION_LENGTH
+    );
+    if (badCaption >= 0) {
+      setError(`Caption foto ke-${badCaption + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter).`);
       return;
     }
     setBusy(true);
@@ -255,6 +272,7 @@ export default function BatchDetailPage() {
       for (const f of files) {
         form.append('photos', f);
       }
+      form.append('captions', JSON.stringify(fileCaptions));
       const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
         method: 'POST',
         body: form,
@@ -267,11 +285,44 @@ export default function BatchDetailPage() {
       filePreviews.forEach((src) => URL.revokeObjectURL(src));
       setFiles([]);
       setFilePreviews([]);
+      setFileCaptions([]);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal upload foto');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleSaveCaption = async (photoUrl: string) => {
+    const caption = (captionEdits[photoUrl] ?? '').trim();
+    if (caption === '' || caption.length > MAX_PHOTO_CAPTION_LENGTH) {
+      setError(`Caption wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter).`);
+      return;
+    }
+    setSavingCaption(photoUrl);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photos: [{ url: photoUrl, caption }] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error?.message || `Gagal (${res.status})`);
+      }
+      notify('Caption foto berhasil disimpan.');
+      setCaptionEdits((prev) => {
+        const next = { ...prev };
+        delete next[photoUrl];
+        return next;
+      });
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan caption');
+    } finally {
+      setSavingCaption(null);
     }
   };
 
@@ -410,17 +461,45 @@ export default function BatchDetailPage() {
       <SuccessNotice message={notice} onDismiss={dismiss} />
 
       <div className={cardCls}>
-        <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photoUrls.length}/10)</h3>
-        {batch.photoUrls.length > 0 && (
+        <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photos.length}/10)</h3>
+        {batch.photos.length > 0 && (
           <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-            {batch.photoUrls.map((u, i) => (
-              <div key={u} className="relative">
+            {batch.photos.map((p, i) => (
+              <div key={p.url} className="relative space-y-1">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/${u}`} alt={`Dokumentasi batch ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                <img src={`/${p.url}`} alt={p.caption || `Dokumentasi batch ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                {isAdmin && !locked ? (
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                      autoComplete="off"
+                      value={captionEdits[p.url] ?? p.caption}
+                      aria-label={`Caption foto ${i + 1}`}
+                      onChange={(e) => setCaptionEdits((prev) => ({ ...prev, [p.url]: e.target.value }))}
+                      placeholder="Caption…"
+                      className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                    />
+                    {captionEdits[p.url] !== undefined && captionEdits[p.url] !== p.caption && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveCaption(p.url)}
+                        disabled={busy || savingCaption === p.url}
+                        className="shrink-0 px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-mono font-bold disabled:opacity-50"
+                      >
+                        {savingCaption === p.url ? '…' : 'OK'}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  p.caption !== '' && (
+                    <p className="text-[10px] font-mono text-white/60 leading-tight">{p.caption}</p>
+                  )
+                )}
                 {isAdmin && !locked && (
                   <button
                     onClick={() => setConfirmPhoto({
-                      photoUrl: u,
+                      photoUrl: p.url,
                       message: `Hapus foto ${i + 1} dari batch ini? File dihapus permanen.`,
                     })}
                     disabled={busy}
@@ -458,9 +537,24 @@ export default function BatchDetailPage() {
             ) : (
               <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
                 {filePreviews.map((src, i) => (
-                  <div key={src} className="relative">
+                  <div key={src} className="relative space-y-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                    <label className="flex items-center gap-1 text-[11px] font-mono font-semibold text-white/85" htmlFor={`upload-caption-${i}`}>
+                      Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      id={`upload-caption-${i}`}
+                      name={`upload-caption-${i}`}
+                      type="text"
+                      maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                      autoComplete="off"
+                      value={fileCaptions[i] ?? ''}
+                      aria-required="true"
+                      onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
+                      placeholder="Di pasar…"
+                      className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                    />
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}

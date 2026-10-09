@@ -118,7 +118,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     const body = await res.json();
     assert.match(body.data.batchId, /^BT-20990202-\d{2}$/);
     assert.strictEqual(body.data.sourceType, 'market');
-    assert.deepStrictEqual(body.data.photoUrls, []);
+    assert.strictEqual(body.data.sizeGrade, 25); // Math.round(12 / 485.5 * 1000), dihitung server
     assert.strictEqual(body.data.lockedAt, null);
     batchId = body.data.batchId;
   });
@@ -491,6 +491,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
 
     const photoForm = new FormData();
     photoForm.append('photos', new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], 'awal.jpg', { type: 'image/jpeg' }));
+    photoForm.append('captions', JSON.stringify(['Di pasar']));
     const photoReq = new Request(`http://localhost:3000/api/v1/batches/${batchId}/photos`, {
       method: 'POST',
       headers: { Cookie: adminCookie, Origin: 'http://localhost:3000', Host: 'localhost:3000' },

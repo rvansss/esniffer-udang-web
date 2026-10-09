@@ -243,9 +243,8 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     );
 
     // Lock butuh foto
-    await prisma.collectionBatch.update({
-      where: { batchId },
-      data: { photoUrls: [`uploads/${batchId}/flow.jpg`] },
+    await prisma.batchPhoto.create({
+      data: { batchId, url: `uploads/${batchId}/flow.jpg`, caption: 'Foto alur', sortOrder: 0 },
     });
     const locked = await lockBatch(
       post(adminCookie, `http://localhost:3000/api/v1/batches/${batchId}/lock`, {}),

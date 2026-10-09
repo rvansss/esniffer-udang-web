@@ -105,7 +105,6 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         coolerTempMaxC: 3.8,
         tempStartC: 3.0,
         tempEndC: 3.5,
-        photoUrls: [],
         operatorId: admin.id,
       },
     });
@@ -253,8 +252,8 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     const sr = lines.find((l) => l.includes(GROUP))!.split(',');
     assert.strictEqual(sr[0], BATCH);
     assert.strictEqual(sr[2], 'Pasar Export');
-    assert.strictEqual(sr[6], '485.5');
-    assert.strictEqual(sr[19], '12.5'); // shrimp_length_cm batch
+    assert.strictEqual(sr[6], '12.5'); // shrimp_length_cm batch
+    assert.strictEqual(sr[7], '485.5');
     assert.strictEqual(sr[20], GROUP);
     assert.strictEqual(sr[21], 'room_temp');
     assert.strictEqual(sr[25], '482');

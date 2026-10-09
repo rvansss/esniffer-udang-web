@@ -52,6 +52,7 @@ export async function GET(
       const num = (v: { toNumber(): number } | null | undefined): number | '' =>
         v === null || v === undefined ? '' : v.toNumber();
       const dt = (v: Date | null | undefined): string => (v ? v.toISOString() : '');
+      const photoCount = await prisma.batchPhoto.count({ where: { batchId } });
       const batchBlock = [
         full.batchId,
         dt(full.procuredAtUtc),
@@ -59,6 +60,7 @@ export async function GET(
         DB_TO_SOURCE[full.sourceType] ?? full.sourceType,
         full.shrimpCount,
         full.sizeGrade,
+        num(full.shrimpLengthCm),
         num(full.totalWeightG),
         String(full.initialCondition).toLowerCase(),
         num(full.initialTempC),
@@ -70,9 +72,8 @@ export async function GET(
         num(full.tempStartC),
         num(full.tempEndC),
         full.rejectionNotes ?? '',
-        full.photoUrls.length,
+        photoCount,
         dt(full.lockedAt),
-        num(full.shrimpLengthCm),
       ];
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];

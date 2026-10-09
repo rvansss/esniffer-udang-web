@@ -82,7 +82,6 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         coolerTempMaxC: 3,
         tempStartC: 3,
         tempEndC: 3.5,
-        photoUrls: [],
         operatorId: admin.id,
       },
     });

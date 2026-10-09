@@ -39,7 +39,6 @@ function batchData(overrides: Record<string, unknown> = {}) {
     coolerTempMaxC: 3.8,
     tempStartC: 3.0,
     tempEndC: 3.5,
-    photoUrls: [`${BATCH}_awal_01.jpg`],
     operatorId,
     ...overrides,
   };

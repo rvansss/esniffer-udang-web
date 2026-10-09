@@ -3,6 +3,7 @@ import {
   isColdChainCompliant,
   isProcurementWindow,
   transportDurationMs,
+  MAX_PHOTO_CAPTION_LENGTH,
   type StorageConditionCode,
 } from '../../shared/dataset.ts';
 
@@ -105,6 +106,18 @@ export function parseIntMinimum(val: unknown, fieldName: string, min: number): n
   return val;
 }
 
+/** Caption foto: wajib terisi (maks 140 karakter) agar tiap foto bisa dibedakan. */
+export function parsePhotoCaption(val: unknown, index: number): string {
+  const caption = typeof val === 'string' ? val.trim() : '';
+  if (caption === '') {
+    throw validationError(`Caption foto ke-${index + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter)`);
+  }
+  if (caption.length > MAX_PHOTO_CAPTION_LENGTH) {
+    throw validationError(`Caption foto ke-${index + 1} maksimal ${MAX_PHOTO_CAPTION_LENGTH} karakter`);
+  }
+  return caption;
+}
+
 /** Decimal Prisma → number JSON; null lolos apa adanya. */
 export function dec(val: { toNumber(): number } | null | undefined): number | null {
   if (val === null || val === undefined) return null;
@@ -133,7 +146,6 @@ type DbBatch = {
   tempStartC: { toNumber(): number };
   tempEndC: { toNumber(): number };
   rejectionNotes: string | null;
-  photoUrls: string[];
   lockedAt: Date | null;
   createdAt: Date;
 };
@@ -159,7 +171,6 @@ export function serializeBatch(b: DbBatch) {
     tempStartC: dec(b.tempStartC),
     tempEndC: dec(b.tempEndC),
     rejectionNotes: b.rejectionNotes,
-    photoUrls: b.photoUrls,
     lockedAt: iso(b.lockedAt),
     createdAt: b.createdAt.toISOString(),
   };
