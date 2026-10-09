@@ -202,7 +202,7 @@ export default function Header() {
       )}
 
       {/* Profil & menu pengguna */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 ml-auto">
         {user ? (
           <div className="relative" ref={menuRef}>
             <button
@@ -258,7 +258,7 @@ export default function Header() {
                   background: 'linear-gradient(180deg, #24407f 0%, #16295c 100%)',
                   boxShadow: '0 20px 60px -10px rgba(0,0,0,0.7)',
                 }}
-                className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-white/15 overflow-hidden z-20 p-2"
+                className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 overflow-hidden z-20 p-2"
               >
                 <div className="flex items-center gap-3 px-2 pt-1 pb-3">
                   <span className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-mono font-black text-white">
