@@ -135,8 +135,6 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         arrivedAtUtc: `${DAY}T05:00:00.000Z`, // ~4h45m
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
-        tempStartC: 3.0,
-        tempEndC: 3.5,
       })
     );
     assert.strictEqual(res.status, 422);
@@ -156,8 +154,6 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         arrivedAtUtc: `${DAY}T02:00:00.000Z`,
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
-        tempStartC: 3.0,
-        tempEndC: 3.5,
       })
     );
     assert.strictEqual(batchRes.status, 201);
@@ -167,8 +163,8 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const groupRes = await createGroups(
       post(adminCookie, `http://localhost:3000/api/v1/batches/${batchId}/groups`, {
         groups: [
-          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightG: 482, shrimpLengthCm: 12.4, sampleShrimpCount: 4, sampleWeightG: 162.3 },
-          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightG: 480, shrimpLengthCm: 12.6, sampleShrimpCount: 4, sampleWeightG: 160 },
+          { storageCondition: 'room_temp', labTempC: 6.5, visualCheck: 'normal', labWeightBeforeG: 482, labWeightAfterG: 478.5, shrimpLengthCm: 12.4, sampleShrimpCount: 4, sampleWeightG: 162.3 },
+          { storageCondition: 'cold', labTempC: 5.0, visualCheck: 'normal', labWeightBeforeG: 480, labWeightAfterG: 476.2, shrimpLengthCm: 12.6, sampleShrimpCount: 4, sampleWeightG: 160 },
         ],
       }),
       { params: Promise.resolve({ batchId }) }

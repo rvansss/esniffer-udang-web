@@ -246,8 +246,6 @@ model CollectionBatch {
   coolerTempMinC    Decimal              @map("cooler_temp_min_c") @db.Decimal(5, 2)
   coolerTempMaxC    Decimal              @map("cooler_temp_max_c") @db.Decimal(5, 2)
   iceToShrimpRatio  String               @default("2:1") @map("ice_to_shrimp_ratio") @db.VarChar(8)
-  tempStartC        Decimal              @map("temp_start_c") @db.Decimal(5, 2)
-  tempEndC          Decimal              @map("temp_end_c") @db.Decimal(5, 2)
   rejectionNotes    String?              @map("rejection_notes") @db.VarChar(500)
   operatorId        String               @map("operator_id") @db.Uuid
   lockedAt          DateTime?            @map("locked_at") @db.Timestamptz(3)
@@ -284,7 +282,8 @@ model SampleGroup {
   targetTempC       Decimal          @map("target_temp_c") @db.Decimal(5, 2)
   labTempC          Decimal          @map("lab_temp_c") @db.Decimal(5, 2)
   visualCheck       VisualCheck      @map("visual_check")
-  labWeightG        Decimal          @map("lab_weight_g") @db.Decimal(8, 2)
+  labWeightBeforeG  Decimal              @map("lab_weight_before_g") @db.Decimal(8, 2)
+  labWeightAfterG   Decimal?             @map("lab_weight_after_g") @db.Decimal(8, 2)
   shrimpLengthCm    Decimal?         @map("shrimp_length_cm") @db.Decimal(5, 2)
   sampleShrimpCount Int              @map("sample_shrimp_count")
   sampleWeightG     Decimal          @map("sample_weight_g") @db.Decimal(8, 2)

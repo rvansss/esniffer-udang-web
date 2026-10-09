@@ -86,14 +86,14 @@ test('Timepoint: monotonik naik dalam satu grup', () => {
 });
 
 test('Cold-chain: durasi ≤3 jam lolos, lebih dari itu terdeteksi', () => {
-  const departed = new Date('2026-10-02T00:15:00.000Z');
+  const start = new Date('2026-10-02T00:15:00.000Z');
   const arrivedOk = new Date('2026-10-02T02:00:00.000Z'); // 1h45m
   const arrivedLate = new Date('2026-10-02T04:00:00.000Z'); // 3h45m
-  assert.strictEqual(transportDurationMs(departed, arrivedOk), 6_300_000);
-  assert.ok(isColdChainCompliant(departed, arrivedOk));
-  assert.ok(!isColdChainCompliant(departed, arrivedLate));
-  assert.ok(!isColdChainCompliant(arrivedOk, departed)); // terbalik
-  assert.ok(isColdChainCompliant(departed, new Date(departed.getTime() + 3 * 3_600_000))); // tepat 3 jam
+  assert.strictEqual(transportDurationMs(start, arrivedOk), 6_300_000);
+  assert.ok(isColdChainCompliant(start, arrivedOk));
+  assert.ok(!isColdChainCompliant(start, arrivedLate));
+  assert.ok(!isColdChainCompliant(arrivedOk, start)); // terbalik
+  assert.ok(isColdChainCompliant(start, new Date(start.getTime() + 3 * 3_600_000))); // tepat 3 jam
 });
 
 test('Susut berat: ≤5% lolos, lebih dari itu terdeteksi', () => {

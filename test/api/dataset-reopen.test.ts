@@ -79,8 +79,6 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         arrivedAtUtc: new Date(`${DAY}T02:00:00.000Z`),
         coolerTempMinC: 1,
         coolerTempMaxC: 3,
-        tempStartC: 3,
-        tempEndC: 3.5,
         operatorId: admin.id,
       },
     });
@@ -93,7 +91,8 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
         targetTempC: 25,
         labTempC: 6,
         visualCheck: 'NORMAL',
-        labWeightG: 400,
+        labWeightBeforeG: 400,
+        labWeightAfterG: 395.5,
         shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
         sampleWeightG: 150,

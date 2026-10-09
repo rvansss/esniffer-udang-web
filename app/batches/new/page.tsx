@@ -39,7 +39,8 @@ const AUTO_FILL_ENABLED = true;
 interface GroupForm {
   labTempC: string;
   visualCheck: string;
-  labWeightG: string;
+  labWeightBeforeG: string;
+  labWeightAfterG: string;
   shrimpLengthCm: string;
   sampleShrimpCount: string;
   sampleWeightG: string;
@@ -48,7 +49,8 @@ interface GroupForm {
 const emptyGroup = (): GroupForm => ({
   labTempC: '',
   visualCheck: 'normal',
-  labWeightG: '',
+  labWeightBeforeG: '',
+  labWeightAfterG: '',
   shrimpLengthCm: '',
   sampleShrimpCount: '4',
   sampleWeightG: '',
@@ -96,8 +98,6 @@ export default function NewBatchPage() {
   const [arrivedAt, setArrivedAt] = useState('');
   const [coolerMin, setCoolerMin] = useState('');
   const [coolerMax, setCoolerMax] = useState('');
-  const [tempStart, setTempStart] = useState('');
-  const [tempEnd, setTempEnd] = useState('');
   const [deviationAck, setDeviationAck] = useState(false);
   // Foto kondisi awal (diunggah setelah batch dibuat)
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
@@ -108,58 +108,31 @@ export default function NewBatchPage() {
   const [groupSR, setGroupSR] = useState<GroupForm>(emptyGroup());
   const [groupSD, setGroupSD] = useState<GroupForm>(emptyGroup());
 
-  // Berat di lab & suhu tusuk saat tiba selalu sama di kedua kartu (diukur
-  // sekali sebelum dibagi): kartu pertama yang disentuh menyalin ke kartu
-  // satunya; begitu kartu kedua disentuh manual, keduanya independen.
+  // Berat sebelum observasi selalu sama di kedua kartu (ditimbang sekali
+  // sebelum dibagi): kartu pertama yang disentuh menyalin ke kartu satunya;
+  // berat sesudah observasi diisi per kartu (hasil tiap perlakuan bisa beda).
   const [labSource, setLabSource] = useState<'sr' | 'sd' | null>(null);
-  const [labTempTouched, setLabTempTouched] = useState({ sr: false, sd: false });
   const setSR = (v: GroupForm) => {
-    if (v.labWeightG !== groupSR.labWeightG) {
+    if (v.labWeightBeforeG !== groupSR.labWeightBeforeG) {
       if (labSource !== 'sd') {
-        setGroupSD((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+        setGroupSD((prev) => ({ ...prev, labWeightBeforeG: v.labWeightBeforeG }));
       }
       setLabSource('sr');
-    }
-    if (v.labTempC !== groupSR.labTempC) {
-      setLabTempTouched((prev) => ({ ...prev, sr: true }));
     }
     setGroupSR(v);
   };
   const setSD = (v: GroupForm) => {
-    if (v.labWeightG !== groupSD.labWeightG) {
+    if (v.labWeightBeforeG !== groupSD.labWeightBeforeG) {
       if (labSource !== 'sr') {
-        setGroupSR((prev) => ({ ...prev, labWeightG: v.labWeightG }));
+        setGroupSR((prev) => ({ ...prev, labWeightBeforeG: v.labWeightBeforeG }));
       }
       setLabSource('sd');
-    }
-    if (v.labTempC !== groupSD.labTempC) {
-      setLabTempTouched((prev) => ({ ...prev, sd: true }));
     }
     setGroupSD(v);
   };
 
-  // Suhu awal udang = suhu awal transportasi (masuk box segera setelah beli):
-  // tersalin hidup selama kolom transportasi belum disentuh manual.
-  const [tempStartTouched, setTempStartTouched] = useState(false);
   const changeInitialTempC = (v: string) => {
     setInitialTempC(v);
-    if (!tempStartTouched) {
-      setTempStart(v);
-    }
-  };
-  const changeTempStart = (v: string) => {
-    setTempStartTouched(true);
-    setTempStart(v);
-  };
-  // Suhu akhir transportasi = suhu tusuk saat tiba (kedua kartu, sampai disentuh).
-  const changeTempEnd = (v: string) => {
-    setTempEnd(v);
-    if (!labTempTouched.sr) {
-      setGroupSR((g) => ({ ...g, labTempC: v }));
-    }
-    if (!labTempTouched.sd) {
-      setGroupSD((g) => ({ ...g, labTempC: v }));
-    }
   };
 
   /**
@@ -175,9 +148,7 @@ export default function NewBatchPage() {
     // di lab 07:55 (perjalanan 35 menit).
     const procured = `${wibDate}T07:20`;
 
-    // Isi ulang berarti mengganti seluruh form, jadi flag mirror direset.
-    setTempStartTouched(false);
-    setLabTempTouched({ sr: false, sd: false });
+    // Isi ulang berarti mengganti seluruh form, jadi penanda mirror direset.
     setLabSource(null);
     setDeviationAck(false);
 
@@ -194,13 +165,12 @@ export default function NewBatchPage() {
     setArrivedAt(`${wibDate}T07:55`);
     setCoolerMin('1.2');
     setCoolerMax('3.6');
-    setTempStart('8.5');
-    setTempEnd('6.4'); // suhu tusuk saat tiba di lab
     // Tahap C — kelompok SR (suhu ruang) dan SD (dingin)
     setGroupSR({
       labTempC: '6.4',
       visualCheck: 'normal',
-      labWeightG: '472',
+      labWeightBeforeG: '472',
+      labWeightAfterG: '468.5',
       shrimpLengthCm: '12.4',
       sampleShrimpCount: '4',
       sampleWeightG: '158',
@@ -208,7 +178,8 @@ export default function NewBatchPage() {
     setGroupSD({
       labTempC: '6.4',
       visualCheck: 'normal',
-      labWeightG: '472',
+      labWeightBeforeG: '472',
+      labWeightAfterG: '469.2',
       shrimpLengthCm: '12.6',
       sampleShrimpCount: '4',
       sampleWeightG: '156',
@@ -298,12 +269,6 @@ export default function NewBatchPage() {
     } else if (cmax < 0 || cmax > 4) {
       e.coolerMax = 'Harus 0–4 °C.';
     }
-    if (toNum(tempStart) === null) {
-      e.tempStart = 'Wajib diisi.';
-    }
-    if (toNum(tempEnd) === null) {
-      e.tempEnd = 'Wajib diisi.';
-    }
     return e;
   };
 
@@ -318,11 +283,17 @@ export default function NewBatchPage() {
     if (g.visualCheck.trim() === '') {
       e[`${prefix}-visualCheck`] = 'Wajib dipilih.';
     }
-    const lw = toNum(g.labWeightG);
-    if (lw === null) {
-      e[`${prefix}-labWeightG`] = 'Wajib diisi.';
-    } else if (!(lw > 0)) {
-      e[`${prefix}-labWeightG`] = 'Harus lebih dari 0.';
+    const lwBefore = toNum(g.labWeightBeforeG);
+    if (lwBefore === null) {
+      e[`${prefix}-labWeightBeforeG`] = 'Wajib diisi.';
+    } else if (!(lwBefore > 0)) {
+      e[`${prefix}-labWeightBeforeG`] = 'Harus lebih dari 0.';
+    }
+    const lwAfter = toNum(g.labWeightAfterG);
+    if (lwAfter === null) {
+      e[`${prefix}-labWeightAfterG`] = 'Wajib diisi.';
+    } else if (!(lwAfter > 0)) {
+      e[`${prefix}-labWeightAfterG`] = 'Harus lebih dari 0.';
     }
     const gl = toNum(g.shrimpLengthCm);
     if (gl === null) {
@@ -373,21 +344,6 @@ export default function NewBatchPage() {
         setStep(i);
         focusFirstError(errs);
         return;
-      }
-    }
-    // Suhu awal udang (dibeli lalu langsung masuk box) = suhu awal transportasi:
-    // praktis satu pembacaan fisik, jadi cukup isi sekali lalu tersalin.
-    if (next >= 1 && tempStart.trim() === '' && initialTempC.trim() !== '') {
-      setTempStart(initialTempC);
-    }
-    // Suhu akhir transportasi (udang tiba di lab) = suhu tusuk saat tiba:
-    // praktis satu pembacaan, jadi cukup isi sekali lalu tersalin ke tiap kartu.
-    if (next >= 1 && tempEnd.trim() !== '') {
-      if (groupSR.labTempC.trim() === '') {
-        setGroupSR((prev) => ({ ...prev, labTempC: tempEnd }));
-      }
-      if (groupSD.labTempC.trim() === '') {
-        setGroupSD((prev) => ({ ...prev, labTempC: tempEnd }));
       }
     }
     setFieldErrors({});
@@ -488,7 +444,7 @@ export default function NewBatchPage() {
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       const stepOf = (k: string) =>
-        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC', 'photos', 'arrivedAt', 'coolerMin', 'coolerMax', 'tempStart', 'tempEnd'].includes(k)
+        ['procuredAt', 'marketSource', 'shrimpCount', 'shrimpLengthCm', 'totalWeightG', 'initialTempC', 'photos', 'arrivedAt', 'coolerMin', 'coolerMax'].includes(k)
           ? 0
           : 1;
       setStep(stepOf(Object.keys(errs)[0]));
@@ -510,15 +466,14 @@ export default function NewBatchPage() {
         arrivedAtUtc: new Date(arrivedAt).toISOString(),
         coolerTempMinC: Number(coolerMin),
         coolerTempMaxC: Number(coolerMax),
-        tempStartC: Number(tempStart),
-        tempEndC: Number(tempEnd),
         deviationAcknowledged: deviationAck,
       });
       const toGroup = (g: GroupForm, storageCondition: string) => ({
         storageCondition,
         labTempC: Number(g.labTempC),
         visualCheck: g.visualCheck,
-        labWeightG: Number(g.labWeightG),
+        labWeightBeforeG: Number(g.labWeightBeforeG),
+        labWeightAfterG: Number(g.labWeightAfterG),
         shrimpLengthCm: Number(g.shrimpLengthCm),
         sampleShrimpCount: Number(g.sampleShrimpCount),
         sampleWeightG: Number(g.sampleWeightG),
@@ -703,26 +658,49 @@ export default function NewBatchPage() {
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div className={fieldCls}>
-            <label className={labelCls} htmlFor={`${prefix}-labWeightG`}>
-              Berat di lab (g)
+            <label className={labelCls} htmlFor={`${prefix}-labWeightBeforeG`}>
+              Berat sebelum observasi (g)
             </label>
             <input
-              id={`${prefix}-labWeightG`}
-              name={`${prefix}-labWeightG`}
+              id={`${prefix}-labWeightBeforeG`}
+              name={`${prefix}-labWeightBeforeG`}
               type="number"
               step="0.1"
               inputMode="decimal"
               autoComplete="off"
-              value={g.labWeightG}
-              aria-invalid={!!fieldErrors[`${prefix}-labWeightG`]}
-              onChange={(e) => set({ labWeightG: e.target.value })}
+              value={g.labWeightBeforeG}
+              aria-invalid={!!fieldErrors[`${prefix}-labWeightBeforeG`]}
+              onChange={(e) => set({ labWeightBeforeG: e.target.value })}
               placeholder="482.0…"
-              className={clsFor(`${prefix}-labWeightG`)}
+              className={clsFor(`${prefix}-labWeightBeforeG`)}
             />
-            {fieldErrors[`${prefix}-labWeightG`] ? (
-              fieldMessage(`${prefix}-labWeightG`)
+            {fieldErrors[`${prefix}-labWeightBeforeG`] ? (
+              fieldMessage(`${prefix}-labWeightBeforeG`)
             ) : (
-              <p className={hintCls}>Otomatis sama dengan kartu satunya; boleh diubah bila perlu.</p>
+              <p className={hintCls}>Ditimbang saat tiba; otomatis sama dengan kartu satunya.</p>
+            )}
+          </div>
+          <div className={fieldCls}>
+            <label className={labelCls} htmlFor={`${prefix}-labWeightAfterG`}>
+              Berat sesudah observasi (g)
+            </label>
+            <input
+              id={`${prefix}-labWeightAfterG`}
+              name={`${prefix}-labWeightAfterG`}
+              type="number"
+              step="0.1"
+              inputMode="decimal"
+              autoComplete="off"
+              value={g.labWeightAfterG}
+              aria-invalid={!!fieldErrors[`${prefix}-labWeightAfterG`]}
+              onChange={(e) => set({ labWeightAfterG: e.target.value })}
+              placeholder="478.5…"
+              className={clsFor(`${prefix}-labWeightAfterG`)}
+            />
+            {fieldErrors[`${prefix}-labWeightAfterG`] ? (
+              fieldMessage(`${prefix}-labWeightAfterG`)
+            ) : (
+              <p className={hintCls}>Ditimbang setelah sesi terakhir kartu ini.</p>
             )}
           </div>
           <div className={fieldCls}>
@@ -950,6 +928,7 @@ export default function NewBatchPage() {
               min: 1,
               max: 50,
               step: '0.1',
+              placeholder: '12.5…',
               hint: 'Dari bekas potongan kepala sampai ujung ekor (telson).',
             })}
           </div>
@@ -1062,16 +1041,6 @@ export default function NewBatchPage() {
             }, { placeholder: '3.8…' })}
           </div>
           <p className={hintCls}>Jaga 0–4 °C dengan rasio es:udang 2:1.</p>
-          <div className="grid grid-cols-2 gap-3">
-            {numberField('tempStart', 'Suhu awal transportasi (°C)', tempStart, (v) => {
-              changeTempStart(v);
-              revalidateLive(0, { tempStart: fieldErrors.tempStart });
-            }, { placeholder: '3.0…', hint: 'Tersalin dari Suhu awal udang; ubah hanya bila beda.' })}
-            {numberField('tempEnd', 'Suhu akhir transportasi (°C)', tempEnd, (v) => {
-              changeTempEnd(v);
-              revalidateLive(0, { tempEnd: fieldErrors.tempEnd });
-            }, { placeholder: '3.5…', hint: 'Tersalin ke suhu tusuk saat tiba di tiap kelompok.' })}
-          </div>
           {overDuration && (
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-mono text-rose-200 cursor-pointer">
               <input

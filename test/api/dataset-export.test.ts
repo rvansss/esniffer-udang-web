@@ -102,8 +102,6 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         arrivedAtUtc: new Date('2099-06-06T02:00:00.000Z'),
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
-        tempStartC: 3.0,
-        tempEndC: 3.5,
         operatorId: admin.id,
       },
     });
@@ -116,7 +114,8 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         targetTempC: 25.0,
         labTempC: 6.5,
         visualCheck: 'NORMAL',
-        labWeightG: 482.0,
+        labWeightBeforeG: 482.0,
+        labWeightAfterG: 478.5,
         shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
         sampleWeightG: 162.3,
@@ -131,7 +130,8 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
         targetTempC: 4.0,
         labTempC: 5.0,
         visualCheck: 'NORMAL',
-        labWeightG: 480.0,
+        labWeightBeforeG: 480.0,
+        labWeightAfterG: 476.2,
         shrimpLengthCm: 12.6,
         sampleShrimpCount: 4,
         sampleWeightG: 160.0,
@@ -253,22 +253,24 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.strictEqual(sr[2], 'Pasar Export');
     assert.strictEqual(sr[6], '12.5'); // shrimp_length_cm batch
     assert.strictEqual(sr[7], '485.5');
-    assert.strictEqual(sr[19], GROUP);
-    assert.strictEqual(sr[20], 'room_temp');
-    assert.strictEqual(sr[24], '482');
-    assert.strictEqual(sr[25], '12.4'); // shrimp_length_cm grup
-    assert.strictEqual(sr[27], '162.3');
-    assert.strictEqual(sr[28], SESSION);
-    assert.strictEqual(sr[30], '0');
-    assert.strictEqual(sr[33], 'complete');
-    assert.strictEqual(sr[34], 'true');
+    assert.strictEqual(sr[17], GROUP);
+    assert.strictEqual(sr[18], 'room_temp');
+    assert.strictEqual(sr[22], '482'); // lab_weight_before_g
+    assert.strictEqual(sr[23], '478.5'); // lab_weight_after_g
+    assert.strictEqual(sr[24], '12.4'); // shrimp_length_cm grup
+    assert.strictEqual(sr[26], '162.3');
+    assert.strictEqual(sr[27], SESSION);
+    assert.strictEqual(sr[29], '0');
+    assert.strictEqual(sr[32], 'complete');
+    assert.strictEqual(sr[33], 'true');
 
     const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
-    assert.strictEqual(sd[19], `${BATCH}-SD`);
-    assert.strictEqual(sd[20], 'cold');
-    assert.strictEqual(sd[25], '12.6'); // shrimp_length_cm grup dingin
-    assert.strictEqual(sd[28], ''); // session_id kosong
-    assert.strictEqual(sd[33], 'no_session'); // ditandai jelas
+    assert.strictEqual(sd[17], `${BATCH}-SD`);
+    assert.strictEqual(sd[18], 'cold');
+    assert.strictEqual(sd[23], '476.2'); // lab_weight_after_g grup dingin
+    assert.strictEqual(sd[24], '12.6'); // shrimp_length_cm grup dingin
+    assert.strictEqual(sd[27], ''); // session_id kosong
+    assert.strictEqual(sd[32], 'no_session'); // ditandai jelas
   });
 
   it('5. format tidak dikenal ditolak 422', async () => {

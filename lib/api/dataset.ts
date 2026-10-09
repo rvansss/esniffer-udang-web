@@ -142,8 +142,6 @@ type DbBatch = {
   coolerTempMinC: { toNumber(): number };
   coolerTempMaxC: { toNumber(): number };
   iceToShrimpRatio: string;
-  tempStartC: { toNumber(): number };
-  tempEndC: { toNumber(): number };
   rejectionNotes: string | null;
   lockedAt: Date | null;
   createdAt: Date;
@@ -166,8 +164,6 @@ export function serializeBatch(b: DbBatch) {
     coolerTempMinC: dec(b.coolerTempMinC),
     coolerTempMaxC: dec(b.coolerTempMaxC),
     iceToShrimpRatio: b.iceToShrimpRatio,
-    tempStartC: dec(b.tempStartC),
-    tempEndC: dec(b.tempEndC),
     rejectionNotes: b.rejectionNotes,
     lockedAt: iso(b.lockedAt),
     createdAt: b.createdAt.toISOString(),
@@ -183,7 +179,8 @@ type DbGroup = {
   targetTempC: { toNumber(): number };
   labTempC: { toNumber(): number };
   visualCheck: string;
-  labWeightG: { toNumber(): number };
+  labWeightBeforeG: { toNumber(): number };
+  labWeightAfterG: { toNumber(): number } | null;
   shrimpLengthCm: { toNumber(): number } | null;
   sampleShrimpCount: number;
   sampleWeightG: { toNumber(): number };
@@ -200,7 +197,8 @@ export function serializeGroup(g: DbGroup) {
     targetTempC: dec(g.targetTempC),
     labTempC: dec(g.labTempC),
     visualCheck: DB_TO_VISUAL[g.visualCheck] ?? g.visualCheck,
-    labWeightG: dec(g.labWeightG),
+    labWeightBeforeG: dec(g.labWeightBeforeG),
+    labWeightAfterG: dec(g.labWeightAfterG),
     shrimpLengthCm: dec(g.shrimpLengthCm),
     sampleShrimpCount: g.sampleShrimpCount,
     sampleWeightG: dec(g.sampleWeightG),

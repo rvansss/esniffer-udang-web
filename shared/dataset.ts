@@ -135,36 +135,36 @@ export function isNextTimepoint(previous: string, next: string): boolean {
   return compareTimepoints(previous, next) === -1;
 }
 
-/** Durasi transport dalam milidetik; negatif bila urutan waktu terbalik. */
-export function transportDurationMs(departedAtUtc: Date, arrivedAtUtc: Date): number {
-  return arrivedAtUtc.getTime() - departedAtUtc.getTime();
+/** Durasi perjalanan dalam milidetik; negatif bila urutan waktu terbalik. */
+export function transportDurationMs(fromUtc: Date, toUtc: Date): number {
+  return toUtc.getTime() - fromUtc.getTime();
 }
 
-/** Kepatuhan cold-chain: durasi ≤ maxHours (default 3 jam, PRD Tahap B). */
+/** Kepatuhan cold-chain: durasi ≤ maxHours (default 3 jam, PRD). */
 export function isColdChainCompliant(
-  departedAtUtc: Date,
-  arrivedAtUtc: Date,
+  fromUtc: Date,
+  toUtc: Date,
   maxHours = 3
 ): boolean {
-  const duration = transportDurationMs(departedAtUtc, arrivedAtUtc);
+  const duration = transportDurationMs(fromUtc, toUtc);
   return duration >= 0 && duration <= maxHours * 3_600_000;
 }
 
 /** Susut berat dalam persen vs berat pasar; negatif berarti bertambah (anomali). */
-export function shrinkagePercent(marketWeightG: number, labWeightG: number): number {
+export function shrinkagePercent(marketWeightG: number, labWeightBeforeG: number): number {
   if (!(marketWeightG > 0)) {
     throw new DatasetValidationError('INVALID_WEIGHT', 'Berat pasar harus > 0');
   }
-  return ((marketWeightG - labWeightG) / marketWeightG) * 100;
+  return ((marketWeightG - labWeightBeforeG) / marketWeightG) * 100;
 }
 
 /** Susut dapat diterima bila 0–maxPct% (default 5%, PRD Tahap C). */
 export function isShrinkageAcceptable(
   marketWeightG: number,
-  labWeightG: number,
+  labWeightBeforeG: number,
   maxPct = 5
 ): boolean {
-  const pct = shrinkagePercent(marketWeightG, labWeightG);
+  const pct = shrinkagePercent(marketWeightG, labWeightBeforeG);
   return pct >= 0 && pct <= maxPct;
 }
 

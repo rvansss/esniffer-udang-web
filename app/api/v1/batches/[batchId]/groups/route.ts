@@ -48,7 +48,8 @@ export async function POST(
         const { api: storageApi, db: storageDb } = parseStorageCondition(item?.storageCondition);
         const labTempC = parseBoundedNumber(item?.labTempC, 'labTempC', -2, 30);
         const visualCheck = parseVisualCheck(item?.visualCheck);
-        const labWeightG = parsePositiveNumber(item?.labWeightG, 'labWeightG', 2000);
+        const labWeightBeforeG = parsePositiveNumber(item?.labWeightBeforeG, 'labWeightBeforeG', 2000);
+        const labWeightAfterG = parsePositiveNumber(item?.labWeightAfterG, 'labWeightAfterG', 2000);
         const sampleShrimpCount = parseIntMinimum(item?.sampleShrimpCount, 'sampleShrimpCount', 3);
         if (sampleShrimpCount > 5) {
           throw validationError('Field "sampleShrimpCount" harus 3–5 ekor per chamber');
@@ -74,7 +75,8 @@ export async function POST(
               targetTempC: TARGET_TEMP[storageDb],
               labTempC,
               visualCheck,
-              labWeightG,
+              labWeightBeforeG,
+              labWeightAfterG,
               shrimpLengthCm,
               sampleShrimpCount,
               sampleWeightG,

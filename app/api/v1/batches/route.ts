@@ -9,7 +9,6 @@ import {
   parseSourceType,
   parseInitialCondition,
   parsePositiveNumber,
-  parseFiniteNumber,
   parseBoundedNumber,
   parseIntMinimum,
   assertTransportGates,
@@ -75,8 +74,6 @@ export async function POST(request: Request): Promise<Response> {
     if (!/^\d+:\d+$/.test(iceToShrimpRatio)) {
       throw validationError('Field "iceToShrimpRatio" harus berpola N:N, contoh 2:1');
     }
-    const tempStartC = parseFiniteNumber(body?.tempStartC, 'tempStartC');
-    const tempEndC = parseFiniteNumber(body?.tempEndC, 'tempEndC');
     const rejectionNotes = parseOptionalString(body?.rejectionNotes, 'rejectionNotes', 500);
     // Foto selalu mulai kosong dan diisi lewat upload (tabel batch_photos).
 
@@ -111,8 +108,6 @@ export async function POST(request: Request): Promise<Response> {
             coolerTempMinC,
             coolerTempMaxC,
             iceToShrimpRatio,
-            tempStartC,
-            tempEndC,
             rejectionNotes,
             operatorId: auth.user.id,
           },

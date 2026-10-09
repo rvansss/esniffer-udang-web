@@ -83,8 +83,6 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         arrivedAtUtc: new Date('2099-05-05T02:00:00.000Z'),
         coolerTempMinC: 1.2,
         coolerTempMaxC: 3.8,
-        tempStartC: 3.0,
-        tempEndC: 3.5,
         operatorId: user.id,
       },
     });
@@ -97,7 +95,8 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
         targetTempC: 25.0,
         labTempC: 6.5,
         visualCheck: 'NORMAL',
-        labWeightG: 482.0,
+        labWeightBeforeG: 482.0,
+        labWeightAfterG: 478.5,
         sampleShrimpCount: 4,
         sampleWeightG: 162.3,
       },

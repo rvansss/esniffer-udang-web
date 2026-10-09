@@ -37,8 +37,6 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     arrivedAtUtc: `${DAY}T02:00:00.000Z`,
     coolerTempMinC: 1.2,
     coolerTempMaxC: 3.8,
-    tempStartC: 3.0,
-    tempEndC: 3.5,
     ...overrides,
   };
 }
@@ -50,7 +48,8 @@ function groupsBody() {
         storageCondition: 'room_temp',
         labTempC: 6.5,
         visualCheck: 'normal',
-        labWeightG: 482.0,
+        labWeightBeforeG: 482.0,
+        labWeightAfterG: 478.5,
         shrimpLengthCm: 12.4,
         sampleShrimpCount: 4,
         sampleWeightG: 162.3,
@@ -59,7 +58,8 @@ function groupsBody() {
         storageCondition: 'cold',
         labTempC: 5.0,
         visualCheck: 'normal',
-        labWeightG: 480.0,
+        labWeightBeforeG: 480.0,
+        labWeightAfterG: 476.2,
         shrimpLengthCm: 12.6,
         sampleShrimpCount: 4,
         sampleWeightG: 160.0,

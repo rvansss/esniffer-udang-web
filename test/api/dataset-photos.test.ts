@@ -92,8 +92,6 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
           arrivedAtUtc: new Date(`${DAY}T02:00:00.000Z`),
           coolerTempMinC: 1.2,
           coolerTempMaxC: 3.8,
-          tempStartC: 3.0,
-          tempEndC: 3.5,
           operatorId: admin.id,
         },
       });
@@ -244,7 +242,8 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
             storageCondition: 'room_temp',
             labTempC: 6.5,
             visualCheck: 'normal',
-            labWeightG: 482,
+            labWeightBeforeG: 482,
+            labWeightAfterG: 478.5,
             shrimpLengthCm: 12.4,
             sampleShrimpCount: 4,
             sampleWeightG: 162,
