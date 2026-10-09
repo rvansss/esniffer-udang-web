@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../components/auth/AuthProvider';
@@ -68,6 +68,20 @@ export default function BatchesPage() {
     setSelected((prev) => (prev.includes(batchId) ? prev.filter((id) => id !== batchId) : [...prev, batchId]));
   };
 
+  // Kelompokkan per pasar sesuai urutan kemunculan (daftar API sudah terbaru dulu).
+  const marketGroups = useMemo(() => {
+    const order: string[] = [];
+    const map = new Map<string, BatchItem[]>();
+    for (const b of batches) {
+      if (!map.has(b.marketSource)) {
+        map.set(b.marketSource, []);
+        order.push(b.marketSource);
+      }
+      map.get(b.marketSource)!.push(b);
+    }
+    return order.map((marketSource) => ({ marketSource, items: map.get(marketSource)! }));
+  }, [batches]);
+
   const handleBulkDelete = async (force: boolean) => {
     if (selected.length === 0) {
       return;
@@ -83,7 +97,7 @@ export default function BatchesPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error?.message || `Gagal (${res.status})`);
+        throw new Error(body.error?.message || `Gagal menghapus (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
       }
       const failed = (body.data as Array<{ batchId: string; deleted: boolean; error?: string }>).filter(
         (r) => !r.deleted
@@ -176,10 +190,21 @@ export default function BatchesPage() {
           <p className="text-sm font-mono text-white/60">Belum ada batch. Buat batch pertama dari pengadaan pasar.</p>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {batches.map((b) => (
-            <div
-              key={b.batchId}
+        <div className="space-y-6">
+          {marketGroups.map((group) => (
+            <section key={group.marketSource} aria-label={`Pasar ${group.marketSource}`}>
+              <div className="flex items-baseline justify-between gap-2 px-1 pb-2">
+                <h3 className="text-sm font-mono font-bold text-white tracking-widest">
+                  {group.marketSource}
+                </h3>
+                <span className="text-[11px] font-mono text-white/50">
+                  {group.items.length} batch
+                </span>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {group.items.map((b) => (
+                  <div
+                    key={b.batchId}
               className="p-5 rounded-2xl bg-white/10 hover:bg-white/15 backdrop-blur-lg border border-white/20 transition-colors"
             >
               <Link
@@ -212,10 +237,13 @@ export default function BatchesPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-xs font-mono text-white/60">
-                  {b.marketSource} • {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
+                  {b.shrimpCount} ekor • {b.totalWeightG ?? '--'} g
                 </p>
               </Link>
-            </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

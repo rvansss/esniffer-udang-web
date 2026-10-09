@@ -158,7 +158,7 @@ export default function BatchDetailPage() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(body.error?.message || `Gagal (${res.status})`);
+      throw new Error(body.error?.message || `Gagal menyimpan (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
     }
     return body.data;
   };
@@ -279,7 +279,7 @@ export default function BatchDetailPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error?.message || `Gagal (${res.status})`);
+        throw new Error(body.error?.message || `Gagal mengunggah foto (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
       }
       notify(`Berhasil mengunggah ${files.length} foto.`);
       filePreviews.forEach((src) => URL.revokeObjectURL(src));
@@ -310,7 +310,7 @@ export default function BatchDetailPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error?.message || `Gagal (${res.status})`);
+        throw new Error(body.error?.message || `Gagal menyimpan caption (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
       }
       notify('Caption foto berhasil disimpan.');
       setCaptionEdits((prev) => {
@@ -355,7 +355,7 @@ export default function BatchDetailPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error?.message || `Gagal (${res.status})`);
+        throw new Error(body.error?.message || `Gagal menghapus foto (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
       }
       notify('Foto berhasil dihapus.');
       refresh();
@@ -475,6 +475,7 @@ export default function BatchDetailPage() {
                       maxLength={MAX_PHOTO_CAPTION_LENGTH}
                       autoComplete="off"
                       value={captionEdits[p.url] ?? p.caption}
+                      aria-required="true"
                       aria-label={`Caption foto ${i + 1}`}
                       onChange={(e) => setCaptionEdits((prev) => ({ ...prev, [p.url]: e.target.value }))}
                       placeholder="Caption…"
@@ -521,6 +522,7 @@ export default function BatchDetailPage() {
                 type="file"
                 accept="image/jpeg,image/png"
                 multiple
+                aria-label="Pilih file foto untuk diunggah"
                 onChange={(e) => handlePhotoSelect(e.target.files, e.currentTarget)}
                 className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
               />
@@ -654,7 +656,7 @@ export default function BatchDetailPage() {
               </details>
             )}
             {g.sessions.length === 0 && (
-              <p className="text-xs font-mono text-white/50">Belum ada sesi pengukuran.</p>
+              <p className="text-xs font-mono text-white/50">Belum ada sesi pengukuran. Pilih timepoint di bawah lalu mulai sesi pertama.</p>
             )}
             {isAdmin && !locked && available.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-1">

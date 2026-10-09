@@ -16,6 +16,13 @@ import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessN
 
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono font-semibold text-white/85';
+// Penanda visual field wajib (bintang merah, disembunyikan dari pembaca layar;
+// inputnya sendiri memakai aria-required).
+const reqMark = (
+  <span aria-hidden="true" className="text-rose-400">
+    {' *'}
+  </span>
+);
 const hintCls = 'text-xs font-mono text-white/70';
 const inputCls =
   'w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-400/60 focus-visible:ring-2 focus-visible:ring-emerald-400/50 [color-scheme:dark] [tabular-nums]';
@@ -529,6 +536,7 @@ export default function NewBatchPage() {
             type="radio"
             name={name}
             checked={value === v}
+            required
             onChange={() => onChange(v)}
             className="accent-emerald-400 w-4 h-4"
           />
@@ -548,6 +556,7 @@ export default function NewBatchPage() {
     <div className={fieldCls}>
       <label className={labelCls} htmlFor={key}>
         {label}
+        {reqMark}
       </label>
       <input
         id={key}
@@ -559,6 +568,7 @@ export default function NewBatchPage() {
         inputMode="decimal"
         autoComplete="off"
         value={value}
+        aria-required="true"
         aria-invalid={!!fieldErrors[key]}
         onChange={(e) => {
           onChange(e.target.value);
@@ -603,6 +613,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-labTempC`}>
               Suhu tusuk saat tiba (°C)
+              {reqMark}
             </label>
             <input
               id={`${prefix}-labTempC`}
@@ -612,6 +623,7 @@ export default function NewBatchPage() {
               inputMode="decimal"
               autoComplete="off"
               value={g.labTempC}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-labTempC`]}
               onChange={(e) => set({ labTempC: e.target.value })}
               placeholder="6.5…"
@@ -620,17 +632,19 @@ export default function NewBatchPage() {
             {fieldErrors[`${prefix}-labTempC`] ? (
               fieldMessage(`${prefix}-labTempC`)
             ) : (
-              <p className={hintCls}>Tersalin dari suhu akhir transportasi; ubah bila beda.</p>
+              <p className={hintCls}>Ukur dengan termometer tusuk saat udang tiba.</p>
             )}
           </div>
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-visualCheck`}>
               Temuan visual
+              {reqMark}
             </label>
             <select
               id={`${prefix}-visualCheck`}
               name={`${prefix}-visualCheck`}
               value={g.visualCheck}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-visualCheck`]}
               onChange={(e) => set({ visualCheck: e.target.value })}
               className={clsFor(`${prefix}-visualCheck`)}
@@ -660,6 +674,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-labWeightBeforeG`}>
               Berat sebelum observasi (g)
+              {reqMark}
             </label>
             <input
               id={`${prefix}-labWeightBeforeG`}
@@ -669,6 +684,7 @@ export default function NewBatchPage() {
               inputMode="decimal"
               autoComplete="off"
               value={g.labWeightBeforeG}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-labWeightBeforeG`]}
               onChange={(e) => set({ labWeightBeforeG: e.target.value })}
               placeholder="482.0…"
@@ -683,6 +699,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-labWeightAfterG`}>
               Berat sesudah observasi (g)
+              {reqMark}
             </label>
             <input
               id={`${prefix}-labWeightAfterG`}
@@ -692,6 +709,7 @@ export default function NewBatchPage() {
               inputMode="decimal"
               autoComplete="off"
               value={g.labWeightAfterG}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-labWeightAfterG`]}
               onChange={(e) => set({ labWeightAfterG: e.target.value })}
               placeholder="478.5…"
@@ -706,6 +724,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-sampleShrimpCount`}>
               Ekor per sesi
+              {reqMark}
             </label>
             <input
               id={`${prefix}-sampleShrimpCount`}
@@ -716,6 +735,7 @@ export default function NewBatchPage() {
               inputMode="numeric"
               autoComplete="off"
               value={g.sampleShrimpCount}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-sampleShrimpCount`]}
               onChange={(e) => set({ sampleShrimpCount: e.target.value })}
               className={clsFor(`${prefix}-sampleShrimpCount`)}
@@ -729,6 +749,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-sampleWeightG`}>
               Berat sesi (g)
+              {reqMark}
             </label>
             <input
               id={`${prefix}-sampleWeightG`}
@@ -738,6 +759,7 @@ export default function NewBatchPage() {
               inputMode="decimal"
               autoComplete="off"
               value={g.sampleWeightG}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-sampleWeightG`]}
               onChange={(e) => set({ sampleWeightG: e.target.value })}
               placeholder="162.3…"
@@ -748,6 +770,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor={`${prefix}-shrimpLengthCm`}>
               Panjang udang (cm)
+              {reqMark}
             </label>
             <input
               id={`${prefix}-shrimpLengthCm`}
@@ -759,6 +782,7 @@ export default function NewBatchPage() {
               inputMode="decimal"
               autoComplete="off"
               value={g.shrimpLengthCm}
+              aria-required="true"
               aria-invalid={!!fieldErrors[`${prefix}-shrimpLengthCm`]}
               onChange={(e) => set({ shrimpLengthCm: e.target.value })}
               placeholder="12.5…"
@@ -788,6 +812,9 @@ export default function NewBatchPage() {
             <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-emerald-400/80' : 'bg-white/10'}`} />
           ))}
         </div>
+        <p className="text-[11px] font-mono text-white/50 mt-2">
+          Tanda <span aria-hidden="true" className="text-rose-400">*</span> merah berarti wajib diisi.
+        </p>
         {AUTO_FILL_ENABLED && (
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
             <button type="button" onClick={fillTestData} className={btnGhost}>
@@ -850,6 +877,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="procuredAt">
               Tanggal dan jam beli (WIB)
+              {reqMark}
             </label>
             <input
               id="procuredAt"
@@ -857,6 +885,7 @@ export default function NewBatchPage() {
               type="datetime-local"
               autoComplete="off"
               value={procuredAt}
+              aria-required="true"
               aria-invalid={!!fieldErrors.procuredAt}
               onChange={(e) => {
                 setProcuredAt(e.target.value);
@@ -873,6 +902,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="marketSource">
               Sumber pasar
+              {reqMark}
             </label>
             <input
               id="marketSource"
@@ -881,6 +911,7 @@ export default function NewBatchPage() {
               autoComplete="off"
               spellCheck={false}
               value={marketSource}
+              aria-required="true"
               aria-invalid={!!fieldErrors.marketSource}
               onChange={(e) => {
                 setMarketSource(e.target.value);
@@ -896,7 +927,10 @@ export default function NewBatchPage() {
             )}
           </div>
           <div className={fieldCls}>
-            <span className={labelCls}>Jenis sumber</span>
+            <span className={labelCls}>
+              Jenis sumber
+              {reqMark}
+            </span>
             {radioRow('sourceType', sourceType, setSourceType, [
               ['market', 'Pasar'],
               ['farm', 'Tambak'],
@@ -906,6 +940,7 @@ export default function NewBatchPage() {
             <div className={fieldCls}>
               <label className={labelCls} htmlFor="shrimpCount">
                 Jumlah ekor
+                {reqMark}
               </label>
               <input
                 id="shrimpCount"
@@ -915,6 +950,7 @@ export default function NewBatchPage() {
                 inputMode="numeric"
                 autoComplete="off"
                 value={shrimpCount}
+                aria-required="true"
                 aria-invalid={!!fieldErrors.shrimpCount}
                 onChange={(e) => {
                   setShrimpCount(e.target.value);
@@ -943,7 +979,10 @@ export default function NewBatchPage() {
             }, { placeholder: '8.2…', hint: 'Ukur dengan termometer tusuk.' })}
           </div>
           <div className={fieldCls}>
-            <span className={labelCls}>Kondisi awal</span>
+            <span className={labelCls}>
+              Kondisi awal
+              {reqMark}
+            </span>
             {radioRow('initialCondition', initialCondition, setInitialCondition, [
               ['dead', 'Mati'],
               ['alive', 'Hidup'],
@@ -1005,6 +1044,7 @@ export default function NewBatchPage() {
           <div className={fieldCls}>
             <label className={labelCls} htmlFor="arrivedAt">
               Waktu tiba di lab (WIB)
+              {reqMark}
             </label>
             <input
               id="arrivedAt"
@@ -1012,6 +1052,7 @@ export default function NewBatchPage() {
               type="datetime-local"
               autoComplete="off"
               value={arrivedAt}
+              aria-required="true"
               aria-invalid={!!fieldErrors.arrivedAt}
               onChange={(e) => {
                 setArrivedAt(e.target.value);
