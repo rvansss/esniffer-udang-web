@@ -75,7 +75,7 @@ export async function GET(
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
       if (full.sampleGroups.length === 0) {
-        rows.push([...batchBlock, ...Array(9).fill(''), ...noSessionBlock]);
+        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
       }
       for (const g of full.sampleGroups) {
         const groupBlock = [
