@@ -4,6 +4,7 @@ import { rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma, closeDb } from '../../lib/db/client.ts';
 import { POST as uploadPhotos, DELETE as deletePhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
+import { GET as getUpload, HEAD as headUpload } from '../../app/uploads/[...path]/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
@@ -113,7 +114,29 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
       assert.match(url, new RegExp(`^uploads/${batchId}/${batchId}_\\d+_\\d+\\.(jpg|png)$`));
       const st = await stat(path.join(process.cwd(), 'public', url));
       assert.ok(st.isFile());
+
+      const segments = url.replace(/^uploads\//, '').split('/');
+      const serveRes = await getUpload(new Request(`http://localhost:3000/${url}`), {
+        params: Promise.resolve({ path: segments }),
+      });
+      assert.strictEqual(serveRes.status, 200);
+      assert.match(serveRes.headers.get('Content-Type') ?? '', /^image\/(jpeg|png)$/);
+      assert.strictEqual(serveRes.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+      const headRes = await headUpload(new Request(`http://localhost:3000/${url}`, { method: 'HEAD' }), {
+        params: Promise.resolve({ path: segments }),
+      });
+      assert.strictEqual(headRes.status, 200);
     }
+
+    const traversal = await getUpload(new Request('http://localhost:3000/uploads/..'), {
+      params: Promise.resolve({ path: ['..', 'etc', 'passwd'] }),
+    });
+    assert.strictEqual(traversal.status, 400);
+
+    const notFound = await getUpload(new Request('http://localhost:3000/uploads/missing.jpg'), {
+      params: Promise.resolve({ path: ['missing.jpg'] }),
+    });
+    assert.strictEqual(notFound.status, 404);
   });
 
   it('2. Tipe file selain jpg/png ditolak (422)', async () => {
@@ -259,6 +282,11 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     const body = await res.json();
     assert.ok(!body.data.photoUrls.includes(target));
     await assert.rejects(stat(path.join(process.cwd(), 'public', target)));
+
+    const deletedServeRes = await getUpload(new Request(`http://localhost:3000/${target}`), {
+      params: Promise.resolve({ path: target.replace(/^uploads\//, '').split('/') }),
+    });
+    assert.strictEqual(deletedServeRes.status, 404);
 
     const gone = await delReq(adminCookie, { photoUrls: [target] });
     assert.strictEqual(gone.status, 404);

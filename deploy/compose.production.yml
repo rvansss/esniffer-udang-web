@@ -123,6 +123,7 @@ services:
       - cursor_signing_secret
     volumes:
       - next-cache:/app/.next/cache
+      - uploads-data:/app/public/uploads
     networks:
       - frontend
       - backend
@@ -219,6 +220,7 @@ volumes:
   postgres-data:
   mqtt-data:
   next-cache:
+  uploads-data:
 
 secrets:
   postgres_password:
