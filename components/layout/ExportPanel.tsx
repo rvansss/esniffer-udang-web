@@ -49,8 +49,8 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
   const [activeWindow, setActiveWindow] = useState<{ from: string; to: string } | null>(null);
 
   // Filter jarak waktu tabel riwayat & ekspor
-  // (1h, 6h, 12h, 24h, today, 7d, 30d, 1y, kustom)
-  type HistoryRangeMode = '1h' | '6h' | '12h' | '24h' | 'today' | '7d' | '30d' | '1y' | 'custom';
+  // (1h, 6h, 12h, 24h, 7d, 30d, 1y, kustom)
+  type HistoryRangeMode = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | '1y' | 'custom';
   const [historyMode, setHistoryMode] = useState<HistoryRangeMode>('24h');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -79,7 +79,6 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     else if (mode === '6h') from.setTime(to.getTime() - 6 * 3_600_000);
     else if (mode === '12h') from.setTime(to.getTime() - 12 * 3_600_000);
     else if (mode === '24h') from.setTime(to.getTime() - 24 * 3_600_000);
-    else if (mode === 'today') from.setHours(0, 0, 0, 0);
     else if (mode === '7d') from.setTime(to.getTime() - 7 * 24 * 3_600_000);
     else if (mode === '30d') from.setTime(to.getTime() - 30 * 24 * 3_600_000);
     else if (mode === '1y') from.setUTCFullYear(from.getUTCFullYear() - 1);
@@ -110,7 +109,6 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     if (mode === '6h') return '6 jam terakhir';
     if (mode === '12h') return '12 jam terakhir';
     if (mode === '24h') return '24 jam terakhir';
-    if (mode === 'today') return 'hari ini';
     if (mode === '7d') return '7 hari terakhir';
     if (mode === '30d') return '30 hari terakhir';
     if (mode === '1y') return '1 tahun terakhir';
@@ -546,7 +544,6 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(
                     [
-                      { mode: 'today', label: 'Hari Ini' },
                       { mode: '1h', label: '1 Jam' },
                       { mode: '6h', label: '6 Jam' },
                       { mode: '12h', label: '12 Jam' },
@@ -720,7 +717,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                         <p className="mt-1 text-[11px] text-white/35">
                           {aboveCount > 0
                             ? 'Data terbaru menunggu giliran di atas watermark.'
-                            : 'Tidak ada riwayat pembacaan dalam rentang ini. Coba preset "Hari Ini" atau perluas rentang di atas.'}
+                            : 'Tidak ada riwayat pembacaan dalam rentang ini. Coba preset lain atau perluas rentang di atas.'}
                         </p>
                       </td>
                     </tr>
