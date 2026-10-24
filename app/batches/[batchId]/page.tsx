@@ -313,6 +313,8 @@ export default function BatchDetailPage() {
     err: string | null;
     busy: boolean;
   } | null>(null);
+  const [checkingData, setCheckingData] = useState(false);
+  const [dataCheckResult, setDataCheckResult] = useState<{ ok: boolean; msg: string } | null>(null);
   // Penampil foto tahap: gambar + caption per sesi (tabel riwayat).
   const [photoViewer, setPhotoViewer] = useState<{
     title: string;
@@ -489,11 +491,15 @@ export default function BatchDetailPage() {
     }
     const defaultMins = durationMins[g.groupId] ?? 15;
     const defaultChamberId = chSel[g.groupId] || g.chamberId || (chambers.length === 1 ? chambers[0].id : '');
+    const defaultStart = captureMode === 'time_range'
+      ? new Date(Date.now() - defaultMins * 60_000)
+      : new Date();
+    setDataCheckResult(null);
     // Modal form tahap baru: isi suhu/berat/foto dulu, sesi dibuat setelah submit.
     setSessionModal({
       mode: 'create',
       captureMode,
-      startTimeWib: wibDateTimeLocal(new Date()),
+      startTimeWib: wibDateTimeLocal(defaultStart),
       groupId: g.groupId,
       chamberId: defaultChamberId,
       timepointCode,
@@ -2255,18 +2261,85 @@ export default function BatchDetailPage() {
                       ? 'Tanpa Chamber (Kulkas)'
                       : (sessionModal.chamberId ? chamberName(sessionModal.chamberId) : '⚠️ Chamber Belum Dipilih');
 
+                    const startUtcIso = parsed.date.toISOString().replace('T', ' ').slice(0, 19);
+                    const endUtcIso = end.toISOString().replace('T', ' ').slice(0, 19);
+
+                    const handleCheckData = async () => {
+                      if (!sessionModal.chamberId) return;
+                      setCheckingData(true);
+                      setDataCheckResult(null);
+                      try {
+                        const fromIso = parsed.date!.toISOString();
+                        const toIso = end.toISOString();
+                        const res = await apiFetch(
+                          `/api/v1/chambers/${encodeURIComponent(sessionModal.chamberId)}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&limit=1`
+                        );
+                        if (!res.ok) {
+                          setDataCheckResult({ ok: false, msg: `Gagal memeriksa database (${res.status}).` });
+                          return;
+                        }
+                        const json = await res.json();
+                        if (Array.isArray(json?.data) && json.data.length > 0) {
+                          setDataCheckResult({
+                            ok: true,
+                            msg: '✅ Data sensor ditemukan di database pada rentang waktu ini dan siap ditarik!',
+                          });
+                        } else {
+                          setDataCheckResult({
+                            ok: false,
+                            msg: '⚠️ Belum ada pembacaan sensor pada rentang waktu ini di chamber tersebut. Periksa apakah jam WIB atau tanggal sudah sesuai dengan waktu pengiriman data ESP32.',
+                          });
+                        }
+                      } catch (checkErr) {
+                        setDataCheckResult({
+                          ok: false,
+                          msg: checkErr instanceof Error ? checkErr.message : 'Gagal menghubungi server.',
+                        });
+                      } finally {
+                        setCheckingData(false);
+                      }
+                    };
+
                     return (
-                      <div className="p-2.5 rounded-lg bg-black/40 border border-white/10 text-[11px] font-mono space-y-1">
-                        <p className="text-white/80">
-                          <span className="text-cyan-300 font-semibold">Rentang Waktu:</span> {startWibStr} – {endHourStr} WIB ({sessionModal.durationMinutes} menit)
-                        </p>
+                      <div className="p-3 rounded-lg bg-black/40 border border-white/10 text-[11px] font-mono space-y-2">
+                        <div>
+                          <p className="text-white/80">
+                            <span className="text-cyan-300 font-semibold">Rentang Waktu:</span> {startWibStr} – {endHourStr} WIB ({sessionModal.durationMinutes} menit)
+                          </p>
+                          <p className="text-[10px] text-white/40">
+                            (Waktu UTC server: {startUtcIso} s/d {endUtcIso} UTC)
+                          </p>
+                        </div>
                         <p className="text-white/60">
                           <span className="text-white/80 font-semibold">Target Chamber:</span>{' '}
                           <span className={sessionModal.chamberId ? 'text-emerald-300 font-semibold' : 'text-rose-300 font-bold'}>
                             {chamberCode}
                           </span>
                         </p>
-                        <p className="text-white/50 text-[10px]">
+                        {sessionModal.chamberId && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleCheckData()}
+                              disabled={checkingData}
+                              className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/30 text-cyan-200 text-[11px] font-mono transition-colors disabled:opacity-50"
+                            >
+                              {checkingData ? '⏳ Memeriksa ke database…' : '🔍 Periksa Ketersediaan Data di Chamber Ini'}
+                            </button>
+                            {dataCheckResult && (
+                              <p
+                                className={`mt-2 p-2 rounded-lg border text-[11px] leading-relaxed ${
+                                  dataCheckResult.ok
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-200'
+                                    : 'bg-amber-500/15 border-amber-500/30 text-amber-200'
+                                }`}
+                              >
+                                {dataCheckResult.msg}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-white/40 text-[10px]">
                           Data sensor pada rentang waktu ini akan otomatis diambil dan dikaitkan ke tahap pengujian ini.
                         </p>
                       </div>

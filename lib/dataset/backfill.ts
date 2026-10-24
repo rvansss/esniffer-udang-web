@@ -68,14 +68,6 @@ export async function backfillSessionReadings(sessionId: string): Promise<Backfi
     }
   }
 
-  if (!session.deviceId) {
-    await prisma.measurementSession.update({
-      where: { id: sessionId },
-      data: { status: 'COMPLETE' },
-    });
-    return { linked: 0, baseline: 0, skipped: true };
-  }
-
   const cutoff = baselineCutoffUtc(session.startedAtUtc);
   const linked = Number(
     await prisma.$executeRaw`
@@ -85,12 +77,26 @@ export async function backfillSessionReadings(sessionId: string): Promise<Backfi
           timepoint_code = ${session.timepointCode},
           is_baseline = (measured_at < ${cutoff})
       WHERE chamber_id = ${session.chamberId}::uuid
-        AND device_id = ${session.deviceId}::uuid
+        AND (${session.deviceId}::uuid IS NULL OR device_id = ${session.deviceId}::uuid)
         AND measurement_time_quality IN ('SYNCED', 'RECONSTRUCTED')
         AND measured_at >= ${session.startedAtUtc}
         AND measured_at <= ${session.endedAtUtc}
         AND session_id IS NULL`
   );
+
+  if (!session.deviceId && linked > 0) {
+    const sample = await prisma.sensorReading.findFirst({
+      where: { sessionId },
+      select: { deviceId: true },
+    });
+    if (sample?.deviceId) {
+      await prisma.measurementSession.update({
+        where: { id: sessionId },
+        data: { deviceId: sample.deviceId },
+      });
+      session = await prisma.measurementSession.findUniqueOrThrow({ where: { id: sessionId } });
+    }
+  }
 
   const grouped = await prisma.sensorReading.groupBy({
     by: ['isBaseline'],
