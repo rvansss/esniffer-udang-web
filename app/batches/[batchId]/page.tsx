@@ -301,6 +301,7 @@ export default function BatchDetailPage() {
     captureMode?: 'live' | 'time_range';
     startTimeWib?: string;
     groupId: string;
+    chamberId?: string;
     sessionId?: string;
     timepointCode: string;
     durationMinutes: number;
@@ -487,12 +488,14 @@ export default function BatchDetailPage() {
       return;
     }
     const defaultMins = durationMins[g.groupId] ?? 15;
+    const defaultChamberId = chSel[g.groupId] || g.chamberId || (chambers.length === 1 ? chambers[0].id : '');
     // Modal form tahap baru: isi suhu/berat/foto dulu, sesi dibuat setelah submit.
     setSessionModal({
       mode: 'create',
       captureMode,
       startTimeWib: wibDateTimeLocal(new Date()),
       groupId: g.groupId,
+      chamberId: defaultChamberId,
       timepointCode,
       durationMinutes: defaultMins,
       shrimpTempC: '',
@@ -636,17 +639,24 @@ export default function BatchDetailPage() {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error?.message || `Gagal menyimpan data tahap (kode ${res.status}).`);
-      } else {
         // Grup "langsung di kulkas" (butir 1) tidak pernah ditautkan ke chamber.
         const targetGroup = batch?.sampleGroups.find((grp) => grp.groupId === groupId);
-        const chamberId =
-          targetGroup?.coldStorageMode === 'plain_fridge' ? null : chSel[groupId] || null;
+        const chosenChamberId =
+          targetGroup?.coldStorageMode === 'plain_fridge'
+            ? null
+            : (sessionModal.chamberId || chSel[groupId] || targetGroup?.chamberId || null);
+
+        if (captureMode === 'time_range' && targetGroup?.coldStorageMode !== 'plain_fridge' && !chosenChamberId) {
+          fail('Pilih Chamber terlebih dahulu agar data sensor pada rentang waktu tersebut dapat ditarik.');
+          return;
+        }
+
         const durationSeconds = Math.round(durationMinutes * 60);
 
         const payload: Record<string, unknown> = {
           timepointCode,
           warmupDone: true,
-          chamberId,
+          chamberId: chosenChamberId,
           durationSeconds,
           ...shrimpFields,
         };
@@ -2184,6 +2194,50 @@ export default function BatchDetailPage() {
                     </p>
                   </div>
 
+                  {/* Pemilihan Chamber di dalam modal */}
+                  {(() => {
+                    const grp = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
+                    if (grp?.coldStorageMode === 'plain_fridge') {
+                      return (
+                        <p className="text-[11px] font-mono text-amber-200/80 p-2.5 rounded-lg bg-black/40 border border-white/10">
+                          Grup ini disimpan langsung di kulkas — tanpa chamber, jadi sensor chamber tidak ditautkan.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div>
+                        <label htmlFor="modal-chamber-select" className="block text-[12px] font-mono text-cyan-200 font-semibold mb-1">
+                          Pilih Chamber Pengujian <span className="text-rose-400">*</span>
+                        </label>
+                        <select
+                          id="modal-chamber-select"
+                          value={sessionModal.chamberId || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSessionModal((m) => (m ? { ...m, chamberId: val } : null));
+                            setChSel((prev) => ({ ...prev, [sessionModal.groupId]: val }));
+                          }}
+                          className="w-full px-3 py-2 rounded-xl bg-black/30 border border-cyan-400/40 text-white text-xs font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                        >
+                          <option value="" className="bg-slate-900">
+                            -- Pilih Chamber --
+                          </option>
+                          {chambers.map((c) => (
+                            <option key={c.id} value={c.id} className="bg-slate-900">
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] font-mono text-cyan-200/70 mt-1">
+                          {(() => {
+                            const dev = deviceForChamber(sessionModal.chamberId || null);
+                            return dev ? `Device terhubung: ${dev.mqttDeviceId} (${dev.name})` : 'Pilih chamber agar data telemetri sensor dapat ditarik';
+                          })()}
+                        </p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Info Box Ringkasan Rentang Waktu */}
                   {(() => {
                     const parsed = parseWibInput(sessionModal.startTimeWib ?? '');
@@ -2199,7 +2253,7 @@ export default function BatchDetailPage() {
                     const grp = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
                     const chamberCode = grp?.coldStorageMode === 'plain_fridge'
                       ? 'Tanpa Chamber (Kulkas)'
-                      : (chSel[sessionModal.groupId] ? chamberName(chSel[sessionModal.groupId]) : 'Chamber Belum Dipilih');
+                      : (sessionModal.chamberId ? chamberName(sessionModal.chamberId) : '⚠️ Chamber Belum Dipilih');
 
                     return (
                       <div className="p-2.5 rounded-lg bg-black/40 border border-white/10 text-[11px] font-mono space-y-1">
@@ -2207,7 +2261,10 @@ export default function BatchDetailPage() {
                           <span className="text-cyan-300 font-semibold">Rentang Waktu:</span> {startWibStr} – {endHourStr} WIB ({sessionModal.durationMinutes} menit)
                         </p>
                         <p className="text-white/60">
-                          <span className="text-white/80 font-semibold">Target Chamber:</span> {chamberCode}
+                          <span className="text-white/80 font-semibold">Target Chamber:</span>{' '}
+                          <span className={sessionModal.chamberId ? 'text-emerald-300 font-semibold' : 'text-rose-300 font-bold'}>
+                            {chamberCode}
+                          </span>
                         </p>
                         <p className="text-white/50 text-[10px]">
                           Data sensor pada rentang waktu ini akan otomatis diambil dan dikaitkan ke tahap pengujian ini.

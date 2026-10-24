@@ -106,6 +106,11 @@ export async function POST(
         'Grup dingin mode chamber butuh pemilihan chamber sebelum sesi dimulai'
       );
     }
+    if (body?.autoBackfill && group.coldStorageMode !== 'PLAIN_FRIDGE' && !chamberId) {
+      throw validationError(
+        'Sesi dengan pengambilan rentang waktu membutuhkan pemilihan chamber'
+      );
+    }
 
     let deviceId: string | null = null;
     if (body?.deviceId !== undefined && body?.deviceId !== null) {
