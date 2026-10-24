@@ -3,6 +3,8 @@ import assert from 'node:assert';
 import { prisma, allocateHistorySequence, closeDb } from '../../lib/db/client.ts';
 import { GET as getSeriesHandler } from '../../app/api/v1/chambers/[chamberId]/series/route.ts';
 import { GET as getExportHandler } from '../../app/api/v1/chambers/[chamberId]/export/route.ts';
+import { GET as getHistoryHandler } from '../../app/api/v1/chambers/[chamberId]/history/route.ts';
+import { wibInputToUtcIso } from '../../lib/batch-wizard.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
 import { createSession, buildSessionCookie } from '../../lib/auth/session.ts';
 import { sanitizeCsvCell, buildCsvRow, getMaxExportRows, DEFAULT_MAX_EXPORT_ROWS } from '../../lib/api/csv.ts';
@@ -505,6 +507,73 @@ describe('HTTP API v1: Time-Bucket Series & Safe CSV Export Tests', () => {
     assert.strictEqual(cells.length, headers.length);
     assert.strictEqual(cells[headers.indexOf('measured_at_wib')], '2026-09-16T17:00:00.123+07:00');
     assert.strictEqual(cells[headers.indexOf('received_at_wib')], '2026-09-16T17:00:00.123+07:00');
+  });
+
+  it('9b. Rentang 20.10–20.25 WIB: CSV dan tabel berbagi batas serta snapshot meskipun data baru masuk', async () => {
+    const insert = async (at: string, tag: string) => prisma.$transaction(async (tx) => {
+      const sequence = await allocateHistorySequence(tx);
+      return tx.sensorReading.create({ data: {
+        deviceId, chamberId, assignmentId, bootId,
+        messageId: `wib-window-${tag}-${Date.now()}`,
+        payloadSha256: 'd'.repeat(64), sequence, historySequence: sequence,
+        measuredAt: new Date(at), receivedAt: new Date(at), measurementTimeQuality: 'SYNCED',
+        temperatureC: 25, temperatureQuality: 'OK', humidityPercent: 60, humidityQuality: 'OK',
+        mq137Raw: 100, mq137Quality: 'OK', mq136Raw: 100, mq136Quality: 'OK',
+        mq4Raw: 100, mq4Quality: 'OK', rawPayload: {},
+      } });
+    });
+    await insert('2026-10-23T13:09:59.999Z', 'before');
+    const first = await insert('2026-10-23T13:10:00.357Z', 'inside');
+    const last = await insert('2026-10-23T13:25:00.000Z', 'end');
+    await insert('2026-10-23T13:25:00.001Z', 'after');
+    const query = new URLSearchParams({
+      from: wibInputToUtcIso('2026-10-23T20:10'),
+      to: wibInputToUtcIso('2026-10-23T20:25'),
+    });
+    const request = (path: string) => new Request(`http://localhost:3000/api/v1/chambers/${chamberCode}/${path}`, {
+      headers: { Cookie: adminCookie },
+    });
+    const context = { params: Promise.resolve({ chamberId: chamberCode }) };
+    const history = await getHistoryHandler(request(`history?${query}`), context);
+    assert.strictEqual(history.status, 200);
+    const original = await history.json();
+    assert.deepStrictEqual(original.data.map((r: { id: string }) => r.id), [last.id, first.id]);
+    const late = await insert('2026-10-23T13:15:00.000Z', 'late');
+    query.set('snapshotWatermark', original.meta.snapshotWatermark);
+    const replay = await getHistoryHandler(request(`history?${query}`), context);
+    assert.deepStrictEqual((await replay.json()).data.map((r: { id: string }) => r.id), [last.id, first.id]);
+
+    query.set('timeZone', 'Asia/Jakarta');
+    const csv = await getExportHandler(request(`export?${query}`), context);
+    assert.strictEqual(csv.status, 200);
+    assert.strictEqual(csv.headers.get('x-time-zone'), 'Asia/Jakarta');
+    const lines = (await csv.text()).trim().split('\r\n');
+    const headers = lines[0].split(',');
+    const timestamps = lines.slice(1).map((line) => line.split(',')[headers.indexOf('measured_at')]);
+    assert.deepStrictEqual(timestamps, ['2026-10-23T20:10:00.357+07:00', '2026-10-23T20:25:00.000+07:00']);
+    assert.ok(!lines.some((line) => line.includes(late.messageId)), 'Backlog baru tidak mengubah snapshot unduhan');
+
+    for (const invalid of ['-1', 'abc', '9999999999999999999']) {
+      query.set('snapshotWatermark', invalid);
+      assert.strictEqual((await getExportHandler(request(`export?${query}`), context)).status, 422);
+      assert.strictEqual((await getHistoryHandler(request(`history?${query}`), context)).status, 422);
+    }
+  });
+
+  it('9c. Ekspor menerima batas satu tahun kalender yang sama dengan tabel dan menolak zona tak didukung', async () => {
+    const query = new URLSearchParams({ from: '2026-01-01T00:00:00Z', to: '2027-01-01T00:00:00Z', timeZone: 'Asia/Jakarta' });
+    const get = () => getExportHandler(new Request(
+      `http://localhost:3000/api/v1/chambers/${chamberCode}/export?${query}`,
+      { headers: { Cookie: adminCookie } }
+    ), { params: Promise.resolve({ chamberId: chamberCode }) });
+    const allowed = await get();
+    assert.strictEqual(allowed.status, 200);
+    await allowed.text();
+    query.set('from', '2025-12-31T23:59:59Z');
+    assert.strictEqual((await get()).status, 422);
+    query.set('from', '2026-01-01T00:00:00Z');
+    query.set('timeZone', 'Asia/Makassar');
+    assert.strictEqual((await get()).status, 422);
   });
 
   it('10. Export CSV menolak jika jumlah baris melebihi MAX_EXPORT_ROWS (413 PAYLOAD_TOO_LARGE)', async () => {

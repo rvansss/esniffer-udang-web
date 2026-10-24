@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { formatWibDateTime, wibDateTimeLocal } from '../../shared/datetime.ts';
+import { formatWibDateTime, wibDateTimeLocal, toWibParts } from '../../shared/datetime.ts';
 import { parseWibInput } from '../../lib/batch-wizard.ts';
 import { useAuth } from '../auth/AuthProvider';
 import { toHistoryRows, nextCursorOf, historyMetaOf, type HistoryRow } from '../../lib/api/history.ts';
@@ -11,9 +11,6 @@ interface ExportPanelProps {
   chamberId?: string;
   activeDeviceId?: string | null;
 }
-
-/** Jeda sebelum rentang kustom dipakai ulang (ms) — satu request, bukan per ketikan. */
-const HISTORY_APPLY_DEBOUNCE_MS = 400;
 
 export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: ExportPanelProps) {
   const searchParams = useSearchParams();
@@ -36,11 +33,9 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [, setWatermark] = useState<string | null>(null);
+  const [snapshotWatermark, setWatermark] = useState<string | null>(null);
   const [aboveCount, setAboveCount] = useState(0);
   const [historyPage, setHistoryPage] = useState(1);
-  // Halaman keyset saat ini (ref: hanya penjaga refresh, tak dirender).
-  const historyPageRef = useRef(1);
   // Tumpukan kursor per halaman: [null, cursorHal2, ...]. Kursor ditandatangani
   // server dan terikat pada jendela from/to, jadi halaman sebelumnya
   // dikunjungi ulang lewat kursor simpanan, bukan fetch ulang halaman 1.
@@ -59,8 +54,11 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
   // Nilai input terkini (ref) agar apply ber-debounce memakai nilai terbaru.
   const customFromRef = useRef('');
   const customToRef = useRef('');
-  // Timer apply rentang kustom (debounce: bukan satu request per ketikan).
-  const applyRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Filter/snapshot milik hasil yang diterapkan, terpisah dari input yang sedang diedit.
+  const snapshotRef = useRef<string | null>(null);
+  const historyDeviceRef = useRef<string | null>(null);
+  const historyRequestRef = useRef(0);
+  const historyAbortRef = useRef<AbortController | null>(null);
 
   /**
    * Batas rentang preset. "1 Tahun" memakai aritmetika kalender (tahun kalender
@@ -101,6 +99,11 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     mode: HistoryRangeMode,
     bounds?: { from: string; to: string } | null
   ): string => {
+    if (bounds?.from && bounds?.to) {
+      const f = new Date(bounds.from);
+      const t = new Date(bounds.to);
+      return `${formatWibDateTime(f)} → ${formatWibDateTime(t)}`;
+    }
     if (mode === '1h') return '1 jam terakhir';
     if (mode === '6h') return '6 jam terakhir';
     if (mode === '12h') return '12 jam terakhir';
@@ -108,21 +111,11 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     if (mode === '7d') return '7 hari terakhir';
     if (mode === '30d') return '30 hari terakhir';
     if (mode === '1y') return '1 tahun terakhir';
-    if (bounds?.from && bounds?.to) {
-      const f = new Date(bounds.from);
-      const t = new Date(bounds.to);
-      return `${formatWibDateTime(f)} → ${formatWibDateTime(t)}`;
-    }
     return 'kustom';
   };
 
   /** Ganti rentang tabel riwayat dan muat ulang halaman 1. */
   const applyHistoryRange = (mode: HistoryRangeMode, from = '', to = '') => {
-    // Batalkan apply tertunda (mis. dari ketikan input) — rentang ini yang berlaku.
-    if (applyRangeTimerRef.current) {
-      clearTimeout(applyRangeTimerRef.current);
-      applyRangeTimerRef.current = null;
-    }
     let f = from;
     let t = to;
     if (mode === 'custom') {
@@ -154,13 +147,12 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     cursorStackRef.current = [null];
     windowRef.current = bounds;
     setActiveWindow(bounds);
+    setHistoryRows([]);
+    setNextCursor(null);
     void fetchHistoryPage(null, 1, true, bounds);
   };
 
-  /**
-   * Input rentang kustom: diterapkan otomatis setelah jeda (debounce) supaya
-   * tidak ada satu request per ketikan.
-   */
+  /** Mengedit input tidak mengubah hasil sampai tombol Terapkan Rentang ditekan. */
   const onCustomInputChange = (which: 'from' | 'to', value: string) => {
     if (which === 'from') {
       customFromRef.current = value;
@@ -169,15 +161,6 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       customToRef.current = value;
       setCustomTo(value);
     }
-    if (applyRangeTimerRef.current) {
-      clearTimeout(applyRangeTimerRef.current);
-    }
-    applyRangeTimerRef.current = setTimeout(() => {
-      applyRangeTimerRef.current = null;
-      // Field kosong = belum valid; tunggu pengguna mengisi lagi.
-      if (!customFromRef.current || !customToRef.current) return;
-      applyHistoryRange('custom', customFromRef.current, customToRef.current);
-    }, HISTORY_APPLY_DEBOUNCE_MS);
   };
 
   const getRangeBounds = () => {
@@ -198,15 +181,19 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     setExportError(null);
     setExportProgress(null);
 
-    const bounds = customBounds || getRangeBounds();
+    const bounds = customBounds ?? getRangeBounds();
     if (!bounds) {
       setExportError('Rentang waktu belum valid untuk ekspor.');
       setIsExporting(false);
       return;
     }
     const { from, to } = bounds;
-    const query = new URLSearchParams({ from, to });
-    if (activeDeviceId) query.set('deviceId', activeDeviceId);
+    const query = new URLSearchParams({ from, to, timeZone: 'Asia/Jakarta' });
+    const deviceId = customBounds ? historyDeviceRef.current : activeDeviceId;
+    if (deviceId) query.set('deviceId', deviceId);
+    if (customBounds && snapshotRef.current !== null) {
+      query.set('snapshotWatermark', snapshotRef.current);
+    }
 
     try {
       const res = await apiFetch(
@@ -259,7 +246,11 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       const a = document.createElement('a');
       a.href = url;
       const fileLabel = label || rangeParam;
-      a.download = `esniffer_${resolvedChamberId}_${fileLabel}.csv`;
+      const stamp = (iso: string) => {
+        const { date, time } = toWibParts(new Date(iso));
+        return `${date}_${time.replaceAll(':', '-')}`;
+      };
+      a.download = `esniffer_${resolvedChamberId}_${fileLabel}_${stamp(from)}_sampai_${stamp(to)}_WIB.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -279,11 +270,16 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     resetWindow = false,
     boundsOverride?: { from: string; to: string } | null
   ) => {
+    const requestId = ++historyRequestRef.current;
+    historyAbortRef.current?.abort();
+    const abort = new AbortController();
+    historyAbortRef.current = abort;
     setIsHistoryLoading(true);
     setHistoryError(null);
 
     if (resetWindow || !windowRef.current) {
-      const bounds = boundsOverride || getHistoryBounds();
+      const newRange = boundsOverride !== undefined || !windowRef.current;
+      const bounds = boundsOverride ?? windowRef.current ?? getHistoryBounds();
       if (!bounds) {
         setHistoryError('Rentang kustom belum lengkap atau urutannya salah.');
         setIsHistoryLoading(false);
@@ -291,6 +287,9 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       }
       windowRef.current = bounds;
       setActiveWindow(bounds);
+      snapshotRef.current = null;
+      setWatermark(null);
+      if (newRange) historyDeviceRef.current = activeDeviceId ?? null;
     }
     const { from, to } = windowRef.current;
     const query = new URLSearchParams({
@@ -299,11 +298,13 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       limit: '15',
     });
     if (cursorToken) query.set('cursor', cursorToken);
-    if (activeDeviceId) query.set('deviceId', activeDeviceId);
+    if (historyDeviceRef.current) query.set('deviceId', historyDeviceRef.current);
+    if (snapshotRef.current !== null) query.set('snapshotWatermark', snapshotRef.current);
 
     try {
       const res = await apiFetch(
-        `/api/v1/chambers/${encodeURIComponent(resolvedChamberId)}/history?${query.toString()}`
+        `/api/v1/chambers/${encodeURIComponent(resolvedChamberId)}/history?${query.toString()}`,
+        { signal: abort.signal }
       );
 
       if (!res.ok) {
@@ -312,43 +313,48 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       }
 
       const json: unknown = await res.json();
+      if (requestId !== historyRequestRef.current || abort.signal.aborted) return;
       setHistoryRows(toHistoryRows(json));
       setNextCursor(nextCursorOf(json));
       const meta = historyMetaOf(json);
+      snapshotRef.current = meta.snapshotWatermark;
       setWatermark(meta.snapshotWatermark);
       setAboveCount(meta.aboveWatermarkCount);
       setHistoryPage(page);
-      historyPageRef.current = page;
     } catch (err: unknown) {
+      if (requestId !== historyRequestRef.current || abort.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Gagal memuat riwayat data';
       setHistoryError(msg);
     } finally {
-      setIsHistoryLoading(false);
+      if (requestId === historyRequestRef.current) setIsHistoryLoading(false);
     }
   };
 
-  // Bersihkan timer apply tertunda saat komponen dilepas.
-  useEffect(
-    () => () => {
-      if (applyRangeTimerRef.current) {
-        clearTimeout(applyRangeTimerRef.current);
-      }
-    },
-    []
-  );
+  // Batalkan respons yang masih tertunda ketika panel dilepas/diganti chamber.
+  useEffect(() => {
+    const requests = historyRequestRef;
+    const abort = historyAbortRef;
+    return () => {
+      requests.current++;
+      abort.current?.abort();
+    };
+  }, []);
+
+  const handleCloseHistory = useCallback(() => {
+    historyRequestRef.current++;
+    historyAbortRef.current?.abort();
+    setIsHistoryLoading(false);
+    setShowHistory(false);
+  }, []);
 
   const handleOpenHistory = () => {
     setShowHistory(true);
     setHistoryRows([]);
     setNextCursor(null);
-    setWatermark(null);
     setAboveCount(0);
     setHistoryPage(1);
-    historyPageRef.current = 1;
     cursorStackRef.current = [null];
-    windowRef.current = null;
-    setActiveWindow(null);
-    fetchHistoryPage(null, 1, true);
+    void fetchHistoryPage(null, 1);
   };
 
   const handleHistoryNext = () => {
@@ -365,39 +371,21 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
   };
 
   const handleHistoryReload = () => {
-    const stack = cursorStackRef.current;
-    // Halaman 1 selalu memakai jendela terbaru; halaman >1 memakai jendela beku.
-    if (historyPage === 1) {
-      cursorStackRef.current = [null];
-      fetchHistoryPage(null, 1, true);
-    } else {
-      fetchHistoryPage(stack[stack.length - 1] ?? null, historyPage);
-    }
+    // Snapshot baru hanya atas permintaan pengguna; batas waktu tetap sama.
+    cursorStackRef.current = [null];
+    setNextCursor(null);
+    void fetchHistoryPage(null, 1, true);
   };
-
-  // Refresh otomatis tiap 10 dtk selagi modal terbuka di halaman pertama.
-  // Halaman lanjut tidak disentuh agar posisi baca tak melompat.
-  useEffect(() => {
-    if (!showHistory) return;
-    const id = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      if (historyPageRef.current !== 1) return;
-      cursorStackRef.current = [null];
-      void fetchHistoryPage(null, 1, true);
-    }, 10000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHistory, resolvedChamberId, rangeParam, activeDeviceId]);
 
   // Standar modal: Esc menutup, klik backdrop menutup.
   useEffect(() => {
     if (!showHistory) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowHistory(false);
+      if (e.key === 'Escape') handleCloseHistory();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [showHistory]);
+  }, [showHistory, handleCloseHistory]);
 
   return (
     <>
@@ -408,12 +396,12 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
               Data & Ekspor
             </h2>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold uppercase">
-              Rentang: {rangeParam}
+              Rentang: {activeWindow ? 'Terpilih (WIB)' : rangeParam}
             </span>
           </div>
           <p className="text-xs text-white/60 font-mono mb-4 leading-relaxed">
             CSV dan riwayat diambil dari database. Tetap bisa diunduh saat alat mati.
-            Data yang baru masuk detik ini ikut unduhan berikutnya.
+            Pilih rentang WIB melalui Tabel Riwayat; unduhan mengikuti rentang yang sudah diterapkan.
           </p>
 
           {exportError && (
@@ -430,8 +418,8 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
         <div className="flex flex-col gap-3">
           {/* CSV Export Button */}
           <button
-            onClick={() => void handleExportCsv()}
-            disabled={isExporting}
+            onClick={() => void handleExportCsv(activeWindow, activeWindow ? historyMode : undefined)}
+            disabled={isExporting || (activeWindow !== null && (isHistoryLoading || snapshotWatermark === null))}
             className="w-full py-3 px-4 min-h-[44px] rounded-xl bg-gradient-to-r from-emerald-500/30 to-teal-600/30 hover:from-emerald-500/40 hover:to-teal-600/40 border border-emerald-400/40 text-emerald-200 font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20 transition-all disabled:opacity-50"
           >
             {isExporting ? (
@@ -451,7 +439,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                <span>Unduh CSV ({rangeParam})</span>
+                <span>{activeWindow ? 'Unduh CSV Rentang Terpilih' : `Unduh CSV (${rangeParam})`}</span>
               </>
             )}
           </button>
@@ -486,7 +474,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowHistory(false);
+            if (e.target === e.currentTarget) handleCloseHistory();
           }}
         >
           <div
@@ -514,7 +502,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                 </p>
               </div>
               <button
-                onClick={() => setShowHistory(false)}
+                onClick={handleCloseHistory}
                 aria-label="Tutup riwayat"
                 autoFocus
                 className="shrink-0 p-2 min-h-[44px] min-w-[44px] rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-white/60 hover:text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
@@ -563,11 +551,11 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                   ))}
                 </div>
                 <p className="text-[10px] font-mono text-white/45">
-                  Data dari riwayat tersimpan; tidak perlu alat terhubung.
+                  Rentang dan isi tabel tetap sampai Anda menerapkan rentang atau memuat ulang.
                 </p>
               </div>
 
-              {/* Rentang kustom: dua input tanggal/jam, terapkan otomatis ber-debounce. */}
+              {/* Input adalah draf; hasil dan unduhan mengikuti rentang yang sudah diterapkan. */}
               <div className="p-3 rounded-xl bg-black/30 border border-white/10 flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-mono text-white/60">Dari (WIB):</span>
@@ -613,21 +601,21 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                   <p className="text-[10px] font-mono text-white/50 mt-0.5">
                     {historyMode === '7d' || historyMode === '30d' || historyMode === '1y'
                       ? '⚠️ Rentang panjang memiliki volume data besar. Unduh 1 - 24 jam untuk respon instan.'
-                      : 'Unduh file CSV hasil rekaman telemetri sesuai rentang waktu yang sedang dipilih.'}
+                      : 'CSV menggunakan WIB (UTC+7), dengan data dan rentang yang sama dengan tabel.'}
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => {
-                    const bounds = activeWindow || getHistoryBounds();
-                    if (!bounds) {
+                    const bounds = windowRef.current;
+                    if (!bounds || snapshotRef.current === null) {
                       setHistoryError('Rentang waktu belum valid untuk unduhan.');
                       return;
                     }
                     void handleExportCsv(bounds, historyMode);
                   }}
-                  disabled={isExporting}
+                  disabled={isExporting || isHistoryLoading || snapshotWatermark === null}
                   className="px-4 py-2 min-h-[44px] rounded-xl border border-emerald-400/50 bg-gradient-to-r from-emerald-500/30 to-teal-500/30 hover:from-emerald-500/40 hover:to-teal-500/40 text-emerald-100 text-xs font-mono font-bold flex items-center gap-2 disabled:opacity-50 transition-all cursor-pointer shadow-md shadow-emerald-950/30 shrink-0"
                 >
                   {isExporting ? (
@@ -674,7 +662,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                   role="status"
                   className="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200/90 text-[11px] font-mono"
                 >
-                  {aboveCount} data terbaru sudah tampil di grafik dan ikut tabel berikutnya. Bukan data hilang.
+                  {aboveCount} data baru tersedia dalam rentang ini. Muat ulang untuk memasukkannya ke tabel dan unduhan.
                 </div>
               )}
             </div>
@@ -711,7 +699,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                         <p className="text-white/60 font-bold">Belum ada data di halaman ini</p>
                         <p className="mt-1 text-[11px] text-white/35">
                           {aboveCount > 0
-                            ? 'Data terbaru menunggu giliran di atas watermark.'
+                            ? 'Data baru tersedia. Muat ulang untuk memperbarui tabel.'
                             : 'Tidak ada riwayat pembacaan dalam rentang ini. Coba preset lain atau perluas rentang di atas.'}
                         </p>
                       </td>
@@ -766,8 +754,8 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                 <button
                   disabled={isHistoryLoading}
                   onClick={handleHistoryReload}
-                  title="Muat ulang halaman ini"
-                  aria-label="Muat ulang halaman ini"
+                  title="Muat ulang data pada rentang ini"
+                  aria-label="Muat ulang data pada rentang ini"
                   className="p-2 min-h-[44px] min-w-[44px] rounded-xl bg-white/5 hover:bg-white/15 border border-white/15 text-white/70 hover:text-white text-xs font-mono font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
                 >
                   <svg className={`w-4 h-4 ${isHistoryLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">

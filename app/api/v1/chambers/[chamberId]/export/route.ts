@@ -1,7 +1,7 @@
 import { prisma, getCurrentWatermark } from '../../../../../../lib/db/client.ts';
 import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
-import { parseIsoDate, validateTimeRange } from '../../../../../../lib/api/validation.ts';
+import { parseIsoDate, parseSnapshotWatermark, validateTimeRangeCalendar } from '../../../../../../lib/api/validation.ts';
 import { notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
 import { READING_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, getMaxExportRows, toWibIso, toWibParts } from '../../../../../../lib/api/csv.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
@@ -37,7 +37,14 @@ export async function GET(
 
     const fromDate = parseIsoDate(rawFrom, 'from', true)!;
     const toDate = parseIsoDate(rawTo, 'to', true)!;
-    validateTimeRange(fromDate, toDate, 31 * 24 * 60 * 60 * 1000);
+    validateTimeRangeCalendar(fromDate, toDate, 1);
+
+    // Unduhan dari web memakai WIB; klien API lama tetap mendapat UTC secara default.
+    const timeZone = url.searchParams.get('timeZone') ?? 'UTC';
+    if (timeZone !== 'UTC' && timeZone !== 'Asia/Jakarta') {
+      throw validationError('timeZone harus UTC atau Asia/Jakarta');
+    }
+    const timestamp = (date: Date): string => timeZone === 'Asia/Jakarta' ? toWibIso(date) : date.toISOString();
 
     const filterDeviceId = url.searchParams.get('deviceId');
 
@@ -45,7 +52,9 @@ export async function GET(
     // This is the ONLY authoritative source — no MAX(history_sequence) fallback.
     // Late-committed readings that got a sequence above the watermark will be
     // excluded, which is the correct and safe behaviour.
-    const snapshotWatermark = await getCurrentWatermark();
+    const snapshotWatermark = parseSnapshotWatermark(
+      url.searchParams.get('snapshotWatermark'), await getCurrentWatermark()
+    );
 
     const baseWhere: Prisma.SensorReadingWhereInput = {
       chamberId: chamber.id,
@@ -175,8 +184,8 @@ export async function GET(
               chamber.code,
               deviceMap.get(r.deviceId) || '',
               r.messageId,
-              r.measuredAt ? r.measuredAt.toISOString() : '',
-              r.receivedAt.toISOString(),
+              r.measuredAt ? timestamp(r.measuredAt) : '',
+              timestamp(r.receivedAt),
               r.measurementTimeQuality,
               r.temperatureC !== null ? Number(r.temperatureC) : '',
               '°C',
@@ -251,6 +260,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
+        'X-Time-Zone': timeZone,
         'Content-Disposition': `attachment; filename="${safeFilename}"`,
         'Cache-Control': 'no-store, private',
         'x-request-id': requestId,

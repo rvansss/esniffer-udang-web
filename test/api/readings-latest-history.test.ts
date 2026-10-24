@@ -302,6 +302,14 @@ describe('HTTP API v1: Latest Reading, Keyset History, and Device Audit Tests', 
       'Baris di atas watermark wajib terhitung, bukan hilang diam-diam'
     );
 
+    const replayReq = new Request(
+      `http://localhost:3000/api/v1/chambers/${chamberCode}/history?from=${fromStr}&to=${toStr}&limit=2&snapshotWatermark=${watermark1}`,
+      { headers: { Cookie: adminCookie } }
+    );
+    const replay = await getHistoryHandler(replayReq, { params: Promise.resolve({ chamberId: chamberCode }) });
+    assert.strictEqual(replay.status, 200);
+    assert.deepStrictEqual((await replay.json()).data.map((r: { id: string }) => r.id), page1Body.data.map((r: { id: string }) => r.id));
+
     // Halaman 3 (sisa reading)
     const page3Req = new Request(
       `http://localhost:3000/api/v1/chambers/${chamberCode}/history?from=${fromStr}&to=${toStr}&limit=2&cursor=${page2Body.meta.nextCursor}`,

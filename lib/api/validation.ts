@@ -1,5 +1,18 @@
 import { validationError } from './errors.ts';
 
+/** Batas snapshot lama boleh dipakai ulang, tetapi tidak boleh melewati data committed. */
+export function parseSnapshotWatermark(value: string | null, current: bigint): bigint {
+  if (value === null) return current;
+  if (!/^\d{1,19}$/.test(value)) {
+    throw validationError('snapshotWatermark harus bilangan bulat nonnegatif');
+  }
+  const snapshot = BigInt(value);
+  if (snapshot > current) {
+    throw validationError('snapshotWatermark melebihi snapshot saat ini');
+  }
+  return snapshot;
+}
+
 /**
  * Parses and bounds pagination limit query param.
  */

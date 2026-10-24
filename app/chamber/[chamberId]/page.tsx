@@ -361,6 +361,7 @@ export default function Dashboard() {
 
         {/* CSV Export & History Panel */}
         <ExportPanel
+          key={mappedChamberId}
           chamberId={resolvedChamberId || rawChamberId || 'CH-01'}
           activeDeviceId={deviceStatus?.device?.id || null}
         />

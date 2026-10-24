@@ -1,7 +1,7 @@
 import { prisma, getCurrentWatermark } from '../../../../../../lib/db/client.ts';
 import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
-import { parseLimit, parseIsoDate, validateTimeRangeCalendar } from '../../../../../../lib/api/validation.ts';
+import { parseLimit, parseIsoDate, parseSnapshotWatermark, validateTimeRangeCalendar } from '../../../../../../lib/api/validation.ts';
 import { notFound, validationError } from '../../../../../../lib/api/errors.ts';
 import {
   encodeCursor,
@@ -64,6 +64,10 @@ export async function GET(
       try {
         const decoded = decodeCursor(cursor, paginationFilter, cursorSecret);
         snapshotWatermark = BigInt(decoded.wm);
+        const requestedSnapshot = url.searchParams.get('snapshotWatermark');
+        if (requestedSnapshot !== null && requestedSnapshot !== snapshotWatermark.toString()) {
+          throw new Error('snapshotWatermark harus sama dengan snapshot pada cursor');
+        }
         cursorTuple = {
           measuredAt: new Date(decoded.ma),
           receivedAt: new Date(decoded.ra),
@@ -91,7 +95,9 @@ export async function GET(
       validateTimeRangeCalendar(fromDate, toDate, 1);
 
       // Capture snapshot watermark from singleton table — strict, no MAX fallback.
-      snapshotWatermark = await getCurrentWatermark();
+      snapshotWatermark = parseSnapshotWatermark(
+        url.searchParams.get('snapshotWatermark'), await getCurrentWatermark()
+      );
     }
 
     // Build Prisma query condition

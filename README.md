@@ -47,6 +47,11 @@ Database, API, log, dan telemetri tetap memakai UTC untuk menyimpan instant wakt
 CSV chamber dan dataset mempertahankan kolom UTC serta menambahkan kolom berakhiran
 `_wib` dengan offset `+07:00`; ekspor per sesi menyediakan `waktu_wib`.
 Tanggal pada nama file ekspor chamber juga mengikuti WIB.
+Unduhan chamber dari web menggunakan WIB pada kolom utama `measured_at` dan
+`received_at` (`timeZone=Asia/Jakarta`); klien API tanpa parameter ini tetap menerima
+UTC. Tabel riwayat membekukan rentang, perangkat, dan snapshot setelah diterapkan.
+Unduhan memakai snapshot yang sama; input baru berlaku setelah **Terapkan Rentang**.
+**Muat ulang** mengambil snapshot baru dengan batas waktu yang tetap sama.
 
 ## Database
 
