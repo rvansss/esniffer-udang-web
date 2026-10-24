@@ -171,7 +171,7 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     await closeDb();
   });
 
-  it('1. Export menghasilkan header persis PRD dan row ML-ready', async () => {
+  it('1. Export menghasilkan header dasar PRD, timestamp WIB, dan row ML-ready', async () => {
     const res = await getExport();
     assert.strictEqual(res.status, 200);
     assert.match(res.headers.get('content-type') ?? '', /text\/csv/);
@@ -186,6 +186,11 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.deepStrictEqual([...headBytes], [0xef, 0xbb, 0xbf]);
 
     const base = lines[1].split(',');
+    assert.strictEqual(base.length, DATASET_CSV_HEADERS.length);
+    assert.strictEqual(
+      base[DATASET_CSV_HEADERS.indexOf('timestamp_wib')],
+      '2099-06-06T13:00:30.000+07:00'
+    );
     assert.strictEqual(base[0], '2099-06-06T06:00:30.000Z');
     assert.strictEqual(base[1], SESSION);
     assert.strictEqual(base[2], BATCH);
@@ -292,8 +297,14 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.strictEqual(sr[col('elapsed_hours')], '0');
     assert.strictEqual(sr[col('session_status')], 'complete');
     assert.strictEqual(sr[col('warmup_done')], 'true');
+    assert.strictEqual(sr.length, headers.length);
+    assert.strictEqual(sr[col('started_at_wib')], '2099-06-06T13:00:00.000+07:00');
+    assert.strictEqual(new Date(sr[col('ended_at_wib')]).getTime(), new Date(sr[col('ended_at_utc')]).getTime());
 
     const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
+    assert.strictEqual(sd.length, headers.length);
+    assert.strictEqual(sd[col('started_at_wib')], '');
+    assert.strictEqual(sd[col('ended_at_wib')], '');
     assert.strictEqual(sd[col('group_id')], `${BATCH}-SD`);
     assert.strictEqual(sd[col('storage_condition')], 'cold');
     assert.strictEqual(sd[col('lab_weight_after_g')], '476.2');

@@ -508,7 +508,8 @@ function BatchWizardForm({ userId, apiFetch }: { userId: string; apiFetch: ApiFe
 
   const fillTestData = () => {
     // Tanggal kalender WIB hari ini (UTC+7).
-    const wibDate = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);    // Berangkat 07:00 → beli 07:20 (dalam jendela 05:00–08:00) →
+    const wibDate = wibDateTimeLocal(new Date()).slice(0, 10);
+    // Berangkat 07:00 → beli 07:20 (dalam jendela 05:00–08:00) →
     // tiba kembali di lab 07:55 (perjalanan 35 menit).
     const departed = `${wibDate}T07:00`;
     const procured = `${wibDate}T07:20`;

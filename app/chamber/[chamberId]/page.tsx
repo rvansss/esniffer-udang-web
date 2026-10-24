@@ -10,6 +10,7 @@ import { useChamberLatest } from '../../../hooks/useChamberLatest';
 import { useChamberStream } from '../../../hooks/useChamberStream';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import { formatWibDateTime, formatWibTime } from '../../../shared/datetime.ts';
 
 const FRESHNESS_THRESHOLD_SECONDS = 15;
 
@@ -195,7 +196,7 @@ export default function Dashboard() {
         </span>
         {connection.lastSeenAt && (
           <span className="text-[9px] font-mono text-white/50 hidden lg:inline">
-            Seen: {new Date(connection.lastSeenAt).toLocaleTimeString('id-ID')}
+            Seen: {formatWibTime(new Date(connection.lastSeenAt))}
           </span>
         )}
       </div>
@@ -215,7 +216,7 @@ export default function Dashboard() {
       <span
         title={
           shown?.measuredAt
-            ? `Waktu ukur: ${new Date(shown.measuredAt).toLocaleString('id-ID')}`
+            ? `Waktu ukur: ${formatWibDateTime(new Date(shown.measuredAt), true)}`
             : 'Belum ada waktu ukur'
         }
         className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${
@@ -320,7 +321,7 @@ export default function Dashboard() {
           className="px-6 py-3 rounded-2xl bg-amber-500/10 backdrop-blur-md border border-amber-500/30 shadow-sm"
         >
           <p className="text-xs font-mono text-amber-200">
-            Mode riwayat — alat offline sejak {new Date(shown.measuredAt).toLocaleString('id-ID')}.
+            Mode riwayat — alat offline sejak {formatWibDateTime(new Date(shown.measuredAt), true)}.
             Menampilkan data terakhir yang tersimpan.
           </p>
         </div>
@@ -338,7 +339,7 @@ export default function Dashboard() {
             isPrimary={true}
             subtitle={
               shown?.measuredAt
-                ? `Ukur: ${new Date(shown.measuredAt).toLocaleTimeString('id-ID')}`
+                ? `Ukur: ${formatWibTime(new Date(shown.measuredAt))}`
                 : undefined
             }
           />

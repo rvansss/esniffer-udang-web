@@ -4,6 +4,9 @@
  * Istilah CSV/DB dipertahankan English snake_case; pesan error Indonesia dibuat di lapisan API/UI.
  */
 
+import { WIB_OFFSET_MINUTES } from './datetime.ts';
+export { WIB_OFFSET_MINUTES, wibDateTimeLocal, formatWibDateTime } from './datetime.ts';
+
 export class DatasetValidationError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
@@ -12,9 +15,6 @@ export class DatasetValidationError extends Error {
     this.code = code;
   }
 }
-
-// WIB = UTC+7, tanpa DST. Offset dibuat eksplisit agar tidak bergantung TZ server.
-export const WIB_OFFSET_MINUTES = 7 * 60;
 
 // Batas foto (PRD §3.1): tiap file maks 5MB, caption maks 140 karakter.
 // Jumlah foto per batch tidak dibatasi.
@@ -222,23 +222,6 @@ export function wibInputToUtc(input: string): Date {
     throw new DatasetValidationError('INVALID_DATETIME', `Tanggal/jam tidak valid: ${input}`);
   }
   return new Date(Date.UTC(y, mo - 1, d, h, mi) - WIB_OFFSET_MINUTES * 60_000);
-}
-
-/**
- * Format satu instants (jam device) menjadi nilai input `datetime-local`
- * (YYYY-MM-DDTHH:mm) dalam zona WIB — dipakai wizard yang berlabel WIB.
- */
-export function wibDateTimeLocal(date: Date): string {
-  const wib = new Date(date.getTime() + WIB_OFFSET_MINUTES * 60_000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${wib.getUTCFullYear()}-${pad(wib.getUTCMonth() + 1)}-${pad(wib.getUTCDate())}T${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}`;
-}
-
-/** Format ringkas WIB untuk teks UI: "21/10/2026 12:30 WIB". */
-export function formatWibDateTime(date: Date): string {
-  const wib = new Date(date.getTime() + WIB_OFFSET_MINUTES * 60_000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(wib.getUTCDate())}/${pad(wib.getUTCMonth() + 1)}/${wib.getUTCFullYear()} ${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())} WIB`;
 }
 
 /** Label ganda untuk UI: "07:00 WIB → tersimpan 00:00 UTC". */

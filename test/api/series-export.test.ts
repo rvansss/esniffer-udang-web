@@ -500,6 +500,11 @@ describe('HTTP API v1: Time-Bucket Series & Safe CSV Export Tests', () => {
       timestampLine.includes('2026-09-16T10:00:00.123Z'),
       'Timestamp hasil export harus kembali sebagai instant UTC yang sama'
     );
+    const headers = csvText.split('\r\n')[0].split(',');
+    const cells = timestampLine.split(',');
+    assert.strictEqual(cells.length, headers.length);
+    assert.strictEqual(cells[headers.indexOf('measured_at_wib')], '2026-09-16T17:00:00.123+07:00');
+    assert.strictEqual(cells[headers.indexOf('received_at_wib')], '2026-09-16T17:00:00.123+07:00');
   });
 
   it('10. Export CSV menolak jika jumlah baris melebihi MAX_EXPORT_ROWS (413 PAYLOAD_TOO_LARGE)', async () => {

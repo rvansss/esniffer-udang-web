@@ -38,6 +38,16 @@ Buka [http://localhost:3000](http://localhost:3000) — halaman utama pencatatan
 | `MQTT_URL` / `MQTT_ADMIN_URL` | Broker untuk worker ingestion & setup mosquitto (lihat `diki/Panduan_Menghubungkan_Alat_ESP32_Kelokal.md`). |
 | `APP_BASE_URL` | Base URL publik. Wajib **https://** absolut di produksi (mis. `https://e-sniffer.stas-rg.com`) — dipakai allowlist Origin/CSRF (`lib/auth/guard.ts`) dan `metadataBase` SEO (`app/layout.tsx`). |
 
+## Zona waktu
+
+Tampilan tanggal/jam dan input operator menggunakan **WIB (Asia/Jakarta, UTC+7)**,
+termasuk grafik, notifikasi, serta filter riwayat. Zona waktu perangkat tidak
+mengubah interpretasi input. Konversi dan format bersama ada di `shared/datetime.ts`.
+Database, API, log, dan telemetri tetap memakai UTC untuk menyimpan instant waktu.
+CSV chamber dan dataset mempertahankan kolom UTC serta menambahkan kolom berakhiran
+`_wib` dengan offset `+07:00`; ekspor per sesi menyediakan `waktu_wib`.
+Tanggal pada nama file ekspor chamber juga mengikuti WIB.
+
 ## Database
 
 Prasyarat: **PostgreSQL 12 atau lebih baru**. Migrasi `20261019070000_source_type_supermarket` memakai `ALTER TYPE ... ADD VALUE` yang baru boleh berjalan di dalam transaksi sejak PostgreSQL 12; versi lebih lama akan menggagalkan migrasi.

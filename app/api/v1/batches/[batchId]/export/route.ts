@@ -3,7 +3,7 @@ import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
 import { DB_TO_SOURCE, DB_TO_STORAGE, DB_TO_CONDITION, DB_TO_VISUAL } from '../../../../../../lib/api/dataset.ts';
-import { DATASET_CSV_HEADERS, DATASET_METADATA_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, toWibParts, getMaxExportRows } from '../../../../../../lib/api/csv.ts';
+import { DATASET_CSV_HEADERS, DATASET_METADATA_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, toWibParts, toWibIso, getMaxExportRows } from '../../../../../../lib/api/csv.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
 import { Prisma } from '@prisma/client';
 
@@ -11,7 +11,7 @@ const BATCH_SIZE = 5000;
 
 /**
  * Export CSV ML-ready per batch (VIEWER+): join metadata + readings.
- * Header persis contoh PRD; is_baseline 'true'/'false'; null → sel kosong.
+ * Header dasar sesuai PRD dengan tambahan timestamp WIB; is_baseline 'true'/'false'; null → sel kosong.
  */
 export async function GET(
   request: Request,
@@ -82,7 +82,7 @@ export async function GET(
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
       if (full.sampleGroups.length === 0) {
-        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
+        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock, full.lockedAt ? toWibIso(full.lockedAt) : '', '', '']);
       }
       for (const g of full.sampleGroups) {
         const groupBlock = [
@@ -97,7 +97,7 @@ export async function GET(
         ];
         if (g.sessions.length === 0) {
           // Baris grup tanpa sesi: kolom sesi kosong, ditandai jelas agar tidak ambigu.
-          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock]);
+          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock, full.lockedAt ? toWibIso(full.lockedAt) : '', '', '']);
         } else {
           for (const s of g.sessions) {
             rows.push([
@@ -114,6 +114,9 @@ export async function GET(
               num(s.baselineMq137),
               num(s.baselineMq136),
               num(s.baselineMq4),
+              full.lockedAt ? toWibIso(full.lockedAt) : '',
+              toWibIso(s.startedAtUtc),
+              s.endedAtUtc ? toWibIso(s.endedAtUtc) : '',
             ]);
           }
         }
@@ -261,6 +264,7 @@ export async function GET(
               r.temperatureC !== null ? Number(r.temperatureC) : '',
               r.humidityPercent !== null ? Number(r.humidityPercent) : '',
               r.isBaseline === null ? '' : String(r.isBaseline),
+              r.measuredAt ? toWibIso(r.measuredAt) : '',
             ]);
           }
 

@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   ReferenceArea,
 } from 'recharts';
+import { formatWibTime } from '../../shared/datetime.ts';
 import { useAuth } from '../auth/AuthProvider';
 
 interface SessionResultModalProps {
@@ -153,12 +154,7 @@ export default function SessionResultModal({
 
   const formatTime = (isoString: string | null | undefined) => {
     if (!isoString) return '—';
-    return new Date(isoString).toLocaleTimeString('id-ID', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'Asia/Jakarta',
-    });
+    return formatWibTime(new Date(isoString));
   };
 
   return (

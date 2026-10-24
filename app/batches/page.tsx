@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { WIB_TIME_ZONE } from '../../shared/datetime.ts';
 import { useAuth } from '../../components/auth/AuthProvider';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import SuccessNotice, { useSuccessNotice } from '../../components/ui/SuccessNotice';
@@ -21,7 +22,7 @@ const dateFmt = new Intl.DateTimeFormat('id-ID', {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
-  timeZone: 'Asia/Jakarta',
+  timeZone: WIB_TIME_ZONE,
 });
 
 export default function BatchesPage() {

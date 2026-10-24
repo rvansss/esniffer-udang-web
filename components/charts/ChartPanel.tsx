@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useAuth } from '../auth/AuthProvider';
+import { formatWibDateTime, formatWibTime } from '../../shared/datetime.ts';
 import type { StreamTick } from '../../hooks/useChamberStream';
 
 export type TimeRange = '30s' | '1m' | '15m' | '1h' | '6h' | '24h';
@@ -154,10 +155,9 @@ export default function ChartPanel({ chamberId, lastMeasuredAt = null, streamTic
 
         const points: SensorChartPoint[] = buckets.map((b) => {
           const d = new Date(b.bucketStart);
-          const timeStr = d.toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            ...(activeRange === '30s' || activeRange === '1m' || activeRange === '15m' ? { second: '2-digit' } : {}),
+          const timeStr = formatWibTime(d, {
+            seconds: activeRange === '30s' || activeRange === '1m' || activeRange === '15m',
+            label: false,
           });
 
           return {
@@ -214,10 +214,9 @@ export default function ChartPanel({ chamberId, lastMeasuredAt = null, streamTic
     if (!Number.isNaN(tickTime)) {
       const d = new Date(streamTick.measuredAt);
       const point: SensorChartPoint = {
-        time: d.toLocaleTimeString('id-ID', {
-          hour: '2-digit',
-          minute: '2-digit',
-          ...(activeRange === '30s' || activeRange === '1m' || activeRange === '15m' ? { second: '2-digit' } : {}),
+        time: formatWibTime(d, {
+          seconds: activeRange === '30s' || activeRange === '1m' || activeRange === '15m',
+          label: false,
         }),
         rawTimestamp: streamTick.measuredAt,
         mq137: streamTick.values.mq137Raw.value,
@@ -249,7 +248,7 @@ export default function ChartPanel({ chamberId, lastMeasuredAt = null, streamTic
             Pergerakan Sensor Gas Aktif
           </h2>
           <span className="text-[10px] font-mono text-white/60 tracking-wider">
-            Nilai sensor gas mentah (ADC): MQ-137, MQ-136, MQ-4
+            Nilai sensor gas mentah (ADC): MQ-137, MQ-136, MQ-4 · Waktu WIB
           </span>
         </div>
 
@@ -337,7 +336,7 @@ export default function ChartPanel({ chamberId, lastMeasuredAt = null, streamTic
               <>
                 <span>
                   Tidak ada data sensor pada rentang {activeRange}. Data terakhir tercatat{' '}
-                  {new Date(lastMeasuredAt).toLocaleString('id-ID')}.
+                  {formatWibDateTime(new Date(lastMeasuredAt), true)}.
                 </span>
                 <button
                   onClick={pinToLastData}

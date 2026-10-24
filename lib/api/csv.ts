@@ -3,6 +3,8 @@
  * Sesuai Section 7.7 docs/esniffer/03-technical-design.md
  */
 
+export { toWibParts, toWibIso } from '../../shared/datetime.ts';
+
 const FORMULA_TRIGGERS = ['=', '+', '-', '@', '\t', '\r'];
 
 const NEGATIVE_NUMBER_PATTERN = /^-\d+(\.\d+)?([eE][+-]?\d+)?$/;
@@ -71,23 +73,6 @@ export function buildCsvRow(cells: unknown[]): string {
 export const CSV_UTF8_BOM = '\uFEFF';
 
 /**
- * Konversi UTC → WIB (Asia/Jakarta, UTC+7 konstan tanpa DST sejak 1988)
- * untuk memecah timestamp menjadi kolom tanggal dan kolom jam terpisah
- * pada CSV metadata (revisi putaran 2 butir 5). Sumber nilai tetap kolom
- * UTC di database; konversi hanya terjadi di pembuat CSV.
- */
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-export function toWibParts(value: Date): { date: string; time: string } {
-  const shifted = new Date(value.getTime() + WIB_OFFSET_MS);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return {
-    date: `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`,
-    time: `${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`,
-  };
-}
-
-/**
  * Standard CSV headers for chamber readings export.
  */
 export const READING_CSV_HEADERS = [
@@ -113,11 +98,13 @@ export const READING_CSV_HEADERS = [
   'mq4_raw_unit',
   'mq4_raw_quality',
   'ingestion_source',
+  'measured_at_wib',
+  'received_at_wib',
 ];
 
 /**
  * Header CSV ML-ready untuk export batch dataset (PRD §3.4).
- * Kolom snake_case English persis contoh PRD; boolean is_baseline
+ * Kolom dasar snake_case English sesuai PRD, ditambah timestamp_wib; boolean is_baseline
  * diserialkan sebagai string 'true'/'false', null sebagai sel kosong.
  */
 export const DATASET_CSV_HEADERS = [
@@ -134,6 +121,7 @@ export const DATASET_CSV_HEADERS = [
   'temp_chamber_c',
   'rh_chamber_pct',
   'is_baseline',
+  'timestamp_wib',
 ];
 
 /**
@@ -210,6 +198,9 @@ export const DATASET_METADATA_CSV_HEADERS = [
   'baseline_mq137',
   'baseline_mq136',
   'baseline_mq4',
+  'locked_at_wib',
+  'started_at_wib',
+  'ended_at_wib',
 ];
 
 /**

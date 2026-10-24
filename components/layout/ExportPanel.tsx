@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { formatWibDateTime, wibDateTimeLocal } from '../../shared/datetime.ts';
+import { parseWibInput } from '../../lib/batch-wizard.ts';
 import { useAuth } from '../auth/AuthProvider';
 import { toHistoryRows, nextCursorOf, historyMetaOf, type HistoryRow } from '../../lib/api/history.ts';
 
@@ -60,12 +62,6 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
   // Timer apply rentang kustom (debounce: bukan satu request per ketikan).
   const applyRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Format instants ke nilai input datetime-local (waktu lokal peramban). */
-  const toLocalInput = (d: Date): string => {
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-
   /**
    * Batas rentang preset. "1 Tahun" memakai aritmetika kalender (tahun kalender
    * lalu), bukan 365 hari, agar identik dengan batas API satu tahun kalender.
@@ -95,9 +91,9 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       return { from: from.toISOString(), to: to.toISOString() };
     }
     if (!fromRaw || !toRaw) return null;
-    const from = new Date(fromRaw);
-    const to = new Date(toRaw);
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) return null;
+    const from = parseWibInput(fromRaw).date;
+    const to = parseWibInput(toRaw).date;
+    if (!from || !to || from >= to) return null;
     return { from: from.toISOString(), to: to.toISOString() };
   };
 
@@ -115,8 +111,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
     if (bounds?.from && bounds?.to) {
       const f = new Date(bounds.from);
       const t = new Date(bounds.to);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${f.getDate()}/${f.getMonth() + 1} ${pad(f.getHours())}:${pad(f.getMinutes())} → ${t.getDate()}/${t.getMonth() + 1} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+      return `${formatWibDateTime(f)} → ${formatWibDateTime(t)}`;
     }
     return 'kustom';
   };
@@ -136,14 +131,14 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
       if (!f || !t) {
         const now = new Date();
         const sixHoursAgo = new Date(now.getTime() - 6 * 3_600_000);
-        f = toLocalInput(sixHoursAgo);
-        t = toLocalInput(now);
+        f = wibDateTimeLocal(sixHoursAgo);
+        t = wibDateTimeLocal(now);
       }
     } else {
       // Preset mengisi kedua input (butir 10) — rentang efektif selalu terlihat.
       const preset = presetBounds(mode);
-      f = toLocalInput(preset.from);
-      t = toLocalInput(preset.to);
+      f = wibDateTimeLocal(preset.from);
+      t = wibDateTimeLocal(preset.to);
     }
     customFromRef.current = f;
     customToRef.current = t;
@@ -575,23 +570,23 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
               {/* Rentang kustom: dua input tanggal/jam, terapkan otomatis ber-debounce. */}
               <div className="p-3 rounded-xl bg-black/30 border border-white/10 flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-mono text-white/60">Dari:</span>
+                  <span className="text-[11px] font-mono text-white/60">Dari (WIB):</span>
                   <input
                     type="datetime-local"
                     value={customFrom}
                     onChange={(e) => onCustomInputChange('from', e.target.value)}
-                    aria-label="Dari tanggal dan jam"
+                    aria-label="Dari tanggal dan jam (WIB)"
                     className="px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/15 text-[11px] font-mono text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
                 <span aria-hidden="true" className="text-white/40 text-[11px] font-mono">→</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-mono text-white/60">Sampai:</span>
+                  <span className="text-[11px] font-mono text-white/60">Sampai (WIB):</span>
                   <input
                     type="datetime-local"
                     value={customTo}
                     onChange={(e) => onCustomInputChange('to', e.target.value)}
-                    aria-label="Sampai tanggal dan jam"
+                    aria-label="Sampai tanggal dan jam (WIB)"
                     className="px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/15 text-[11px] font-mono text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
@@ -688,7 +683,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
               <table className="w-full min-w-[760px] text-left text-xs font-mono text-white/80">
                 <thead className="bg-[#0f172a] text-white/60 uppercase text-[10px] tracking-widest sticky top-0 z-10 shadow-[0_1px_0_rgba(255,255,255,0.1)]">
                   <tr>
-                    <th scope="col" className="px-4 py-2.5 font-bold">Waktu ukur</th>
+                    <th scope="col" className="px-4 py-2.5 font-bold">Waktu ukur (WIB)</th>
                     <th scope="col" className="px-3 py-2.5 font-bold text-right">Temp (°C)</th>
                     <th scope="col" className="px-3 py-2.5 font-bold text-right">Kel (%RH)</th>
                     <th scope="col" className="px-3 py-2.5 font-bold text-right">MQ-137</th>
@@ -725,7 +720,7 @@ export default function ExportPanel({ chamberId = 'CH-01', activeDeviceId }: Exp
                     historyRows.map((r, i) => (
                       <tr key={r.id} className={`transition-colors hover:bg-cyan-400/[0.06] ${i % 2 === 1 ? 'bg-white/[0.02]' : ''}`}>
                         <td className="px-4 py-2.5 whitespace-nowrap text-white/75 tabular-nums">
-                          {r.measuredAt ? new Date(r.measuredAt).toLocaleString('id-ID') : '--'}
+                          {r.measuredAt ? formatWibDateTime(new Date(r.measuredAt), true) : '--'}
                         </td>
                         <td className="px-3 py-2.5 text-right font-bold text-white tabular-nums">
                           {r.temperatureC !== null ? `${r.temperatureC.toFixed(1)}` : '--'}

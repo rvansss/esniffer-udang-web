@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { formatWibDateTime } from '../../shared/datetime.ts';
 import { useAuth } from '../auth/AuthProvider';
 
 interface NotificationItem {
@@ -196,13 +197,7 @@ export default function NotificationBell() {
   // Helper: format date for display
   const formatDate = (iso: string) => {
     const d = new Date(iso);
-    return d.toLocaleString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatWibDateTime(d);
   };
 
   if (!user) return null;

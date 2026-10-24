@@ -3,7 +3,7 @@ import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { parseIsoDate, validateTimeRange } from '../../../../../../lib/api/validation.ts';
 import { notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
-import { READING_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, getMaxExportRows } from '../../../../../../lib/api/csv.ts';
+import { READING_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, getMaxExportRows, toWibIso, toWibParts } from '../../../../../../lib/api/csv.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
 import { Prisma } from '@prisma/client';
 
@@ -194,6 +194,8 @@ export async function GET(
               'raw',
               r.mq4Quality,
               r.ingestionSource,
+              r.measuredAt ? toWibIso(r.measuredAt) : '',
+              toWibIso(r.receivedAt),
             ];
             buffer += buildCsvRow(row);
           }
@@ -243,7 +245,7 @@ export async function GET(
       },
     });
 
-    const safeFilename = `chamber-${chamber.code}-${fromDate.toISOString().slice(0, 10)}-${toDate.toISOString().slice(0, 10)}.csv`;
+    const safeFilename = `chamber-${chamber.code}-${toWibParts(fromDate).date}-${toWibParts(toDate).date}.csv`;
 
     return new Response(stream, {
       status: 200,

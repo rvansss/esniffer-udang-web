@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { WIB_TIME_ZONE } from '../../../shared/datetime.ts';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
@@ -97,7 +98,7 @@ const dtFmt = new Intl.DateTimeFormat('id-ID', {
   year: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
-  timeZone: 'Asia/Jakarta',
+  timeZone: WIB_TIME_ZONE,
 });
 /** Angka id-ID (koma desimal) — dipakai semua nilai numerik di section ini. */
 const numFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 });
@@ -2253,7 +2254,7 @@ export default function BatchDetailPage() {
                     const endHourStr = new Intl.DateTimeFormat('id-ID', {
                       hour: '2-digit',
                       minute: '2-digit',
-                      timeZone: 'Asia/Jakarta',
+                      timeZone: WIB_TIME_ZONE,
                     }).format(end);
 
                     const grp = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
