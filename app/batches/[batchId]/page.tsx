@@ -646,6 +646,7 @@ export default function BatchDetailPage() {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error?.message || `Gagal menyimpan data tahap (kode ${res.status}).`);
+      } else {
         // Grup "langsung di kulkas" (butir 1) tidak pernah ditautkan ke chamber.
         const targetGroup = batch?.sampleGroups.find((grp) => grp.groupId === groupId);
         const chosenChamberId =
@@ -679,6 +680,9 @@ export default function BatchDetailPage() {
           payload
         )) as { sessionId?: string; _meta?: { linkedReadings?: number } };
 
+        if (!created?.sessionId) {
+          throw new Error('Server belum mengonfirmasi sesi tersimpan. Muat ulang halaman sebelum mencoba lagi.');
+        }
         createdSessionId = created?.sessionId;
         linkedCount = created?._meta?.linkedReadings;
       }

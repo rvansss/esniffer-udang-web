@@ -2,7 +2,9 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { prisma, closeDb } from '../../lib/db/client.ts';
+import { randomUUID } from 'node:crypto';
+import { prisma, closeDb, allocateHistorySequence } from '../../lib/db/client.ts';
+import { wibInputToUtcIso } from '../../lib/batch-wizard.ts';
 import { POST as createBatch } from '../../app/api/v1/batches/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route.ts';
@@ -82,6 +84,9 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
   let batchId = '';
   let groupSr = '';
   let sessionH0 = '';
+  let chamberId = '';
+  let deviceId = '';
+  let assignmentId = '';
 
   before(async () => {
     const passwordHash = await hashPassword('AdminPass123!');
@@ -96,6 +101,15 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     adminCookie = buildSessionCookie(adminSess.rawToken, adminSess.expiresAt).split(';')[0];
     const viewerSess = await createAuthSession(viewer.id);
     viewerCookie = buildSessionCookie(viewerSess.rawToken, viewerSess.expiresAt).split(';')[0];
+
+    const chamber = await prisma.chamber.create({ data: { code: `EDIT-${tag}`, name: 'Session edit test' } });
+    chamberId = chamber.id;
+    const device = await prisma.device.create({ data: { mqttDeviceId: `edit-${tag}`, name: 'Session edit test' } });
+    deviceId = device.id;
+    const assignment = await prisma.deviceAssignment.create({
+      data: { chamberId, deviceId, activeFrom: new Date('2026-01-01T00:00:00.000Z') },
+    });
+    assignmentId = assignment.id;
 
     const res = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
@@ -142,6 +156,7 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
   });
 
   after(async () => {
+    await prisma.sensorReading.deleteMany({ where: { deviceId } });
     await prisma.batchPhoto.deleteMany({ where: { batchId: { startsWith: 'BT-20990303' } } });
     await prisma.measurementSession.deleteMany({ where: { batchId: { startsWith: 'BT-20990303' } } });
     await prisma.sampleGroup.deleteMany({ where: { batchId: { startsWith: 'BT-20990303' } } });
@@ -149,6 +164,9 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     await rm(path.join(process.cwd(), 'public', 'uploads', 'BT-20990303-01'), { recursive: true, force: true });
     await prisma.authSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await prisma.deviceAssignment.deleteMany({ where: { deviceId } });
+    await prisma.device.deleteMany({ where: { id: deviceId } });
+    await prisma.chamber.deleteMany({ where: { id: chamberId } });
     await closeDb();
   });
 
@@ -165,15 +183,31 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
   });
 
   it('1b. POST sesi dengan rentang waktu masa lalu (autoBackfill) otomatis selesai dan mengembalikan data', async () => {
+    const reading = await prisma.sensorReading.create({
+      data: {
+        chamberId, deviceId, assignmentId,
+        messageId: `range-${tag}`, payloadSha256: 'a'.repeat(64),
+        bootId: randomUUID(), sequence: 1n,
+        measuredAt: new Date('2026-10-24T13:10:15.000Z'),
+        measurementTimeQuality: 'SYNCED',
+        historySequence: await allocateHistorySequence(),
+        temperatureC: 25, temperatureQuality: 'OK',
+        humidityPercent: 65, humidityQuality: 'OK',
+        mq137Raw: 100, mq137Quality: 'OK',
+        mq136Raw: 200, mq136Quality: 'OK',
+        mq4Raw: 300, mq4Quality: 'OK', rawPayload: {},
+      },
+    });
     const res = await createSession(
       new Request(`http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
         method: 'POST',
         headers: jsonHeaders(adminCookie),
         body: JSON.stringify({
           timepointCode: 'H6',
-          startedAtUtc: '2026-10-24T01:30:00.000Z',
-          endedAtUtc: '2026-10-24T01:45:00.000Z',
-          durationSeconds: 900,
+          chamberId,
+          startedAtUtc: wibInputToUtcIso('2026-10-24T20:10'),
+          endedAtUtc: wibInputToUtcIso('2026-10-24T20:11'),
+          durationSeconds: 60,
           autoBackfill: true,
           shrimpTempC: 5.5,
           shrimpWeightG: 480.0,
@@ -184,14 +218,17 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     assert.strictEqual(res.status, 201);
     const body = await res.json();
     assert.strictEqual(body.data.timepointCode, 'H6');
-    assert.strictEqual(body.data.durationSeconds, 900);
+    assert.strictEqual(body.data.durationSeconds, 60);
     assert.strictEqual(body.data.status, 'complete');
     assert.strictEqual(body.data.cleaningDone, true);
     assert.strictEqual(body.data.warmupDone, true);
     assert.strictEqual(body.data.shrimpTempC, 5.5);
     assert.strictEqual(body.data.shrimpWeightG, 480.0);
     assert.ok(body.meta);
-    assert.strictEqual(typeof body.meta.linkedReadings, 'number');
+    assert.strictEqual(body.meta.linkedReadings, 1);
+    const linked = await prisma.sensorReading.findUniqueOrThrow({ where: { id: reading.id } });
+    assert.strictEqual(linked.sessionId, body.data.id);
+    assert.strictEqual(linked.timepointCode, 'H6');
   });
 
   it('2. PATCH /sessions/:id memperbarui dan mengosongkan suhu/berat (200)', async () => {
