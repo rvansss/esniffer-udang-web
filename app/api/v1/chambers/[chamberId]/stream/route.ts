@@ -3,6 +3,7 @@ import { requireAuth } from '../../../../../../lib/auth/guard.ts';
 import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { notFound } from '../../../../../../lib/api/errors.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
+import { onWebShutdown } from '../../../../../../lib/runtime/shutdown.ts';
 import type { Prisma } from '@prisma/client';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,6 +92,7 @@ export async function GET(
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastHeartbeat = Date.now();
+    let stopStream = () => {};
 
     const toTick = (r: TickRow): TickPayload => ({
       historySequence: String(r.historySequence ?? 0n),
@@ -109,13 +111,29 @@ export async function GET(
 
     const stream = new ReadableStream({
       start(controller) {
+        let unsubscribeShutdown = () => {};
+        // Next.js menunggu request aktif sebelum exit. Tutup SSE saat SIGTERM
+        // agar deploy tidak menunggu batas stop_grace_period Docker (45 detik).
+        const stop = () => {
+          if (stopped) return;
+          stopped = true;
+          if (timer) clearTimeout(timer);
+          abortSignal.removeEventListener('abort', stop);
+          unsubscribeShutdown();
+          try { controller.close(); } catch { /* Stream mungkin sudah dibatalkan klien. */ }
+        };
+        stopStream = stop;
+        abortSignal.addEventListener('abort', stop, { once: true });
+        unsubscribeShutdown = onWebShutdown(stop);
+        if (stopped || abortSignal.aborted) {
+          stop();
+          return;
+        }
         controller.enqueue(encoder.encode(`event: ready\ndata: {"cursor":"${String(pos)}"}\n\n`));
 
         const poll = async () => {
           if (stopped || abortSignal.aborted) {
-            try {
-              controller.close();
-            } catch {}
+            stop();
             return;
           }
           try {
@@ -130,6 +148,7 @@ export async function GET(
               take: BATCH_SIZE,
               include: { device: { select: { id: true, mqttDeviceId: true, name: true } } },
             });
+            if (stopped) return;
             for (const row of rows) {
               if (row.historySequence !== null) {
                 pos = row.historySequence;
@@ -139,6 +158,7 @@ export async function GET(
               );
             }
           } catch (err) {
+            if (stopped) return;
             logger.error({
               service: 'web',
               operation: 'chamber_stream_poll',
@@ -158,17 +178,14 @@ export async function GET(
           if (!stopped && !abortSignal.aborted) {
             timer = setTimeout(() => void poll(), POLL_MS);
           } else {
-            try {
-              controller.close();
-            } catch {}
+            stop();
           }
         };
 
         void poll();
       },
       cancel() {
-        stopped = true;
-        if (timer) clearTimeout(timer);
+        stopStream();
       },
     });
 

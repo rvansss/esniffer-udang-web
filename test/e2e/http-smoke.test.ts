@@ -12,6 +12,7 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
 
   let serverProcess: ChildProcess;
   let userId: string;
+  let shutdownChamberId: string;
 
   before(async () => {
     // 1. Buat user tes di database
@@ -25,6 +26,10 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
       },
     });
     userId = user.id;
+    const chamber = await prisma.chamber.create({
+      data: { code: `SMOKE-${Date.now()}`, name: 'Shutdown smoke test' },
+    });
+    shutdownChamberId = chamber.id;
 
     // 2. Jalankan server Next.js asli pada port 3098 dengan konfigurasi produksi yang valid
     serverProcess = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(PORT)], {
@@ -86,6 +91,7 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
     try {
       await prisma.authSession.deleteMany({ where: { userId } });
       await prisma.user.deleteMany({ where: { id: userId } });
+      await prisma.chamber.deleteMany({ where: { id: shutdownChamberId } });
       await closeDb();
     } catch {
       // Abaikan jika db sudah tertutup
@@ -172,5 +178,38 @@ describe('Real Next.js HTTP Server Smoke Test', () => {
     assert.strictEqual(postLogoutRes.status, 401, 'Akses setelah logout harus 401 UNAUTHENTICATED');
     const postLogoutBody = await postLogoutRes.json();
     assert.strictEqual(postLogoutBody.error.code, 'UNAUTHENTICATED');
+  });
+
+  it('SIGTERM menutup stream SSE sehingga proses selesai dalam 5 detik saat deploy', async () => {
+    const login = await fetch(`${BASE_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
+      body: JSON.stringify({ email: testEmail, password: testPassword }),
+    });
+    assert.strictEqual(login.status, 200);
+    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const response = await fetch(`${BASE_URL}/api/v1/chambers/${shutdownChamberId}/stream`, {
+      headers: { Cookie: cookie },
+    });
+    assert.strictEqual(response.status, 200);
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    assert.match(new TextDecoder().decode(first.value), /event: ready/);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          serverProcess.kill('SIGKILL');
+          reject(new Error('SSE masih menahan shutdown lebih dari 5 detik'));
+        }, 5000);
+        serverProcess.once('exit', (code, signal) => {
+          clearTimeout(timer);
+          if (code === 143 || signal === 'SIGTERM') resolve();
+          else reject(new Error(`Shutdown tidak normal: code=${code}, signal=${signal}`));
+        });
+        serverProcess.kill('SIGTERM');
+      });
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
   });
 });
