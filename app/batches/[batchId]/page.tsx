@@ -233,6 +233,9 @@ export default function BatchDetailPage() {
   const [warmup, setWarmup] = useState<Record<string, boolean>>({});
   const [cleaning, setCleaning] = useState<Record<string, boolean>>({});
   const [chSel, setChSel] = useState<Record<string, string>>({});
+  const [coldChamberDraft, setColdChamberDraft] = useState<Record<string, string>>({});
+  const [savingColdChamber, setSavingColdChamber] = useState<string | null>(null);
+  const [coldChamberErrors, setColdChamberErrors] = useState<Record<string, string | null>>({});
   const [chambers, setChambers] = useState<Array<{ id: string; code: string; name: string }>>([]);
   // Butir 4: device tidak lagi dipilih; chamber menentukan device, ditampilkan
   // sebagai teks baca-saja.
@@ -361,6 +364,37 @@ export default function BatchDetailPage() {
   }, [user, apiFetch, batchId, refreshKey]);
 
   const refresh = () => setRefreshKey((k) => k + 1);
+
+  const handleSaveColdChamber = async (group: GroupItem) => {
+    const chamberId = coldChamberDraft[group.groupId] ?? group.chamberId ?? '';
+    if (!chamberId) return;
+    setSavingColdChamber(group.groupId);
+    setColdChamberErrors((prev) => ({ ...prev, [group.groupId]: null }));
+    try {
+      const res = await apiFetch(`/api/v1/groups/${encodeURIComponent(group.groupId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chamberId, coldStorageMode: 'chamber' }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error?.message || `Gagal menyimpan chamber (kode ${res.status}).`);
+      setBatch((current) => current ? {
+        ...current,
+        sampleGroups: current.sampleGroups.map((g) => g.groupId === group.groupId ? { ...g, ...body.data } : g),
+      } : current);
+      setChSel((prev) => ({ ...prev, [group.groupId]: chamberId }));
+      setColdChamberDraft((prev) => {
+        const next = { ...prev };
+        delete next[group.groupId];
+        return next;
+      });
+      notify('Chamber untuk pencatatan dingin berhasil disimpan.');
+    } catch (err) {
+      setColdChamberErrors((prev) => ({ ...prev, [group.groupId]: err instanceof Error ? err.message : 'Gagal menyimpan chamber.' }));
+    } finally {
+      setSavingColdChamber(null);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -1062,13 +1096,21 @@ export default function BatchDetailPage() {
             labWeightBeforeG: Number(draft.labWeightBeforeG),
             labWeightAfterG: Number(draft.labWeightAfterG),
             ...(g.storageCondition === 'cold'
-              ? { coldStorageMode: draft.coldStorageMode }
+              ? { coldStorageMode: draft.coldStorageMode, ...(draft.coldStorageMode === 'plain_fridge' ? { chamberId: null } : {}) }
               : {}),
           }),
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(body.error?.message || `Gagal menyimpan grup ${g.groupId} (kode ${res.status}).`);
+        }
+        if (g.storageCondition === 'cold' && draft.coldStorageMode === 'plain_fridge') {
+          setChSel((prev) => ({ ...prev, [g.groupId]: '' }));
+          setColdChamberDraft((prev) => {
+            const next = { ...prev };
+            delete next[g.groupId];
+            return next;
+          });
         }
       }
       closeEdit();
@@ -1788,6 +1830,56 @@ export default function BatchDetailPage() {
                 Jadwal timepoint: {seq.join(' · ')}
               </p>
             </div>
+            {g.storageCondition === 'cold' && (
+              <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-400/20 space-y-2">
+                <p className="text-[11px] font-mono text-cyan-100">
+                  Chamber tersimpan: {g.chamberId ? chamberName(g.chamberId) : 'Belum dipilih'}
+                </p>
+                {isAdmin && !locked && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1 text-[11px] font-mono text-white/80" htmlFor={`cold-chamber-${g.groupId}`}>
+                      Chamber untuk pencatatan dingin
+                      <select
+                        id={`cold-chamber-${g.groupId}`}
+                        value={coldChamberDraft[g.groupId] ?? g.chamberId ?? ''}
+                        disabled={savingColdChamber === g.groupId}
+                        onChange={(e) => {
+                          setColdChamberDraft((prev) => ({ ...prev, [g.groupId]: e.target.value }));
+                          setColdChamberErrors((prev) => ({ ...prev, [g.groupId]: null }));
+                        }}
+                        className="px-3 py-2 rounded-xl bg-black/25 border border-cyan-400/30 text-xs font-mono text-white min-h-[44px]"
+                      >
+                        <option value="" className="bg-slate-900">Pilih chamber</option>
+                        {g.chamberId && !chambers.some((c) => c.id === g.chamberId) && (
+                          <option value={g.chamberId} className="bg-slate-900">{chamberName(g.chamberId)} (tersimpan)</option>
+                        )}
+                        {chambers.map((c) => (
+                          <option key={c.id} value={c.id} className="bg-slate-900">{c.name} ({c.code})</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveColdChamber(g)}
+                      disabled={savingColdChamber !== null || !(coldChamberDraft[g.groupId] ?? g.chamberId) || (
+                        (coldChamberDraft[g.groupId] ?? g.chamberId) === g.chamberId && g.coldStorageMode === 'chamber'
+                      )}
+                      className={btnPrimary}
+                    >
+                      {savingColdChamber === g.groupId ? 'Menyimpan…' : 'Simpan chamber'}
+                    </button>
+                  </div>
+                )}
+                <p className="text-[10px] font-mono text-white/50">
+                  {g.coldStorageMode === 'plain_fridge'
+                    ? 'Pilih dan simpan chamber untuk beralih dari penyimpanan langsung di kulkas ke mode chamber.'
+                    : 'Chamber tersimpan otomatis menjadi pilihan awal untuk sesi pengujian baru.'}
+                </p>
+                {coldChamberErrors[g.groupId] && (
+                  <p role="alert" className="text-xs font-mono text-rose-300">{coldChamberErrors[g.groupId]}</p>
+                )}
+              </div>
+            )}
             {g.sessions.length > 0 && (
               <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/15">
                 <table className="w-full min-w-[620px] text-left border-collapse">
@@ -2022,7 +2114,7 @@ export default function BatchDetailPage() {
                 ) : (
                   <>
                     <select
-                      value={chSel[g.groupId] || ''}
+                      value={chSel[g.groupId] ?? g.chamberId ?? ''}
                       onChange={(e) => setChSel({ ...chSel, [g.groupId]: e.target.value })}
                       aria-label="Chamber sesi (opsional, wajib agar data tertaut)"
                       className="px-3 py-2 rounded-xl bg-black/25 border border-white/10 text-xs font-mono text-white max-w-[180px]"
@@ -2039,7 +2131,7 @@ export default function BatchDetailPage() {
                     {/* Butir 4: device dibaca dari chamber, bukan dipilih user. */}
                     <span className="text-[11px] font-mono text-white/55">
                       {(() => {
-                        const device = deviceForChamber(chSel[g.groupId] || null);
+                        const device = deviceForChamber(chSel[g.groupId] ?? g.chamberId);
                         return device ? `Device: ${device.mqttDeviceId}` : 'Device: otomatis dari chamber';
                       })()}
                     </span>
@@ -2097,7 +2189,7 @@ export default function BatchDetailPage() {
                 <p className="w-full text-[11px] font-mono text-white/45">
                   {g.coldStorageMode === 'plain_fridge'
                     ? 'Tanpa chamber: sesi ini sengaja tidak punya data sensor chamber.'
-                    : chSel[g.groupId]
+                    : (chSel[g.groupId] ?? g.chamberId)
                       ? 'Chamber terisi: sensor chamber otomatis tertaut ke sesi.'
                       : 'Chamber kosong: sesi ini tidak akan punya data sensor.'}
                 </p>

@@ -45,7 +45,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     MAX_PHOTO_CAPTION_LENGTH: 140,
     warmup: { 'BT-20261024-01-SR': true },
     chSel: {},
-    batch: { sampleGroups: [{ groupId: 'BT-20261024-01-SR', coldStorageMode: 'chamber' }] },
+    batch: { sampleGroups: [{ groupId: 'BT-20261024-01-SR', coldStorageMode: 'chamber', chamberId: null as string | null }] },
     setSessionModal: (update: unknown) => {
       modal = typeof update === 'function' ? update(modal) : update;
     },
@@ -104,6 +104,13 @@ test('rekam langsung membuat sesi tanpa rentang historis', async () => {
   assert.equal(h.requests[0].payload.autoBackfill, undefined);
   assert.equal(h.requests[0].payload.startedAtUtc, undefined);
   assert.match(h.notices[0], /berhasil dimulai/);
+});
+
+test('chamber grup yang tersimpan dipakai ketika pilihan sesi belum diubah', async () => {
+  const h = setup({ chamberId: undefined });
+  h.context.batch.sampleGroups[0].chamberId = 'saved-cold-chamber';
+  await h.submit();
+  assert.strictEqual(h.requests[0].payload.chamberId, 'saved-cold-chamber');
 });
 
 test('kegagalan server atau respons tanpa sesi tidak menampilkan sukses', async () => {

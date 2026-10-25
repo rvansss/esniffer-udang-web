@@ -10,6 +10,8 @@ import {
 } from '../../../../../lib/api/dataset.ts';
 import { Prisma } from '@prisma/client';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Edit parsial satu grup (revisi putaran 2 butir 3): field yang sama dengan
  * step pengelompokan wizard. Batch terkunci ditolak 409. Validasi memakai
@@ -38,7 +40,24 @@ export async function PATCH(
     }
 
     const body = await request.json().catch(() => ({}));
-    const data: Prisma.SampleGroupUpdateInput = {};
+    // Mode dan chamber_id harus berubah dalam satu UPDATE agar CHECK DB tetap valid.
+    const data: Prisma.SampleGroupUncheckedUpdateInput = {};
+    const coldStorageMode = body?.coldStorageMode === undefined
+      ? group.coldStorageMode
+      : parseColdStorageMode(body.coldStorageMode);
+    let chamberId = group.chamberId;
+    if (body?.chamberId !== undefined) {
+      if (body.chamberId !== null && (typeof body.chamberId !== 'string' || !UUID_REGEX.test(body.chamberId))) {
+        throw validationError('Field "chamberId" harus UUID valid atau null');
+      }
+      chamberId = body.chamberId;
+      if (chamberId !== null) {
+        const chamber = await prisma.chamber.findUnique({ where: { id: chamberId } });
+        if (!chamber) throw notFound(`Chamber "${chamberId}" not found`);
+        if (!chamber.isActive) throw validationError('Chamber yang dipilih harus aktif');
+      }
+      data.chamberId = chamberId;
+    }
 
     if (body?.labTempC !== undefined) {
       data.labTempC = parseBoundedNumber(body.labTempC, 'labTempC', -2, 30);
@@ -50,13 +69,13 @@ export async function PATCH(
       data.labWeightAfterG = parsePositiveNumber(body.labWeightAfterG, 'labWeightAfterG', 2000);
     }
     if (body?.coldStorageMode !== undefined) {
-      const mode = parseColdStorageMode(body.coldStorageMode);
+      const mode = coldStorageMode;
       if (mode === 'PLAIN_FRIDGE' && group.storageCondition !== 'COLD') {
         throw validationError('Field "coldStorageMode" plain_fridge hanya untuk kondisi cold');
       }
       // Konsistensi mode dengan penugasan chamber; aturan terakhir dijaga
       // juga oleh CHECK DB sample_groups_plain_fridge_no_chamber.
-      if (mode === 'PLAIN_FRIDGE' && group.chamberId !== null) {
+      if (mode === 'PLAIN_FRIDGE' && chamberId !== null) {
         throw validationError(
           'Grup plain_fridge harus tanpa chamber; lepaskan penugasan chamber dulu'
         );
@@ -64,9 +83,13 @@ export async function PATCH(
       data.coldStorageMode = mode;
     }
 
+    if (coldStorageMode === 'PLAIN_FRIDGE' && chamberId !== null) {
+      throw validationError('Pilih mode chamber untuk menautkan chamber ke grup dingin');
+    }
+
     if (Object.keys(data).length === 0) {
       throw validationError(
-        'Body harus memuat minimal satu field: labTempC, labWeightBeforeG, labWeightAfterG, atau coldStorageMode'
+        'Body harus memuat minimal satu field: labTempC, labWeightBeforeG, labWeightAfterG, coldStorageMode, atau chamberId'
       );
     }
 

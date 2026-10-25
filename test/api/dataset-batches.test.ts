@@ -9,6 +9,7 @@ import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route
 import { POST as uploadPhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
 import { PATCH as patchGroup } from '../../app/api/v1/groups/[groupId]/route.ts';
+import { GET as getBatchDetail } from '../../app/api/v1/batches/[batchId]/route.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
 import { createSession as createAuthSession, buildSessionCookie } from '../../lib/auth/session.ts';
@@ -649,6 +650,55 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
       await prisma.measurementSession.delete({ where: { sessionId } });
     } finally {
       await prisma.chamber.delete({ where: { id: chamber.id } });
+    }
+  });
+
+  it('12e. Chamber dingin tersimpan, dipakai sesi baru, dan tidak mengubah chamber sesi lama', async () => {
+    const coldGroup = `${batchId}-SD`;
+    const patch = (body: unknown, cookie = adminCookie) => patchGroup(new Request(
+      `http://localhost:3000/api/v1/groups/${coldGroup}`,
+      { method: 'PATCH', headers: postHeaders(cookie), body: JSON.stringify(body) }
+    ), { params: Promise.resolve({ groupId: coldGroup }) });
+    const first = await prisma.chamber.create({ data: { code: `COLD-A-${Date.now()}`, name: 'Cold A' } });
+    const second = await prisma.chamber.create({ data: { code: `COLD-B-${Date.now()}`, name: 'Cold B' } });
+    const inactive = await prisma.chamber.create({ data: { code: `COLD-OFF-${Date.now()}`, name: 'Cold off', isActive: false } });
+    let sessionId: string | undefined;
+    try {
+      assert.strictEqual((await patch({ coldStorageMode: 'plain_fridge', chamberId: null })).status, 200);
+      assert.strictEqual((await patch({ chamberId: first.id })).status, 422);
+      const assigned = await patch({ coldStorageMode: 'chamber', chamberId: first.id });
+      assert.strictEqual(assigned.status, 200);
+      assert.strictEqual((await assigned.json()).data.chamberId, first.id);
+      const detail = await getBatchDetail(new Request(`http://localhost:3000/api/v1/batches/${batchId}`, {
+        headers: { Cookie: adminCookie },
+      }), { params: Promise.resolve({ batchId }) });
+      const saved = (await detail.json()).data.sampleGroups.find((g: { groupId: string }) => g.groupId === coldGroup);
+      assert.strictEqual(saved.chamberId, first.id);
+      assert.strictEqual(saved.coldStorageMode, 'chamber');
+
+      const created = await createSession(new Request(`http://localhost:3000/api/v1/groups/${coldGroup}/sessions`, {
+        method: 'POST', headers: postHeaders(adminCookie), body: JSON.stringify({ timepointCode: 'H0', warmupDone: true }),
+      }), { params: Promise.resolve({ groupId: coldGroup }) });
+      assert.strictEqual(created.status, 201);
+      const session = (await created.json()).data;
+      sessionId = session.sessionId;
+      assert.strictEqual(session.chamberId, first.id, 'Sesi mengikuti chamber tersimpan tanpa dipilih ulang');
+      assert.strictEqual((await patch({ chamberId: second.id })).status, 200);
+      const unchanged = await prisma.measurementSession.findUniqueOrThrow({ where: { sessionId } });
+      assert.strictEqual(unchanged.chamberId, first.id);
+
+      assert.strictEqual((await patch({ coldStorageMode: 'plain_fridge' })).status, 422);
+      const detached = await patch({ coldStorageMode: 'plain_fridge', chamberId: null });
+      assert.strictEqual(detached.status, 200);
+      assert.strictEqual((await detached.json()).data.chamberId, null);
+      assert.strictEqual((await patch({ coldStorageMode: 'chamber', chamberId: 'invalid' })).status, 422);
+      assert.strictEqual((await patch({ coldStorageMode: 'chamber', chamberId: '00000000-0000-4000-8000-000000000000' })).status, 404);
+      assert.strictEqual((await patch({ coldStorageMode: 'chamber', chamberId: inactive.id })).status, 422);
+      assert.strictEqual((await patch({ coldStorageMode: 'chamber', chamberId: first.id }, viewerCookie)).status, 403);
+    } finally {
+      if (sessionId) await prisma.measurementSession.deleteMany({ where: { sessionId } });
+      await prisma.sampleGroup.update({ where: { groupId: coldGroup }, data: { chamberId: null, coldStorageMode: 'CHAMBER' } });
+      await prisma.chamber.deleteMany({ where: { id: { in: [first.id, second.id, inactive.id] } } });
     }
   });
 
