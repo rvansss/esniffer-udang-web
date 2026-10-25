@@ -187,11 +187,9 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
 
     const base = lines[1].split(',');
     assert.strictEqual(base.length, DATASET_CSV_HEADERS.length);
-    assert.strictEqual(
-      base[DATASET_CSV_HEADERS.indexOf('timestamp_wib')],
-      '2099-06-06T13:00:30.000+07:00'
-    );
-    assert.strictEqual(base[0], '2099-06-06T06:00:30.000Z');
+    assert.strictEqual(DATASET_CSV_HEADERS.indexOf('timestamp_wib'), 0);
+    assert.ok(!DATASET_CSV_HEADERS.some((h) => h.endsWith('_utc')), 'CSV tidak boleh memuat kolom UTC');
+    assert.strictEqual(base[0], '2099-06-06T13:00:30.000+07:00');
     assert.strictEqual(base[1], SESSION);
     assert.strictEqual(base[2], BATCH);
     assert.strictEqual(base[3], 'market');
@@ -299,7 +297,8 @@ describe('HTTP API v1: Dataset Batch CSV Export (Fase 7)', () => {
     assert.strictEqual(sr[col('warmup_done')], 'true');
     assert.strictEqual(sr.length, headers.length);
     assert.strictEqual(sr[col('started_at_wib')], '2099-06-06T13:00:00.000+07:00');
-    assert.strictEqual(new Date(sr[col('ended_at_wib')]).getTime(), new Date(sr[col('ended_at_utc')]).getTime());
+    assert.match(sr[col('ended_at_wib')], /\+07:00$/);
+    assert.ok(!headers.some((h) => h.endsWith('_utc')), 'CSV metadata tidak boleh memuat kolom UTC');
 
     const sd = lines.find((l) => l.includes(`${BATCH}-SD`))!.split(',');
     assert.strictEqual(sd.length, headers.length);

@@ -104,11 +104,11 @@ export const READING_CSV_HEADERS = [
 
 /**
  * Header CSV ML-ready untuk export batch dataset (PRD §3.4).
- * Kolom dasar snake_case English sesuai PRD, ditambah timestamp_wib; boolean is_baseline
+ * Kolom snake_case English sesuai PRD; seluruh waktu dalam WIB (ISO +07:00). Boolean is_baseline
  * diserialkan sebagai string 'true'/'false', null sebagai sel kosong.
  */
 export const DATASET_CSV_HEADERS = [
-  'timestamp_utc',
+  'timestamp_wib',
   'session_id',
   'batch_id',
   'source_type',
@@ -121,17 +121,16 @@ export const DATASET_CSV_HEADERS = [
   'temp_chamber_c',
   'rh_chamber_pct',
   'is_baseline',
-  'timestamp_wib',
 ];
 
 /**
  * Header CSV ekspor hasil pengujian per sesi individual.
- * Menyertakan detik relatif dari awal pengujian, timestamp UTC & WIB,
+ * Menyertakan detik relatif dari awal pengujian, timestamp WIB (ISO +07:00 & teks),
  * respons sensor gas, suhu, kelembaban, serta observasi suhu & berat udang.
  */
 export const SESSION_READINGS_CSV_HEADERS = [
   'detik_ke',
-  'timestamp_utc',
+  'timestamp_wib',
   'waktu_wib',
   'session_id',
   'batch_id',
@@ -178,7 +177,7 @@ export const DATASET_METADATA_CSV_HEADERS = [
   'ice_to_shrimp_ratio',
   'rejection_notes',
   'photo_count',
-  'locked_at',
+  'locked_at_wib',
   'group_id',
   'storage_condition',
   'target_temp_c',
@@ -190,17 +189,14 @@ export const DATASET_METADATA_CSV_HEADERS = [
   'session_id',
   'timepoint_code',
   'elapsed_hours',
-  'started_at_utc',
-  'ended_at_utc',
+  'started_at_wib',
+  'ended_at_wib',
   'session_status',
   'warmup_done',
   'cleaning_done',
   'baseline_mq137',
   'baseline_mq136',
   'baseline_mq4',
-  'locked_at_wib',
-  'started_at_wib',
-  'ended_at_wib',
 ];
 
 /**

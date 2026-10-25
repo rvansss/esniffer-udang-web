@@ -7,6 +7,7 @@ import {
   CSV_UTF8_BOM,
   buildCsvRow,
   toWibParts,
+  toWibIso,
 } from '../../../../../../lib/api/csv.ts';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -80,7 +81,7 @@ export async function GET(
 
       rows.push([
         secondsFromStart,
-        measuredAt.toISOString(),
+        toWibIso(measuredAt),
         wibStr,
         session.sessionId,
         session.batchId,

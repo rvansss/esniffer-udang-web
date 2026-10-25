@@ -48,7 +48,7 @@ export async function GET(
       });
       const num = (v: { toNumber(): number } | null | undefined): number | '' =>
         v === null || v === undefined ? '' : v.toNumber();
-      const dt = (v: Date | null | undefined): string => (v ? v.toISOString() : '');
+      const dt = (v: Date | null | undefined): string => (v ? toWibIso(v) : '');
       const departed = full.departedAtUtc
         ? toWibParts(full.departedAtUtc)
         : { date: '', time: '' };
@@ -82,7 +82,7 @@ export async function GET(
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
       if (full.sampleGroups.length === 0) {
-        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock, full.lockedAt ? toWibIso(full.lockedAt) : '', '', '']);
+        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
       }
       for (const g of full.sampleGroups) {
         const groupBlock = [
@@ -97,7 +97,7 @@ export async function GET(
         ];
         if (g.sessions.length === 0) {
           // Baris grup tanpa sesi: kolom sesi kosong, ditandai jelas agar tidak ambigu.
-          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock, full.lockedAt ? toWibIso(full.lockedAt) : '', '', '']);
+          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock]);
         } else {
           for (const s of g.sessions) {
             rows.push([
@@ -114,9 +114,6 @@ export async function GET(
               num(s.baselineMq137),
               num(s.baselineMq136),
               num(s.baselineMq4),
-              full.lockedAt ? toWibIso(full.lockedAt) : '',
-              toWibIso(s.startedAtUtc),
-              s.endedAtUtc ? toWibIso(s.endedAtUtc) : '',
             ]);
           }
         }
@@ -251,7 +248,7 @@ export async function GET(
           let buffer = '';
           for (const r of chunk) {
             buffer += buildCsvRow([
-              r.measuredAt ? r.measuredAt.toISOString() : '',
+              r.measuredAt ? toWibIso(r.measuredAt) : '',
               r.session?.sessionId ?? '',
               batchId,
               sourceType,
@@ -264,7 +261,6 @@ export async function GET(
               r.temperatureC !== null ? Number(r.temperatureC) : '',
               r.humidityPercent !== null ? Number(r.humidityPercent) : '',
               r.isBaseline === null ? '' : String(r.isBaseline),
-              r.measuredAt ? toWibIso(r.measuredAt) : '',
             ]);
           }
 
