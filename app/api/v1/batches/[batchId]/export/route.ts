@@ -1,6 +1,7 @@
+import { loadQualityDataset } from '../../../../../../lib/dataset/quality.ts';
 import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth } from '../../../../../../lib/auth/guard.ts';
-import { errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
+import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
 import { DB_TO_SOURCE, DB_TO_STORAGE, DB_TO_CONDITION, DB_TO_VISUAL } from '../../../../../../lib/api/dataset.ts';
 import { DATASET_CSV_HEADERS, DATASET_METADATA_CSV_HEADERS, CSV_UTF8_BOM, buildCsvRow, toWibParts, toWibIso, getMaxExportRows } from '../../../../../../lib/api/csv.ts';
@@ -30,8 +31,19 @@ export async function GET(
 
     const url = new URL(request.url);
     const format = url.searchParams.get('format') ?? 'readings';
-    if (format !== 'readings' && format !== 'metadata') {
-      throw validationError('Query param "format" must be "readings" or "metadata"');
+    if (!['readings', 'metadata', 'quality', 'ml'].includes(format)) {
+      throw validationError('Query param "format" must be readings, metadata, quality, or ml');
+    }
+
+    if (format === 'quality' || format === 'ml') {
+      const result = await loadQualityDataset(batchId, url.searchParams);
+      if (format === 'quality') return jsonResponse(result.report);
+      if (!result.report.included) throw validationError('Tidak ada reading yang lolos aturan ml-v1', [result.report]);
+      return new Response(result.csv(), { headers: {
+        'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store, private',
+        'Content-Disposition': `attachment; filename="ml-v1-${batchId}.csv"`, 'x-request-id': requestId,
+        'x-ml-rule-version': 'ml-v1', 'x-ml-included': String(result.report.included),
+      } });
     }
 
     // Export metadata: satu baris per sesi (atau per grup bila belum ada sesi),
@@ -82,7 +94,7 @@ export async function GET(
       const rows: unknown[][] = [];
       const noSessionBlock = [...Array(5).fill(''), 'no_session', ...Array(5).fill('')];
       if (full.sampleGroups.length === 0) {
-        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock]);
+        rows.push([...batchBlock, ...Array(8).fill(''), ...noSessionBlock, full.shrimpType?.toLowerCase() ?? '', '', '']);
       }
       for (const g of full.sampleGroups) {
         const groupBlock = [
@@ -97,7 +109,7 @@ export async function GET(
         ];
         if (g.sessions.length === 0) {
           // Baris grup tanpa sesi: kolom sesi kosong, ditandai jelas agar tidak ambigu.
-          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock]);
+          rows.push([...batchBlock, ...groupBlock, ...noSessionBlock, full.shrimpType?.toLowerCase() ?? '', '', '']);
         } else {
           for (const s of g.sessions) {
             rows.push([
@@ -114,6 +126,7 @@ export async function GET(
               num(s.baselineMq137),
               num(s.baselineMq136),
               num(s.baselineMq4),
+              full.shrimpType?.toLowerCase() ?? '', num(s.shrimpTempC), num(s.shrimpWeightG),
             ]);
           }
         }

@@ -215,7 +215,7 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
     }
   });
 
-  it('4. Window kosong → INCOMPLETE; tanpa chamber/device → dilewati COMPLETE', async () => {
+  it('4. Window kosong → INCOMPLETE; tanpa chamber/device → dilewati INCOMPLETE', async () => {
     const empty = await backfillSessionReadings(emptySessionId);
     assert.strictEqual(empty.linked, 0);
     const emptyRow = await prisma.measurementSession.findUniqueOrThrow({ where: { id: emptySessionId } });
@@ -224,6 +224,6 @@ describe('Dataset Backfill Session Readings (Fase 6)', () => {
     const skipped = await backfillSessionReadings(skippedSessionId);
     assert.strictEqual(skipped.skipped, true);
     const skippedRow = await prisma.measurementSession.findUniqueOrThrow({ where: { id: skippedSessionId } });
-    assert.strictEqual(skippedRow.status, 'COMPLETE');
+    assert.strictEqual(skippedRow.status, 'INCOMPLETE');
   });
 });

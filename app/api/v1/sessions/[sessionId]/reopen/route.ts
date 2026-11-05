@@ -1,3 +1,5 @@
+import { lockEditableBatch } from '../../../../../../lib/dataset/groups.ts';
+import { assertSessionWindow } from '../../../../../../lib/dataset/session-window.ts';
 import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
@@ -36,11 +38,15 @@ export async function POST(
       );
     }
 
-    const reopened = await prisma.measurementSession.update({
+    const reopened = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, session.batchId);
+      if (session.chamberId) await assertSessionWindow(tx, { chamberId: session.chamberId, startedAtUtc: session.startedAtUtc, endedAtUtc: new Date(session.startedAtUtc.getTime() + (session.durationSeconds ?? 900) * 1000), excludeId: session.id });
+      return tx.measurementSession.update({
       where: { sessionId },
       data: { status: 'OPEN', endedAtUtc: null, cleaningDone: false },
     });
 
+    });
     return jsonResponse(serializeSession(reopened));
   } catch (err) {
     return errorResponse(err, requestId, request);

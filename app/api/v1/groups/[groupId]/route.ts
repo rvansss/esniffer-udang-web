@@ -1,3 +1,4 @@
+import { lockEditableBatch, parseGrouping } from '../../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
@@ -42,6 +43,8 @@ export async function PATCH(
     const body = await request.json().catch(() => ({}));
     // Mode dan chamber_id harus berubah dalam satu UPDATE agar CHECK DB tetap valid.
     const data: Prisma.SampleGroupUncheckedUpdateInput = {};
+    if (body?.coldStorageMode !== undefined && body.coldStorageMode !== 'chamber') throw validationError('Pengujian baru wajib menggunakan chamber');
+    if (body?.visualCheck !== undefined || body?.sampleShrimpCount !== undefined) Object.assign(data, parseGrouping({ visualCheck: body.visualCheck ?? group.visualCheck.toLowerCase(), sampleShrimpCount: body.sampleShrimpCount ?? group.sampleShrimpCount }));
     const coldStorageMode = body?.coldStorageMode === undefined
       ? group.coldStorageMode
       : parseColdStorageMode(body.coldStorageMode);
@@ -93,7 +96,10 @@ export async function PATCH(
       );
     }
 
-    const updated = await prisma.sampleGroup.update({ where: { groupId }, data });
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, group.batchId);
+      return tx.sampleGroup.update({ where: { groupId }, data });
+    });
     return jsonResponse(serializeGroup(updated));
   } catch (err) {
     return errorResponse(err, requestId, request);

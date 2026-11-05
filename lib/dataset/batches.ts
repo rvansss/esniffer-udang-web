@@ -1,3 +1,4 @@
+import { lockEditableBatch } from './groups.ts';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '../db/client.ts';
@@ -36,15 +37,16 @@ export async function deleteBatch(batchId: string, force: boolean): Promise<Batc
     };
   }
 
-  await prisma.$transaction([
-    prisma.sensorReading.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await lockEditableBatch(tx, batchId);
+    await tx.sensorReading.updateMany({
       where: { batchId },
       data: { sessionId: null, batchId: null, timepointCode: null, isBaseline: null },
-    }),
-    prisma.measurementSession.deleteMany({ where: { batchId } }),
-    prisma.sampleGroup.deleteMany({ where: { batchId } }),
-    prisma.collectionBatch.delete({ where: { batchId } }),
-  ]);
+    });
+    await tx.measurementSession.deleteMany({ where: { batchId } });
+    await tx.sampleGroup.deleteMany({ where: { batchId } });
+    await tx.collectionBatch.delete({ where: { batchId } });
+  });
 
   try {
     await rm(path.join(process.cwd(), 'public', 'uploads', batchId), { recursive: true, force: true });

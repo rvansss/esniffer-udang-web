@@ -18,6 +18,9 @@ export interface BatchDraft {
   arrivedAt?: string;
   marketSource?: string;
   sourceType?: string;
+  shrimpType?: string;
+  grouping?: unknown;
+  groupingCaptions?: string[];
   shrimpCount?: string;
   shrimpLengthCm?: string;
   totalWeightG?: string;
@@ -39,11 +42,11 @@ export interface BatchDraft {
 }
 
 /**
- * Kunci penyimpanan draf. Dinaikkan ke v3 saat susunan field/langkah berubah
- * (keberangkatan + suhu berangkat): draf v2 tidak lagi cocok dengan form ini,
+ * Kunci penyimpanan draf. Dinaikkan ke v4 untuk jenis udang dan pengelompokan bersama;
+ * draf v3 tidak lagi cocok dengan form ini,
  * jadi sengaja diabaikan dan dibiarkan kedaluwarsa sendiri.
  */
-export const BATCH_DRAFT_KEY = 'esniffer:batch-draft-v3';
+export const BATCH_DRAFT_KEY = 'esniffer:batch-draft-v4';
 
 /** Draf dianggap kedaluwarsa setelah 7 hari. */
 export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -72,6 +75,7 @@ const storage = (): Storage | null => {
 export const draftMeaningful = (d: BatchDraft): boolean =>
   (
     [
+      'shrimpType',
       'marketSource',
       'sourceType',
       'shrimpCount',
@@ -96,6 +100,7 @@ const hasAnyContent = (d: BatchDraft): boolean => {
     'coolerDeparture',
     'procuredAt',
     'arrivedAt',
+    'shrimpType',
     'marketSource',
     'sourceType',
     'shrimpCount',
@@ -108,7 +113,7 @@ const hasAnyContent = (d: BatchDraft): boolean => {
   ] as const;
   if (scalars.some((k) => typeof d[k] === 'string' && d[k]!.trim() !== '')) return true;
   if (d.deviationAck === true) return true;
-  const captionGroups = [d.batchCaptions, d.groupCaptionsSr, d.groupCaptionsSd];
+  const captionGroups = [d.batchCaptions, d.groupingCaptions, d.groupCaptionsSr, d.groupCaptionsSd];
   return captionGroups.some(
     (c) => Array.isArray(c) && c.some((x) => typeof x === 'string' && x.trim() !== '')
   );

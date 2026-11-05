@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { lockEditableBatch } from '../../../../../../lib/dataset/groups.ts';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '../../../../../../lib/db/client.ts';
@@ -15,7 +17,7 @@ const ALLOWED_TYPES: Record<string, string> = {
 
 /** Nama file aman anti-traversal: <batchId>_<timestamp>_<index>.<ext>. */
 function buildFileName(batchId: string, index: number, mimeType: string): string {
-  return `${batchId}_${Date.now()}_${index}${ALLOWED_TYPES[mimeType]}`;
+  return `${batchId}_${randomUUID()}_${index}${ALLOWED_TYPES[mimeType]}`;
 }
 
 export interface BatchPhotoItem {
@@ -138,7 +140,7 @@ export async function POST(
     const dir = path.join(process.cwd(), 'public', 'uploads', batchId);
     await mkdir(dir, { recursive: true });
 
-    const rows = [];
+    const rows: Array<{ batchId: string; url: string; caption: string; sortOrder: number; groupId: string | null; sessionId: string | null }> = [];
     for (let i = 0; i < files.length; i += 1) {
       const fileName = buildFileName(batchId, existing + i, files[i].type);
       const buffer = Buffer.from(await files[i].arrayBuffer());
@@ -152,7 +154,15 @@ export async function POST(
         sessionId,
       });
     }
-    await prisma.batchPhoto.createMany({ data: rows });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await lockEditableBatch(tx, batchId);
+        await tx.batchPhoto.createMany({ data: rows });
+      });
+    } catch (err) {
+      await Promise.all(rows.map((row) => rm(path.join(process.cwd(), 'public', row.url), { force: true })));
+      throw err;
+    }
 
     return jsonResponse({ batchId, photos: await listPhotos(batchId) }, undefined, 201);
   } catch (err) {
@@ -204,14 +214,10 @@ export async function PATCH(
       return { url, caption: parsePhotoCaption(record.caption, i) };
     });
 
-    await prisma.$transaction(
-      updates.map((u) =>
-        prisma.batchPhoto.update({
-          where: { batchId_url: { batchId, url: u.url } },
-          data: { caption: u.caption },
-        })
-      )
-    );
+    await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, batchId);
+      for (const update of updates) await tx.batchPhoto.update({ where: { batchId_url: { batchId, url: update.url } }, data: { caption: update.caption } });
+    });
 
     return jsonResponse({ batchId, photos: await listPhotos(batchId) });
   } catch (err) {
@@ -259,6 +265,10 @@ export async function DELETE(
       throw notFound(`Foto tidak terdaftar di batch "${batchId}": ${missing[0]}`);
     }
 
+    await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, batchId);
+      await tx.batchPhoto.deleteMany({ where: { batchId, url: { in: targets } } });
+    });
     for (const u of targets) {
       try {
         await rm(path.join(process.cwd(), 'public', u), { force: true });
@@ -271,7 +281,6 @@ export async function DELETE(
         });
       }
     }
-    await prisma.batchPhoto.deleteMany({ where: { batchId, url: { in: targets } } });
 
     return jsonResponse({ batchId, photos: await listPhotos(batchId) });
   } catch (err) {

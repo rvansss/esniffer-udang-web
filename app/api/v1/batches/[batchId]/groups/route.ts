@@ -1,22 +1,12 @@
+import { groupData, parseGrouping, lockEditableBatch } from '../../../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
 import { conflict, notFound, validationError } from '../../../../../../lib/api/errors.ts';
-import { buildGroupId } from '../../../../../../shared/dataset.ts';
 import {
   serializeGroup,
   parseStorageCondition,
-  parseVisualCheck,
-  parsePositiveNumber,
-  parseBoundedNumber,
-  parseIntMinimum,
-  parseColdStorageMode,
 } from '../../../../../../lib/api/dataset.ts';
-
-const TARGET_TEMP: Record<'ROOM_TEMP' | 'COLD', number> = {
-  ROOM_TEMP: 25.0,
-  COLD: 4.0,
-};
 
 export async function POST(
   request: Request,
@@ -44,29 +34,14 @@ export async function POST(
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, batchId);
       const results = [];
       for (const item of groupsInput) {
         const { api: storageApi, db: storageDb } = parseStorageCondition(item?.storageCondition);
-        const labTempC = parseBoundedNumber(item?.labTempC, 'labTempC', -2, 30);
-        const visualCheck = parseVisualCheck(item?.visualCheck);
-        const labWeightBeforeG = parsePositiveNumber(item?.labWeightBeforeG, 'labWeightBeforeG', 2000);
-        const labWeightAfterG = parsePositiveNumber(item?.labWeightAfterG, 'labWeightAfterG', 2000);
-        const sampleShrimpCount = parseIntMinimum(item?.sampleShrimpCount, 'sampleShrimpCount', 3);
-        if (sampleShrimpCount > 5) {
-          throw validationError('Field "sampleShrimpCount" harus 3–5 ekor per chamber');
+        const fields = parseGrouping(item);
+        if (item?.coldStorageMode !== undefined && item.coldStorageMode !== 'chamber') {
+          throw validationError('Grup baru wajib menggunakan chamber');
         }
-
-        // Revisi putaran 2 butir 1: mode penyimpanan diinput eksplisit; tanpa
-        // field, grup memakai CHAMBER (perilaku lama). PLAIN_FRIDGE hanya sah
-        // untuk grup dingin; penugasan chamber terjadi saat sesi dimulai.
-        let coldStorageMode: 'CHAMBER' | 'PLAIN_FRIDGE' = 'CHAMBER';
-        if (item?.coldStorageMode !== undefined) {
-          coldStorageMode = parseColdStorageMode(item.coldStorageMode);
-          if (coldStorageMode === 'PLAIN_FRIDGE' && storageDb !== 'COLD') {
-            throw validationError('Field "coldStorageMode" plain_fridge hanya untuk kondisi cold');
-          }
-        }
-
         const existing = await tx.sampleGroup.findUnique({
           where: { batchId_storageCondition: { batchId, storageCondition: storageDb } },
         });
@@ -79,16 +54,7 @@ export async function POST(
         results.push(
           await tx.sampleGroup.create({
             data: {
-              groupId: buildGroupId(batchId, storageApi),
-              batchId,
-              storageCondition: storageDb,
-              coldStorageMode,
-              targetTempC: TARGET_TEMP[storageDb],
-              labTempC,
-              visualCheck,
-              labWeightBeforeG,
-              labWeightAfterG,
-              sampleShrimpCount,
+              ...groupData(batchId, storageApi, fields),
             },
           })
         );

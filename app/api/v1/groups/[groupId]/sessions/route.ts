@@ -1,3 +1,5 @@
+import { lockEditableBatch } from '../../../../../../lib/dataset/groups.ts';
+import { assertSessionWindow } from '../../../../../../lib/dataset/session-window.ts';
 import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
@@ -101,9 +103,9 @@ export async function POST(
     // Revisi putaran 2 butir 1 (validasi server): grup dingin mode chamber
     // wajib menunjuk chamber sebelum sesi berjalan karena chamber menentukan
     // sumber data sensor. Grup plain_fridge dan grup ruang tidak kena aturan.
-    if (group.storageCondition === 'COLD' && group.coldStorageMode === 'CHAMBER' && !chamberId) {
+    if (!chamberId) {
       throw validationError(
-        'Grup dingin mode chamber butuh pemilihan chamber sebelum sesi dimulai'
+        'Pilih chamber sebelum sesi dimulai'
       );
     }
     if (body?.autoBackfill && group.coldStorageMode !== 'PLAIN_FRIDGE' && !chamberId) {
@@ -126,10 +128,10 @@ export async function POST(
       const assignment = await prisma.deviceAssignment.findFirst({
         where: {
           chamberId,
-          activeFrom: { lte: endedAtUtc ?? startedAtUtc },
+          activeFrom: { lte: startedAtUtc },
           OR: [
             { activeUntil: null },
-            { activeUntil: { gte: startedAtUtc } },
+            { activeUntil: { gte: endedAtUtc ?? new Date(startedAtUtc.getTime() + durationSeconds * 1000) } },
           ],
         },
         orderBy: { activeFrom: 'desc' },
@@ -142,15 +144,20 @@ export async function POST(
     // Data observasi tahap ini (modal pra-sesi): suhu udang, berat total
     // udang, dan foto (foto lewat route /photos dengan sessionId). Kolom
     // grup tidak ditimpa lagi — tiap tahap menyimpan pengukurannya sendiri.
-    const shrimpTempC = body?.shrimpTempC === undefined || body?.shrimpTempC === null
-      ? null
-      : parseBoundedNumber(body.shrimpTempC, 'shrimpTempC', -2, 30);
-    const shrimpWeightG = body?.shrimpWeightG === undefined || body?.shrimpWeightG === null
-      ? null
-      : parsePositiveNumber(body.shrimpWeightG, 'shrimpWeightG', 2000);
+    const shrimpTempC = parseBoundedNumber(body?.shrimpTempC, 'shrimpTempC', -2, 30);
+    const shrimpWeightG = parsePositiveNumber(body?.shrimpWeightG, 'shrimpWeightG', 2000);
+
+    if (!deviceId) throw validationError('Chamber harus memiliki alat yang ditugaskan untuk rentang sesi');
 
     const suffix = group.storageCondition === 'COLD' ? 'SD' : 'SR';
-    const session = await prisma.measurementSession.create({
+    const session = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, group.batchId);
+      await assertSessionWindow(tx, { chamberId: chamberId!, startedAtUtc, endedAtUtc: endedAtUtc ?? new Date(startedAtUtc.getTime() + durationSeconds * 1000) });
+      const assignment = await tx.deviceAssignment.findFirst({ where: { chamberId, deviceId, activeFrom: { lte: startedAtUtc }, OR: [{ activeUntil: null }, { activeUntil: { gte: endedAtUtc ?? new Date(startedAtUtc.getTime() + durationSeconds * 1000) } }] } });
+      if (!assignment) throw validationError('Alat tidak ditugaskan ke chamber selama rentang sesi');
+      const previous = await tx.measurementSession.findMany({ where: { groupId }, select: { timepointCode: true } });
+      if (previous.some((s) => !isNextTimepoint(s.timepointCode, timepointCode))) throw conflict('Timepoint harus setelah tahap terakhir grup');
+      return tx.measurementSession.create({
       data: {
         sessionId: buildSessionId(group.batchId, timepointCode, suffix),
         groupId,
@@ -162,12 +169,13 @@ export async function POST(
         startedAtUtc,
         endedAtUtc: autoBackfill ? endedAtUtc : null,
         durationSeconds,
-        warmupDone: true,
-        cleaningDone: autoBackfill,
-        status: autoBackfill ? 'COMPLETE' : 'OPEN',
+        warmupDone: body?.warmupDone === true,
+        cleaningDone: body?.cleaningDone === true,
+        status: 'OPEN',
         shrimpTempC,
         shrimpWeightG,
       },
+    });
     });
 
     if (autoBackfill) {

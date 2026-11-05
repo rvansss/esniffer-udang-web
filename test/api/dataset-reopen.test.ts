@@ -62,6 +62,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
       data: { code: `RE-${runId}`, name: 'Reopen Chamber' },
     });
     chamberId = chamber.id;
+    await prisma.deviceAssignment.create({ data: { chamberId, deviceId, activeFrom: new Date('2000-01-01T00:00:00Z') } });
 
     const batch = await prisma.collectionBatch.create({
       data: {
@@ -105,7 +106,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
       { groupId } as never,
       {
         timepointCode: 'H0',
-        warmupDone: true,
+        warmupDone: true, shrimpTempC: 5, shrimpWeightG: 450,
         startedAtUtc: '2099-09-09T06:00:00.000Z',
         chamberId,
         deviceId,
@@ -130,6 +131,7 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
     await prisma.measurementSession.deleteMany({ where: { batchId } });
     await prisma.sampleGroup.deleteMany({ where: { batchId } });
     await prisma.collectionBatch.deleteMany({ where: { batchId } });
+    await prisma.deviceAssignment.deleteMany({ where: { deviceId } });
     await prisma.device.deleteMany({ where: { id: deviceId } });
     await prisma.chamber.deleteMany({ where: { id: chamberId } });
     await prisma.authSession.deleteMany({ where: { userId: { in: userIds } } });

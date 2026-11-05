@@ -1,3 +1,4 @@
+import { lockEditableBatch, parseGroupingPatch } from '../../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
@@ -93,10 +94,15 @@ export async function PATCH(
     delete base.createdAt;
     const merged = { ...base, ...(incoming as Record<string, unknown> | undefined) };
 
-    const fields = parseBatchFields(merged);
-    const updated = await prisma.collectionBatch.update({
-      where: { batchId },
-      data: fields,
+    const fields = parseBatchFields(merged, existing.shrimpType !== null || incoming?.shrimpType !== undefined);
+    const grouping = incoming?.grouping === undefined ? undefined : parseGroupingPatch(incoming.grouping);
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, batchId);
+      if (grouping) {
+        const count = await tx.sampleGroup.updateMany({ where: { batchId }, data: grouping });
+        if (!count.count) throw conflict('Batch belum memiliki grup; buat grup sebelum mengubah pengelompokan');
+      }
+      return tx.collectionBatch.update({ where: { batchId }, data: fields });
     });
     return jsonResponse(serializeBatch(updated));
   } catch (err) {

@@ -1,4 +1,6 @@
 "use client";
+import BatchQualityPanel from '../../../components/batches/BatchQualityPanel';
+import BatchEditForm from '../../../components/batches/BatchEditForm';
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -9,7 +11,7 @@ import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessN
 import SessionResultModal from '../../../components/batches/SessionResultModal';
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
 import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
-import { validateStepA, validateStepB, validateGroupFields, groupWeightWarning, parseWibInput, wibInputToUtcIso, type WizardErrors } from '../../../lib/batch-wizard.ts';
+import { parseWibInput } from '../../../lib/batch-wizard.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -63,6 +65,7 @@ interface BatchDetail {
   arrivedAtUtc: string;
   marketSource: string;
   sourceType: string;
+  shrimpType: string | null;
   shrimpCount: number;
   totalWeightG: number | null;
   shrimpLengthCm: number | null;
@@ -106,26 +109,6 @@ const numFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 });
 const SOURCE_LABEL: Record<string, string> = { market: 'Pasar', supermarket: 'Supermarket', farm: 'Tambak' };
 const CONDITION_LABEL: Record<string, string> = { alive: 'Hidup saat dibeli', dead: 'Mati saat dibeli' };
 
-/** Draft form edit utuh (tipe dipakai updater kolom di bawah). */
-interface EditDraftStepA {
-  departedAt: string;
-  coolerDeparture: string;
-  marketSource: string;
-  sourceType: string;
-}
-interface EditDraftStepB {
-  procuredAt: string;
-  arrivedAt: string;
-  deviationAck: boolean;
-  initialCondition: string;
-  shrimpCount: string;
-  totalWeightG: string;
-  shrimpLengthCm: string;
-  initialTempC: string;
-  coolerMarket: string;
-  coolerLab: string;
-}
-type EditStepBField = Exclude<keyof EditDraftStepB, 'deviationAck'>;
 const VISUAL_LABEL: Record<string, string> = {
   normal: 'Normal',
   melanosis: 'Melanosis (bintik hitam)',
@@ -137,56 +120,6 @@ const EM_DASH = '—';
 
 const num = (v: number | null | undefined, unit = '') =>
   v === null || v === undefined ? EM_DASH : `${numFmt.format(v)}${unit}`;
-
-/** Kelas input form edit utuh: jelas merah bila galat, tenang bila benar. */
-const editCls = (hasError: boolean) =>
-  `w-full px-3 py-2 rounded-xl bg-black/25 border text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-400/60 ${
-    hasError ? 'border-rose-400/70' : 'border-white/10'
-  }`;
-
-/** Pasangan radio dua pilihan dipakai form edit utuh (kondisi awal, mode simpan). */
-function RadioPair({
-  legend,
-  name,
-  value,
-  options,
-  onChange,
-}: {
-  legend: string;
-  name: string;
-  value: string;
-  options: ReadonlyArray<readonly [string, string]>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <fieldset className="space-y-1">
-      <legend className="text-[11px] font-mono font-semibold text-white/80">{legend}</legend>
-      <div className="flex flex-wrap gap-3">
-        {options.map(([optValue, label]) => (
-          <label key={optValue} className="flex items-center gap-1.5 text-[11px] font-mono text-white/80">
-            <input
-              type="radio"
-              name={name}
-              checked={value === optValue}
-              onChange={() => onChange(optValue)}
-              className="accent-cyan-400"
-            />
-            {label}
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
-
-/** Durasi (jam) beli→tiba dari pasangan input datetime-local WIB form edit.
- * 0 = belum sah (biar checkbox deviasi tidak muncul saat tanggal kosong). */
-function deviasiJamWib(procured: string, arrived: string): number {
-  const a = parseWibInput(arrived);
-  const p = parseWibInput(procured);
-  if (!a.date || !p.date) return 0;
-  return (a.date.getTime() - p.date.getTime()) / 3_600_000;
-}
 
 /** Tabel riwayat boleh 2 desimal (sensor suhu 0,25 langkah). */
 const tabelNumFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 });
@@ -250,32 +183,6 @@ export default function BatchDetailPage() {
   // Form edit semua bagian (ikon pensil): satu tombol, pengadaan + kondisi &
   // dokumentasi + pengelompokan dalam satu form.
   const [editOpen, setEditOpen] = useState(false);
-  const [editErrors, setEditErrors] = useState<{
-    stepA: WizardErrors;
-    stepB: WizardErrors;
-    groups: Record<string, WizardErrors>;
-  } | null>(null);
-  const [editDraft, setEditDraft] = useState<{
-    stepA: { departedAt: string; coolerDeparture: string; marketSource: string; sourceType: string };
-    stepB: {
-      procuredAt: string;
-      arrivedAt: string;
-      deviationAck: boolean;
-      initialCondition: string;
-      shrimpCount: string;
-      totalWeightG: string;
-      shrimpLengthCm: string;
-      initialTempC: string;
-      coolerMarket: string;
-      coolerLab: string;
-    };
-    groups: Record<string, {
-      labTempC: string;
-      labWeightBeforeG: string;
-      labWeightAfterG: string;
-      coldStorageMode: string;
-    }>;
-  } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   // Durasi pengujian per group (dalam menit, default 15 menit)
   const [durationMins, setDurationMins] = useState<Record<string, number>>({});
@@ -388,7 +295,7 @@ export default function BatchDetailPage() {
         delete next[group.groupId];
         return next;
       });
-      notify('Chamber untuk pencatatan dingin berhasil disimpan.');
+      notify('Chamber pengujian berhasil disimpan.');
     } catch (err) {
       setColdChamberErrors((prev) => ({ ...prev, [group.groupId]: err instanceof Error ? err.message : 'Gagal menyimpan chamber.' }));
     } finally {
@@ -616,15 +523,15 @@ export default function BatchDetailPage() {
     } = sessionModal;
     const fail = (msg: string) =>
       setSessionModal((m) => (m ? { ...m, err: msg, busy: false } : null));
-    const tempOk = shrimpTempC.trim() === '' || Number.isFinite(Number(shrimpTempC));
-    const weightOk = shrimpWeightG.trim() === '' || Number.isFinite(Number(shrimpWeightG));
+    const tempOk = shrimpTempC.trim() === '' ? mode === 'edit' : Number.isFinite(Number(shrimpTempC)) && Number(shrimpTempC) >= -2 && Number(shrimpTempC) <= 30;
+    const weightOk = shrimpWeightG.trim() === '' ? mode === 'edit' : Number.isFinite(Number(shrimpWeightG)) && Number(shrimpWeightG) > 0 && Number(shrimpWeightG) <= 2000;
     const durationOk = Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 120;
     if (!durationOk) {
       fail('Durasi pengujian harus antara 1 sampai 120 menit.');
       return;
     }
     if (!tempOk || !weightOk) {
-      fail('Suhu dan berat harus angka yang sah (atau dikosongkan).');
+      fail('Isi suhu -2 sampai 30 °C dan berat lebih dari 0 sampai 2000 g untuk tahap ini.');
       return;
     }
 
@@ -681,20 +588,10 @@ export default function BatchDetailPage() {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error?.message || `Gagal menyimpan data tahap (kode ${res.status}).`);
       } else {
-        // Grup "langsung di kulkas" (butir 1) tidak pernah ditautkan ke chamber.
-        const targetGroup = batch?.sampleGroups.find((grp) => grp.groupId === groupId);
-        const chosenChamberId =
-          targetGroup?.coldStorageMode === 'plain_fridge'
-            ? null
-            : (sessionModal.chamberId || chSel[groupId] || targetGroup?.chamberId || null);
+        const chosenChamberId = sessionModal.chamberId || chSel[groupId] || batch?.sampleGroups.find((g) => g.groupId === groupId)?.chamberId || '';
+        if (!chosenChamberId) { fail('Pilih chamber sebelum membuat sesi.'); return; }
 
-        if (captureMode === 'time_range' && targetGroup?.coldStorageMode !== 'plain_fridge' && !chosenChamberId) {
-          fail('Pilih Chamber terlebih dahulu agar data sensor pada rentang waktu tersebut dapat ditarik.');
-          return;
-        }
-
-        const durationSeconds = Math.round(durationMinutes * 60);
-
+        const durationSeconds = durationMinutes * 60;
         const payload: Record<string, unknown> = {
           timepointCode,
           warmupDone: true,
@@ -939,188 +836,19 @@ export default function BatchDetailPage() {
     }
   };
 
-  /** Buka form edit semua bagian (pengadaan, kondisi & dokumentasi, pengelompokan). */
-  const startEdit = () => {
-    if (!batch) return;
-    const wib = (iso: string | null) => (iso ? wibDateTimeLocal(new Date(iso)) : '');
-    setEditErrors(null);
-    setEditDraft({
-      stepA: {
-        departedAt: wib(batch.departedAtUtc),
-        coolerDeparture: batch.coolerTempDepartureC === null ? '' : String(batch.coolerTempDepartureC),
-        marketSource: batch.marketSource,
-        sourceType: batch.sourceType,
-      },
-      stepB: {
-        procuredAt: wib(batch.procuredAtUtc),
-        arrivedAt: wib(batch.arrivedAtUtc),
-        deviationAck: false,
-        initialCondition: batch.initialCondition,
-        shrimpCount: String(batch.shrimpCount),
-        totalWeightG: batch.totalWeightG === null ? '' : String(batch.totalWeightG),
-        shrimpLengthCm: batch.shrimpLengthCm === null ? '' : String(batch.shrimpLengthCm),
-        initialTempC: batch.initialTempC === null ? '' : String(batch.initialTempC),
-        coolerMarket: batch.coolerTempMarketC === null ? '' : String(batch.coolerTempMarketC),
-        coolerLab: batch.coolerTempLabC === null ? '' : String(batch.coolerTempLabC),
-      },
-      groups: Object.fromEntries(
-        batch.sampleGroups.map((g) => [
-          g.groupId,
-          {
-            labTempC: g.labTempC === null ? '' : String(g.labTempC),
-            labWeightBeforeG: g.labWeightBeforeG === null ? '' : String(g.labWeightBeforeG),
-            labWeightAfterG: g.labWeightAfterG === null ? '' : String(g.labWeightAfterG),
-            coldStorageMode: g.coldStorageMode === 'plain_fridge' ? 'plain_fridge' : 'chamber',
-          },
-        ])
-      ),
-    });
-    setEditOpen(true);
-  };
-
-  const closeEdit = () => {
-    setEditOpen(false);
-    setEditDraft(null);
-    setEditErrors(null);
-  };
-
-  /** Update satu kolom langkah Pengadaan di form edit utuh + bersihkan galatnya. */
-  const updateStepA = (key: keyof EditDraftStepA, value: string) => {
-    setEditDraft((d) => (d ? { ...d, stepA: { ...d.stepA, [key]: value } } : d));
-    setEditErrors((prev) => {
-      if (!prev?.stepA[key]) return prev;
-      const next = { ...prev, stepA: { ...prev.stepA } };
-      delete next.stepA[key];
-      return next;
-    });
-  };
-
-  /** Update satu kolom langkah Kondisi & dokumentasi (kecuali checkbox deviasi). */
-  const updateStepB = (key: EditStepBField, value: string) => {
-    setEditDraft((d) => (d ? { ...d, stepB: { ...d.stepB, [key]: value } } : d));
-    setEditErrors((prev) => {
-      if (!prev?.stepB[key]) return prev;
-      const next = { ...prev, stepB: { ...prev.stepB } };
-      delete next.stepB[key];
-      return next;
-    });
-  };
-
-  /** Update kolom satu grup (pengelompokan) di form edit utuh. */
-  const updateGroup = (groupId: string, key: string, value: string) => {
-    setEditDraft((d) =>
-      d ? { ...d, groups: { ...d.groups, [groupId]: { ...d.groups[groupId], [key]: value } } } : d
-    );
-    setEditErrors((prev) => {
-      if (!prev?.groups[groupId]?.[key]) return prev;
-      return {
-        ...prev,
-        groups: {
-          ...prev.groups,
-          [groupId]: (() => {
-            const next = { ...prev.groups[groupId] };
-            delete next[key];
-            return next;
-          })(),
-        },
-      };
-    });
-  };
-
-  /** Sunting form edit utuh: PATCH batch lalu PATCH tiap grup yang diubah. */  const saveEdit = async () => {
-    if (!editDraft || !batch) return;
-    const errs = {
-      stepA: validateStepA(editDraft.stepA),
-      stepB: validateStepB({ ...editDraft.stepB, departedAt: editDraft.stepA.departedAt }),
-      groups: {} as Record<string, WizardErrors>,
-    };
-    for (const g of batch.sampleGroups) {
-      const draft = editDraft.groups[g.groupId];
-      if (!draft) continue;
-      errs.groups[g.groupId] = validateGroupFields({
-        labTempC: draft.labTempC,
-        visualCheck: g.visualCheck,
-        labWeightBeforeG: draft.labWeightBeforeG,
-        labWeightAfterG: draft.labWeightAfterG,
-        sampleShrimpCount: String(g.sampleShrimpCount),
-      });
-    }
-    if (
-      Object.keys(errs.stepA).length > 0 ||
-      Object.keys(errs.stepB).length > 0 ||
-      Object.values(errs.groups).some((e) => Object.keys(e).length > 0)
-    ) {
-      setEditErrors(errs);
-      notify('Periksa lagi kolom yang ditandai.');
-      return;
-    }
-    setEditErrors(null);
+  const startEdit = () => setEditOpen(true);
+  const closeEdit = () => setEditOpen(false);
+  const saveEdit = async (payload: Record<string, unknown>) => {
     setSavingEdit(true);
     try {
-      // Deviasi cold-chain dicatat otomatis bila durasi beli→tiba di form >3 jam.
-      const durasiJam =
-        (Date.parse(wibInputToUtcIso(editDraft.stepB.arrivedAt)) -
-          Date.parse(wibInputToUtcIso(editDraft.stepB.procuredAt))) / 3_600_000;
-      const batchRes = await apiFetch(`/api/v1/batches/${encodeURIComponent(batch.batchId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departedAtUtc: wibInputToUtcIso(editDraft.stepA.departedAt),
-          marketSource: editDraft.stepA.marketSource.trim(),
-          sourceType: editDraft.stepA.sourceType,
-          coolerTempDepartureC: Number(editDraft.stepA.coolerDeparture),
-          procuredAtUtc: wibInputToUtcIso(editDraft.stepB.procuredAt),
-          arrivedAtUtc: wibInputToUtcIso(editDraft.stepB.arrivedAt),
-          deviationAcknowledged: durasiJam > 3 ? true : undefined,
-          initialCondition: editDraft.stepB.initialCondition,
-          shrimpCount: Number(editDraft.stepB.shrimpCount),
-          totalWeightG: Number(editDraft.stepB.totalWeightG),
-          shrimpLengthCm: Number(editDraft.stepB.shrimpLengthCm),
-          initialTempC: Number(editDraft.stepB.initialTempC),
-          coolerTempMarketC: Number(editDraft.stepB.coolerMarket),
-          coolerTempLabC: Number(editDraft.stepB.coolerLab),
-        }),
+      const response = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
-      const batchBody = await batchRes.json().catch(() => ({}));
-      if (!batchRes.ok) {
-        throw new Error(batchBody.error?.message || `Gagal menyimpan data batch (kode ${batchRes.status}).`);
-      }
-      for (const g of batch.sampleGroups) {
-        const draft = editDraft.groups[g.groupId];
-        if (!draft) continue;
-        const res = await apiFetch(`/api/v1/groups/${encodeURIComponent(g.groupId)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            labTempC: Number(draft.labTempC),
-            labWeightBeforeG: Number(draft.labWeightBeforeG),
-            labWeightAfterG: Number(draft.labWeightAfterG),
-            ...(g.storageCondition === 'cold'
-              ? { coldStorageMode: draft.coldStorageMode, ...(draft.coldStorageMode === 'plain_fridge' ? { chamberId: null } : {}) }
-              : {}),
-          }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(body.error?.message || `Gagal menyimpan grup ${g.groupId} (kode ${res.status}).`);
-        }
-        if (g.storageCondition === 'cold' && draft.coldStorageMode === 'plain_fridge') {
-          setChSel((prev) => ({ ...prev, [g.groupId]: '' }));
-          setColdChamberDraft((prev) => {
-            const next = { ...prev };
-            delete next[g.groupId];
-            return next;
-          });
-        }
-      }
-      closeEdit();
-      notify('Data batch berhasil diperbarui.');
-      refresh();
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Gagal menyimpan data batch.');
-    } finally {
-      setSavingEdit(false);
-    }
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message ?? 'Gagal menyimpan perubahan');
+      closeEdit(); notify('Data batch berhasil diperbarui.'); refresh();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Gagal menyimpan perubahan'); }
+    finally { setSavingEdit(false); }
   };
 
   if (isLoading || !user) {
@@ -1233,366 +961,7 @@ export default function BatchDetailPage() {
           </div>
         </div>
 
-        {editOpen && editDraft && (
-          <form
-            noValidate
-            onSubmit={(e) => {
-              e.preventDefault();
-              void saveEdit();
-            }}
-            className="rounded-2xl border border-emerald-400/25 bg-black/20 p-4 space-y-5"
-          >
-            <p className="text-[11px] font-mono text-white/55">
-              Aturan sama dengan wizard: waktu WIB 05:00–08:00, suhu -2..30 °C, cool box -10..10 °C, berat &gt; 0 g.
-            </p>
-
-            <fieldset className="space-y-3">
-              <legend className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
-                Pengadaan
-              </legend>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1 col-span-1 sm:col-span-2">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Tanggal dan jam berangkat (WIB) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    type="datetime-local"
-                    autoComplete="off"
-                    value={editDraft.stepA.departedAt}
-                    aria-invalid={!!editErrors?.stepA['departedAt']}
-                    onChange={(e) => updateStepA('departedAt', e.target.value)}
-                    className={editCls(!!editErrors?.stepA['departedAt'])}
-                  />
-                  {editErrors?.stepA['departedAt'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepA['departedAt']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Jenis sumber <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <select
-                    value={editDraft.stepA.sourceType}
-                    aria-invalid={!!editErrors?.stepA['sourceType']}
-                    onChange={(e) => updateStepA('sourceType', e.target.value)}
-                    className={editCls(!!editErrors?.stepA['sourceType'])}
-                  >
-                    <option value="market" className="bg-slate-900">Pasar</option>
-                    <option value="supermarket" className="bg-slate-900">Supermarket</option>
-                    <option value="farm" className="bg-slate-900">Tambak</option>
-                  </select>
-                  {editErrors?.stepA['sourceType'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepA['sourceType']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Sumber <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={editDraft.stepA.marketSource}
-                    aria-invalid={!!editErrors?.stepA['marketSource']}
-                    onChange={(e) => updateStepA('marketSource', e.target.value)}
-                    placeholder="Pasar Induk Kramat Jati, Supermarket X…"
-                    className={editCls(!!editErrors?.stepA['marketSource'])}
-                  />
-                  {editErrors?.stepA['marketSource'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepA['marketSource']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Suhu cool box saat berangkat (°C) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepA.coolerDeparture}
-                    aria-invalid={!!editErrors?.stepA['coolerDeparture']}
-                    onChange={(e) => updateStepA('coolerDeparture', e.target.value)}
-                    className={editCls(!!editErrors?.stepA['coolerDeparture'])}
-                  />
-                  {editErrors?.stepA['coolerDeparture'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepA['coolerDeparture']}</span>
-                  )}
-                </label>
-              </div>
-            </fieldset>
-
-            <fieldset className="space-y-3">
-              <legend className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
-                Kondisi &amp; dokumentasi
-              </legend>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Tanggal dan jam beli (WIB) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    type="datetime-local"
-                    autoComplete="off"
-                    value={editDraft.stepB.procuredAt}
-                    aria-invalid={!!editErrors?.stepB['procuredAt']}
-                    onChange={(e) => updateStepB('procuredAt', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['procuredAt'])}
-                  />
-                  {editErrors?.stepB['procuredAt'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['procuredAt']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Tanggal dan jam tiba di lab (WIB) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    type="datetime-local"
-                    autoComplete="off"
-                    value={editDraft.stepB.arrivedAt}
-                    aria-invalid={!!editErrors?.stepB['arrivedAt']}
-                    onChange={(e) => updateStepB('arrivedAt', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['arrivedAt'])}
-                  />
-                  {editErrors?.stepB['arrivedAt'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['arrivedAt']}</span>
-                  )}
-                  {deviasiJamWib(editDraft.stepB.procuredAt, editDraft.stepB.arrivedAt) > 3 && (
-                    <label className="flex items-center gap-1.5 text-[10px] font-mono text-amber-200/90 mt-0.5">
-                      <input
-                        type="checkbox"
-                        checked={editDraft.stepB.deviationAck}
-                        onChange={(e) =>
-                          setEditDraft((d) =>
-                            d ? { ...d, stepB: { ...d.stepB, deviationAck: e.target.checked } } : d
-                          )
-                        }
-                        className="accent-amber-400"
-                      />
-                      Deviasi cold-chain (&gt; 3 jam) — catat sebagai deviasi
-                    </label>
-                  )}
-                </label>
-                <span className="hidden md:block" />
-                <RadioPair
-                  legend="Kondisi awal udang"
-                  name="edit-initialCondition"
-                  value={editDraft.stepB.initialCondition}
-                  options={[['alive', 'Hidup saat dibeli'], ['dead', 'Mati saat dibeli']]}
-                  onChange={(v) => updateStepB('initialCondition', v)}
-                />
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Jumlah total udang (ekor) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-shrimpCount"
-                    type="number"
-                    step="1"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    value={editDraft.stepB.shrimpCount}
-                    aria-invalid={!!editErrors?.stepB['shrimpCount']}
-                    onChange={(e) => updateStepB('shrimpCount', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['shrimpCount'])}
-                  />
-                  {editErrors?.stepB['shrimpCount'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['shrimpCount']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Berat total udang (gram) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-totalWeightG"
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepB.totalWeightG}
-                    aria-invalid={!!editErrors?.stepB['totalWeightG']}
-                    onChange={(e) => updateStepB('totalWeightG', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['totalWeightG'])}
-                  />
-                  {editErrors?.stepB['totalWeightG'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['totalWeightG']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Panjang udang (cm) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-shrimpLengthCm"
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepB.shrimpLengthCm}
-                    aria-invalid={!!editErrors?.stepB['shrimpLengthCm']}
-                    onChange={(e) => updateStepB('shrimpLengthCm', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['shrimpLengthCm'])}
-                  />
-                  {editErrors?.stepB['shrimpLengthCm'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['shrimpLengthCm']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Suhu awal udang (°C) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-initialTempC"
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepB.initialTempC}
-                    aria-invalid={!!editErrors?.stepB['initialTempC']}
-                    onChange={(e) => updateStepB('initialTempC', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['initialTempC'])}
-                  />
-                  {editErrors?.stepB['initialTempC'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['initialTempC']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Suhu cool box saat di pasar (°C) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-coolerMarket"
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepB.coolerMarket}
-                    aria-invalid={!!editErrors?.stepB['coolerMarket']}
-                    onChange={(e) => updateStepB('coolerMarket', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['coolerMarket'])}
-                  />
-                  {editErrors?.stepB['coolerMarket'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['coolerMarket']}</span>
-                  )}
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-mono font-semibold text-white/80">
-                    Suhu cool box saat di lab (°C) <span aria-hidden="true" className="text-rose-400">*</span>
-                  </span>
-                  <input
-                    name="edit-coolerLab"
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={editDraft.stepB.coolerLab}
-                    aria-invalid={!!editErrors?.stepB['coolerLab']}
-                    onChange={(e) => updateStepB('coolerLab', e.target.value)}
-                    className={editCls(!!editErrors?.stepB['coolerLab'])}
-                  />
-                  {editErrors?.stepB['coolerLab'] && (
-                    <span role="alert" className="text-[11px] font-mono text-rose-300">{editErrors.stepB['coolerLab']}</span>
-                  )}
-                </label>
-              </div>
-            </fieldset>
-
-            <fieldset className="space-y-4">
-              <legend className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
-                Pengelompokan
-              </legend>
-              {batch.sampleGroups.map((g) => {
-                const draft = editDraft.groups[g.groupId];
-                const gErr = editErrors?.groups[g.groupId] ?? {};
-                if (!draft) return null;
-                return (
-                  <div
-                    key={g.groupId}
-                    className={`rounded-xl p-3 space-y-2 bg-black/25 pl-3 border-l-2 ${
-                      g.storageCondition === 'cold' ? 'border-cyan-400/60' : 'border-amber-300/60'
-                    }`}
-                  >
-                    <p className="text-xs font-mono font-bold text-white">
-                      {g.groupId} •{' '}
-                      {g.storageCondition === 'cold'
-                        ? `Suhu Dingin, ${draft.coldStorageMode === 'plain_fridge' ? 'langsung di kulkas' : 'chamber'} (4 ± 1 °C)`
-                        : 'Suhu Ruang (25 ± 2 °C)'}
-                    </p>
-                    {g.storageCondition === 'cold' && (
-                      <RadioPair
-                        legend="Tempat penyimpanan"
-                        name={`edit-cold-mode-${g.groupId}`}
-                        value={draft.coldStorageMode}
-                        options={[['chamber', 'Dalam chamber'], ['plain_fridge', 'Langsung di kulkas, tanpa chamber']]}
-                        onChange={(v) => updateGroup(g.groupId, 'coldStorageMode', v)}
-                      />
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {(
-                        [
-                          ['labTempC', 'Suhu udang (°C)', '6.5…'],
-                          ['labWeightBeforeG', 'Berat sampel sebelum observasi (g)', '482.0…'],
-                          ['labWeightAfterG', 'Berat total udang (g)', '478.5…'],
-                        ] as const
-                      ).map(([key, label, placeholder]) => (
-                        <label key={key} className="flex flex-col gap-1">
-                          <span className="text-[11px] font-mono font-semibold text-white/80">
-                            {label} <span aria-hidden="true" className="text-rose-400">*</span>
-                          </span>
-                          <input
-                            name={`edit-${g.groupId}-${key}`}
-                            type="number"
-                            step="0.1"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            value={draft[key]}
-                            aria-invalid={!!gErr[key]}
-                            onChange={(e) => updateGroup(g.groupId, key, e.target.value)}
-                            placeholder={placeholder}
-                            className={editCls(!!gErr[key])}
-                          />
-                          {gErr[key] && (
-                            <span role="alert" className="text-[11px] font-mono text-rose-300">{gErr[key]}</span>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                    {groupWeightWarning({
-                      labTempC: draft.labTempC,
-                      visualCheck: g.visualCheck,
-                      labWeightBeforeG: draft.labWeightBeforeG,
-                      labWeightAfterG: draft.labWeightAfterG,
-                      sampleShrimpCount: String(g.sampleShrimpCount),
-                    }) && (
-                      <p className="text-[11px] font-mono text-amber-200/90">
-                        {groupWeightWarning({
-                          labTempC: draft.labTempC,
-                          visualCheck: g.visualCheck,
-                          labWeightBeforeG: draft.labWeightBeforeG,
-                          labWeightAfterG: draft.labWeightAfterG,
-                          sampleShrimpCount: String(g.sampleShrimpCount),
-                        })}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </fieldset>
-
-            <div className="flex gap-2">
-              <button type="submit" disabled={savingEdit} className={btnPrimary}>
-                Simpan perubahan
-              </button>
-              <button type="button" onClick={closeEdit} disabled={savingEdit} className={btnGhost}>
-                Batal
-              </button>
-            </div>
-          </form>
-        )}
+        {editOpen && <BatchEditForm batch={batch} saving={savingEdit} onSave={saveEdit} onCancel={closeEdit} />}
 
         {!editOpen && (
           <>
@@ -1600,33 +969,30 @@ export default function BatchDetailPage() {
               <p className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
                 Pengadaan
               </p>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                 <DataPair
                   label="Tanggal dan jam berangkat (WIB)"
                   value={batch.departedAtUtc ? dtFmt.format(new Date(batch.departedAtUtc)) : '—'}
                 />
-                <DataPair label="Sumber" value={batch.marketSource} />
+                <DataPair label="Suhu cool box saat berangkat (°C)" value={num(batch.coolerTempDepartureC)} />
                 <DataPair label="Jenis sumber" value={SOURCE_LABEL[batch.sourceType] ?? batch.sourceType} />
-                <DataPair label="Suhu cool box saat berangkat (°C)" value={num(batch.coolerTempDepartureC, ' °C')} />
+                <DataPair label="Lokasi pembelian" value={batch.marketSource} />
               </dl>
             </div>
 
             <div>
               <p className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
-                Kondisi &amp; dokumentasi
+                Kondisi &amp; Dokumentasi
               </p>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                 <DataPair label="Tanggal dan jam beli (WIB)" value={dtFmt.format(new Date(batch.procuredAtUtc))} />
-                <DataPair label="Tanggal dan jam tiba di lab (WIB)" value={dtFmt.format(new Date(batch.arrivedAtUtc))} />
-                <DataPair label="Durasi beli ke tiba" value={durationText(batch.procuredAtUtc, batch.arrivedAtUtc)} />
+                <DataPair label="Suhu cool box saat di pasar (°C)" value={num(batch.coolerTempMarketC)} />
                 <DataPair label="Kondisi awal udang" value={CONDITION_LABEL[batch.initialCondition] ?? batch.initialCondition} />
-                <DataPair label="Jumlah total udang (ekor)" value={num(batch.shrimpCount)} />
-                <DataPair label="Berat total udang (g)" value={num(batch.totalWeightG, ' g')} />
-                <DataPair label="Panjang udang (cm)" value={num(batch.shrimpLengthCm, ' cm')} />
-                <DataPair label="Ukuran (ekor/kg)" value={num(batch.sizeGrade)} />
-                <DataPair label="Suhu awal udang (°C)" value={num(batch.initialTempC, ' °C')} />
-                <DataPair label="Suhu cool box saat di pasar (°C)" value={num(batch.coolerTempMarketC, ' °C')} />
-                <DataPair label="Suhu cool box saat di lab (°C)" value={num(batch.coolerTempLabC, ' °C')} />
+                <DataPair label="Jenis udang" value={batch.shrimpType ? batch.shrimpType === 'vaname' ? 'Vaname' : 'Windu' : 'Belum tercatat'} />
+                <DataPair label="Jumlah udang keseluruhan (ekor)" value={num(batch.shrimpCount)} />
+                <DataPair label="Berat total udang (gram)" value={num(batch.totalWeightG)} />
+                <DataPair label="Suhu awal udang (°C)" value={num(batch.initialTempC)} />
+                <DataPair label="Panjang udang (cm)" value={num(batch.shrimpLengthCm)} />
               </dl>
               <p className="text-[11px] font-mono text-white/40 mt-1.5">
                 Foto kondisi awal tampil di kartu Foto Dokumentasi di bawah.
@@ -1637,64 +1003,19 @@ export default function BatchDetailPage() {
               <p className="text-[11px] font-mono font-bold tracking-widest uppercase text-cyan-300/80">
                 Pengelompokan
               </p>
-              <div className="space-y-4">
-                {batch.sampleGroups.map((g) => (
-                  <div
-                    key={g.groupId}
-                    className={`pl-3 border-l-2 ${
-                      g.storageCondition === 'cold' ? 'border-cyan-400/60' : 'border-amber-300/60'
-                    }`}
-                  >
-                    <p className="text-xs font-mono font-bold text-white">
-                      {g.groupId} •{' '}
-                      {g.storageCondition === 'cold'
-                        ? `Suhu Dingin, ${g.coldStorageMode === 'plain_fridge' ? 'langsung di kulkas' : 'chamber'} (4 ± 1 °C)`
-                        : 'Suhu Ruang (25 ± 2 °C)'}
-                    </p>
-                    <p className="text-[11px] font-mono text-white/50">
-                      {g.storageCondition === 'cold'
-                        ? g.coldStorageMode === 'plain_fridge'
-                          ? 'Penyimpanan: langsung di kulkas (tanpa chamber).'
-                          : `Penyimpanan: dalam chamber${g.chamberId ? ` — ${chamberName(g.chamberId)}` : ' (belum ditugaskan)'}.`
-                        : 'Penyimpanan: ruang (25 ± 1 °C).'}
-                    </p>
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 mt-1.5">
-                      <DataPair label="Suhu udang (°C)" value={num(g.labTempC, ' °C')} />
-                      <DataPair label="Temuan visual udang" value={VISUAL_LABEL[g.visualCheck] ?? g.visualCheck} />
-                      <DataPair label="Jumlah udang per sesi (ekor)" value={num(g.sampleShrimpCount)} />
-                      <DataPair label="Berat sampel sebelum observasi (g)" value={num(g.labWeightBeforeG, ' g')} />
-                      <DataPair label="Berat total udang (g)" value={num(g.labWeightAfterG, ' g')} />
-                    </dl>
-                    {/* Butir 2: foto grup tampil di section grupnya. */}
-                    {batch.photos.some((p) => p.groupId === g.groupId) && (
-                      <div className="mt-2">
-                        <p className="text-[11px] font-mono text-white/45">Foto grup</p>
-                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mt-1">
-                          {batch.photos
-                            .filter((p) => p.groupId === g.groupId)
-                            .map((p) => (
-                              <figure key={p.url} className="space-y-1">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={`/${p.url}`}
-                                  alt={p.caption || `Foto grup ${g.groupId}`}
-                                  className="w-full h-20 object-cover rounded-lg border border-white/10"
-                                />
-                                <figcaption className="text-[10px] font-mono text-white/50 truncate">
-                                  {p.caption}
-                                </figcaption>
-                              </figure>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                <DataPair label="Tanggal dan jam tiba di lab (WIB)" value={dtFmt.format(new Date(batch.arrivedAtUtc))} />
+                <DataPair label="Suhu cool box saat di lab (°C)" value={num(batch.coolerTempLabC)} />
+                <DataPair label="Jumlah udang per sesi (ekor)" value={new Set(batch.sampleGroups.map((g) => g.sampleShrimpCount)).size === 1 ? num(batch.sampleGroups[0]?.sampleShrimpCount) : batch.sampleGroups.map((g) => `${g.storageCondition === 'cold' ? 'SD' : 'SR'}: ${g.sampleShrimpCount}`).join('; ') || '—'} />
+                <DataPair label="Temuan visual udang" value={new Set(batch.sampleGroups.map((g) => g.visualCheck)).size === 1 ? VISUAL_LABEL[batch.sampleGroups[0]?.visualCheck] : batch.sampleGroups.map((g) => `${g.storageCondition === 'cold' ? 'SD' : 'SR'}: ${VISUAL_LABEL[g.visualCheck]}`).join('; ') || '—'} />
+                <DataPair label="Durasi beli ke tiba" value={durationText(batch.procuredAtUtc, batch.arrivedAtUtc)} />
+              </dl>
             </div>
           </>
         )}
       </div>
+
+      <BatchQualityPanel key={refreshKey} batchId={batchId} apiFetch={apiFetch} />
 
       <div className={cardCls}>
         <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photos.length})</h3>
@@ -1824,13 +1145,13 @@ export default function BatchDetailPage() {
           <div key={g.groupId} className={cardCls}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-mono font-bold text-white tracking-widest">
-                {g.groupId} • {g.storageCondition === 'cold' ? 'Dingin (4±1°C)' : 'Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor
+                {g.groupId} • {g.storageCondition === 'cold' ? 'Suhu Dingin (4±1°C)' : 'Suhu Ruang (25±2°C)'} • {g.sampleShrimpCount} ekor
               </h3>
               <p className="text-[11px] font-mono text-white/45">
                 Jadwal timepoint: {seq.join(' · ')}
               </p>
             </div>
-            {g.storageCondition === 'cold' && (
+            {(
               <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-400/20 space-y-2">
                 <p className="text-[11px] font-mono text-cyan-100">
                   Chamber tersimpan: {g.chamberId ? chamberName(g.chamberId) : 'Belum dipilih'}
@@ -1872,7 +1193,7 @@ export default function BatchDetailPage() {
                 )}
                 <p className="text-[10px] font-mono text-white/50">
                   {g.coldStorageMode === 'plain_fridge'
-                    ? 'Pilih dan simpan chamber untuk beralih dari penyimpanan langsung di kulkas ke mode chamber.'
+                    ? 'Pilih dan simpan chamber untuk pengujian baru.'
                     : 'Chamber tersimpan otomatis menjadi pilihan awal untuk sesi pengujian baru.'}
                 </p>
                 {coldChamberErrors[g.groupId] && (
@@ -1880,6 +1201,7 @@ export default function BatchDetailPage() {
                 )}
               </div>
             )}
+            {(g.labTempC !== null || g.labWeightBeforeG !== null || g.labWeightAfterG !== null) && <details className="text-xs text-white/60"><summary className="cursor-pointer min-h-11">Pengukuran awal historis</summary><dl className="grid sm:grid-cols-3 gap-3"><DataPair label="Suhu awal grup (°C)" value={num(g.labTempC)} /><DataPair label="Berat sebelum (g)" value={num(g.labWeightBeforeG)} /><DataPair label="Berat sesudah (g)" value={num(g.labWeightAfterG)} /></dl></details>}
             {g.sessions.length > 0 && (
               <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/15">
                 <table className="w-full min-w-[620px] text-left border-collapse">
@@ -2105,13 +1427,7 @@ export default function BatchDetailPage() {
                     </>
                   );
                 })()}
-                {g.coldStorageMode === 'plain_fridge' ? (
-                  // Butir 1: grup "langsung di kulkas" tidak memakai chamber,
-                  // jadi pemilih chamber disembunyikan.
-                  <p className="text-[11px] font-mono text-amber-200/80">
-                    Grup ini disimpan langsung di kulkas — tanpa chamber, jadi sensor chamber tidak ditautkan.
-                  </p>
-                ) : (
+                {(
                   <>
                     <select
                       value={chSel[g.groupId] ?? g.chamberId ?? ''}
@@ -2187,11 +1503,7 @@ export default function BatchDetailPage() {
                   </button>
                 </div>
                 <p className="w-full text-[11px] font-mono text-white/45">
-                  {g.coldStorageMode === 'plain_fridge'
-                    ? 'Tanpa chamber: sesi ini sengaja tidak punya data sensor chamber.'
-                    : (chSel[g.groupId] ?? g.chamberId)
-                      ? 'Chamber terisi: sensor chamber otomatis tertaut ke sesi.'
-                      : 'Chamber kosong: sesi ini tidak akan punya data sensor.'}
+                  {(chSel[g.groupId] ?? g.chamberId) ? 'Sensor chamber ditautkan ke sesi sesuai rentang pengujian.' : 'Pilih chamber sebelum membuat sesi pengujian.'}
                 </p>
               </div>
             )}
@@ -2299,14 +1611,7 @@ export default function BatchDetailPage() {
 
                   {/* Pemilihan Chamber di dalam modal */}
                   {(() => {
-                    const grp = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
-                    if (grp?.coldStorageMode === 'plain_fridge') {
-                      return (
-                        <p className="text-[11px] font-mono text-amber-200/80 p-2.5 rounded-lg bg-black/40 border border-white/10">
-                          Grup ini disimpan langsung di kulkas — tanpa chamber, jadi sensor chamber tidak ditautkan.
-                        </p>
-                      );
-                    }
+
                     return (
                       <div>
                         <label htmlFor="modal-chamber-select" className="block text-[12px] font-mono text-cyan-200 font-semibold mb-1">
@@ -2353,10 +1658,7 @@ export default function BatchDetailPage() {
                       timeZone: WIB_TIME_ZONE,
                     }).format(end);
 
-                    const grp = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
-                    const chamberCode = grp?.coldStorageMode === 'plain_fridge'
-                      ? 'Tanpa Chamber (Kulkas)'
-                      : (sessionModal.chamberId ? chamberName(sessionModal.chamberId) : '⚠️ Chamber Belum Dipilih');
+                    const chamberCode = (sessionModal.chamberId ? chamberName(sessionModal.chamberId) : '⚠️ Chamber Belum Dipilih');
 
                     const startUtcIso = parsed.date.toISOString().replace('T', ' ').slice(0, 19);
                     const endUtcIso = end.toISOString().replace('T', ' ').slice(0, 19);

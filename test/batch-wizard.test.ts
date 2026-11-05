@@ -9,6 +9,7 @@ import {
   groupWeightWarning,
   validateStepA,
   validateStepB,
+  validateStepC,
   wibInputToUtcIso,
 } from '../lib/batch-wizard.ts';
 import { wibDateTimeLocal } from '../shared/dataset.ts';
@@ -26,6 +27,7 @@ const stepBOk = {
   departedAt: '2026-10-21T05:30',
   procuredAt: '2026-10-21T07:00',
   arrivedAt: '2026-10-21T07:50',
+  shrimpType: 'vaname',
   shrimpCount: '12',
   shrimpLengthCm: '12.5',
   totalWeightG: '480',
@@ -106,7 +108,7 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
 
     it('jam tiba juga wajib di jendela 05:00–08:00 WIB', () => {
       assert.match(
-        validateStepB({ ...stepBOk, arrivedAt: '2026-10-21T08:30' }).arrivedAt ?? '',
+        validateStepC({ ...stepBOk, ...groupOk, arrivedAt: '2026-10-21T08:30' }).arrivedAt ?? '',
         /05:00–08:00 WIB/
       );
     });
@@ -116,16 +118,22 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.match(errs.procuredAt ?? '', /harus setelah tanggal dan jam berangkat/);
     });
 
+    it('jenis udang wajib dipilih (vaname atau windu)', () => {
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpType: '' }).shrimpType, 'Wajib memilih Vaname atau Windu.');
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpType: 'lobster' }).shrimpType, 'Wajib memilih Vaname atau Windu.');
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpType: 'windu' }).shrimpType, undefined);
+    });
+
     it('jam tiba harus setelah jam beli', () => {
-      const errs = validateStepB({ ...stepBOk, arrivedAt: '2026-10-21T06:30' });
+      const errs = validateStepC({ ...stepBOk, ...groupOk, arrivedAt: '2026-10-21T06:30' });
       assert.match(errs.arrivedAt ?? '', /harus setelah tanggal dan jam beli/);
     });
 
     it('durasi lebih dari 3 jam butuh catatan deviasi', () => {
       // Lintas hari: satu-satunya cara melewati 3 jam tanpa keluar jendela.
       const slow = { ...stepBOk, arrivedAt: '2026-10-22T07:30' };
-      assert.match(validateStepB(slow).arrivedAt ?? '', /Melebihi 3 jam/);
-      assert.strictEqual(validateStepB({ ...slow, deviationAck: true }).arrivedAt, undefined);
+      assert.match(validateStepC({ ...slow, ...groupOk }).arrivedAt ?? '', /Melebihi 3 jam/);
+      assert.strictEqual(validateStepC({ ...slow, ...groupOk, deviationAck: true }).arrivedAt, undefined);
     });
 
     it('jumlah udang minimal 10 ekor dan harus bilangan bulat', () => {
@@ -161,10 +169,10 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: '-10.1' }).initialTempC, msg);
       assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: '-10' }).initialTempC, undefined);
       assert.strictEqual(validateStepB({ ...stepBOk, coolerMarket: '10.5' }).coolerMarket, msg);
-      assert.strictEqual(validateStepB({ ...stepBOk, coolerLab: '-10.5' }).coolerLab, msg);
+      assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '-10.5' }).coolerLab, msg);
       assert.strictEqual(validateStepB({ ...stepBOk, coolerMarket: '0' }).coolerMarket, undefined);
-      assert.strictEqual(validateStepB({ ...stepBOk, coolerLab: '4' }).coolerLab, undefined);
-      assert.strictEqual(validateStepB({ ...stepBOk, coolerLab: '' }).coolerLab, 'Wajib diisi.');
+      assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '4' }).coolerLab, undefined);
+      assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '' }).coolerLab, 'Wajib diisi.');
     });
   });
 
@@ -175,7 +183,7 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
 
     it('galat memakai prefiks grup agar tidak saling tertimpa', () => {
       const errs = validateGroupForm('sd', { ...groupOk, labTempC: '', visualCheck: '' });
-      assert.strictEqual(errs['sd-labTempC'], 'Wajib diisi.');
+      assert.strictEqual(errs['sd-labTempC'], undefined);
       assert.strictEqual(errs['sd-visualCheck'], 'Wajib dipilih.');
       assert.strictEqual(errs['sr-labTempC'], undefined);
     });
@@ -187,8 +195,8 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
         labWeightAfterG: '-2',
         sampleShrimpCount: '2',
       });
-      assert.strictEqual(errs['sr-labWeightBeforeG'], 'Harus lebih dari 0.');
-      assert.strictEqual(errs['sr-labWeightAfterG'], 'Harus lebih dari 0.');
+      assert.strictEqual(errs['sr-labWeightBeforeG'], undefined);
+      assert.strictEqual(errs['sr-labWeightAfterG'], undefined);
       assert.strictEqual(errs['sr-sampleShrimpCount'], 'Harus 3–5 ekor.');
     });
   });
@@ -199,10 +207,11 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(stepOfField('marketSource'), 0);
       assert.strictEqual(stepOfField('sourceType'), 0);
       assert.strictEqual(stepOfField('procuredAt'), 1);
-      assert.strictEqual(stepOfField('arrivedAt'), 1);
+      assert.strictEqual(stepOfField('shrimpType'), 1);
+      assert.strictEqual(stepOfField('arrivedAt'), 2);
       assert.strictEqual(stepOfField('initialCondition'), 1);
       assert.strictEqual(stepOfField('shrimpCount'), 1);
-      assert.strictEqual(stepOfField('coolerLab'), 1);
+      assert.strictEqual(stepOfField('coolerLab'), 2);
       assert.strictEqual(stepOfField('photos'), 1);
       assert.strictEqual(stepOfField('sr-labTempC'), 2);
       assert.strictEqual(stepOfField('sd-sampleShrimpCount'), 2);
@@ -247,28 +256,10 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.deepStrictEqual(validateGroupFields(groupOk), {});
     });
 
-    it('rentang sama dengan wizard: suhu -2..30, berat > 0, sampel 3–5', () => {
-      assert.strictEqual(validateGroupFields({ ...groupOk, labTempC: '31' }).labTempC, 'Harus -2 sampai 30 °C.');
-      assert.strictEqual(validateGroupFields({ ...groupOk, labTempC: '' }).labTempC, 'Wajib diisi.');
-      assert.strictEqual(
-        validateGroupFields({ ...groupOk, labWeightBeforeG: '0' }).labWeightBeforeG,
-        'Harus lebih dari 0.'
-      );
-      assert.strictEqual(
-        validateGroupFields({ ...groupOk, labWeightAfterG: '-3' }).labWeightAfterG,
-        'Harus lebih dari 0.'
-      );
-      assert.strictEqual(
-        validateGroupFields({ ...groupOk, sampleShrimpCount: '2' }).sampleShrimpCount,
-        'Harus 3–5 ekor.'
-      );
-      assert.strictEqual(validateGroupFields({ ...groupOk, visualCheck: '' }).visualCheck, 'Wajib dipilih.');
-    });
-
-    it('versi berprefiks memakai aturan yang sama (wizard SR/SD)', () => {
-      const prefixed = validateGroupForm('sd', { ...groupOk, labTempC: '99' });
-      assert.strictEqual(prefixed['sd-labTempC'], 'Harus -2 sampai 30 °C.');
-      assert.strictEqual(prefixed['sr-labTempC'], undefined);
+    it('pengelompokan hanya memvalidasi visual dan jumlah sampel, bukan pengukuran tahap', () => {
+      assert.deepStrictEqual(validateGroupFields({ visualCheck: 'normal', sampleShrimpCount: '4' }), {});
+      assert.strictEqual(validateGroupFields({ ...groupOk, sampleShrimpCount: '2' }).sampleShrimpCount, 'Harus 3–5 ekor.');
+      assert.strictEqual(validateGroupFields({ ...groupOk, visualCheck: 'unknown' }).visualCheck, 'Wajib dipilih.');
     });
 
     it('peringatan berat sesudah lebih kecil dari sebelum — bukan error', () => {

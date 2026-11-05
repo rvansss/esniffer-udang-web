@@ -39,7 +39,7 @@ function batchBody(overrides: Record<string, unknown> = {}) {
     departedAtUtc: DEPARTED,
     procuredAtUtc: PROCURED,
     marketSource: 'Pasar Bebas Ketik Manual',
-    sourceType: 'market',
+    sourceType: 'market', shrimpType: 'vaname',
     shrimpCount: 12,
     shrimpLengthCm: 12.5,
     totalWeightG: 485.5,
@@ -141,6 +141,7 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
         headers: jsonHeaders(adminCookie),
         body: JSON.stringify({
           timepointCode: 'H0',
+          chamberId,
           warmupDone: true,
           shrimpTempC: 4.5,
           shrimpWeightG: 500.1,
@@ -220,8 +221,8 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     assert.strictEqual(body.data.timepointCode, 'H6');
     assert.strictEqual(body.data.durationSeconds, 60);
     assert.strictEqual(body.data.status, 'complete');
-    assert.strictEqual(body.data.cleaningDone, true);
-    assert.strictEqual(body.data.warmupDone, true);
+    assert.strictEqual(body.data.cleaningDone, false);
+    assert.strictEqual(body.data.warmupDone, false);
     assert.strictEqual(body.data.shrimpTempC, 5.5);
     assert.strictEqual(body.data.shrimpWeightG, 480.0);
     assert.ok(body.meta);
@@ -384,6 +385,12 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
   });
 
   it('10. Batch terkunci: PATCH batch dan PATCH sesi ditolak 409', async () => {
+    await prisma.sensorReading.create({ data: {
+      chamberId, deviceId, assignmentId, messageId: `complete-${tag}`, payloadSha256: 'b'.repeat(64), bootId: randomUUID(), sequence: 9n,
+      historySequence: await allocateHistorySequence(), measuredAt: new Date(), measurementTimeQuality: 'SYNCED',
+      temperatureC: 25, temperatureQuality: 'OK', humidityPercent: 65, humidityQuality: 'OK',
+      mq137Raw: 100, mq137Quality: 'OK', mq136Raw: 200, mq136Quality: 'OK', mq4Raw: 300, mq4Quality: 'OK', rawPayload: {},
+    } });
     // Lock butuh semua sesi selesai: complete H0 dengan cleaning dulu.
     const complete = await completeSession(
       new Request(`http://localhost:3000/api/v1/sessions/${sessionH0}/complete`, {

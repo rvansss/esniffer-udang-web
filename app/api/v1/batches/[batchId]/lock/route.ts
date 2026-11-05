@@ -1,3 +1,4 @@
+import { lockEditableBatch } from '../../../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib/api/response.ts';
@@ -19,7 +20,9 @@ export async function POST(
     await requireAuth(request, ['ADMIN']);
     const { batchId } = await context.params;
 
-    const batch = await prisma.collectionBatch.findUnique({
+    const locked = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, batchId);
+    const batch = await tx.collectionBatch.findUnique({
       where: { batchId },
       include: { sessions: { select: { status: true } } },
     });
@@ -32,7 +35,7 @@ export async function POST(
     if (batch.sessions.length === 0) {
       throw validationError(`Batch "${batchId}" belum memiliki sesi dan tidak bisa dikunci`);
     }
-    const photoCount = await prisma.batchPhoto.count({ where: { batchId } });
+    const photoCount = await tx.batchPhoto.count({ where: { batchId } });
     if (photoCount === 0) {
       throw validationError(`Batch "${batchId}" belum memiliki foto; upload minimal 1 foto dulu`);
     }
@@ -43,9 +46,11 @@ export async function POST(
       );
     }
 
-    const locked = await prisma.collectionBatch.update({
+    return tx.collectionBatch.update({
       where: { batchId },
       data: { lockedAt: new Date() },
+    });
+
     });
 
     return jsonResponse(serializeBatch(locked));

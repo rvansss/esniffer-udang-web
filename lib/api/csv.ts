@@ -197,6 +197,9 @@ export const DATASET_METADATA_CSV_HEADERS = [
   'baseline_mq137',
   'baseline_mq136',
   'baseline_mq4',
+  'shrimp_type',
+  'shrimp_temp_c',
+  'shrimp_weight_g',
 ];
 
 /**

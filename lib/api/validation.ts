@@ -45,13 +45,16 @@ export function parseIsoDate(
   fieldName: string,
   required = false
 ): Date | null {
-  if (!val || val.trim() === '') {
+  if (val === null || val === undefined || val === '') {
     if (required) {
       throw validationError(`Field "${fieldName}" is required and must be an ISO 8601 date string`);
     }
     return null;
   }
 
+  if (typeof val !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(val)) {
+    throw validationError(`Field "${fieldName}" must be an ISO 8601 timestamp with timezone`);
+  }
   const date = new Date(val);
   if (isNaN(date.getTime())) {
     throw validationError(`Field "${fieldName}" must be a valid ISO 8601 timestamp, received: "${val}"`);

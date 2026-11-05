@@ -1,3 +1,4 @@
+import { lockEditableBatch } from '../../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
@@ -56,9 +57,9 @@ export async function PATCH(
       throw validationError('Body harus memuat minimal satu field: shrimpTempC atau shrimpWeightG');
     }
 
-    const updated = await prisma.measurementSession.update({
-      where: { sessionId },
-      data,
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, session.batchId);
+      return tx.measurementSession.update({ where: { sessionId }, data });
     });
     return jsonResponse(serializeSession(updated));
   } catch (err) {
@@ -98,8 +99,10 @@ export async function DELETE(
       throw conflict(`Sesi "${sessionId}" sudah terkunci`);
     }
 
+    await prisma.$transaction(async (tx) => {
+      await lockEditableBatch(tx, session.batchId);
     // 1. Lepas relasi sensor reading agar tidak tertahan oleh onDelete: Restrict
-    await prisma.sensorReading.updateMany({
+    await tx.sensorReading.updateMany({
       where: { sessionId: session.id },
       data: {
         sessionId: null,
@@ -110,13 +113,15 @@ export async function DELETE(
     });
 
     // 2. Hapus foto yang diunggah khusus untuk sesi ini
-    await prisma.batchPhoto.deleteMany({
+    await tx.batchPhoto.deleteMany({
       where: { sessionId: session.sessionId },
     });
 
     // 3. Hapus sesi pengukuran
-    await prisma.measurementSession.delete({
+    await tx.measurementSession.delete({
       where: { sessionId },
+    });
+
     });
 
     return jsonResponse({

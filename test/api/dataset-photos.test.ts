@@ -6,8 +6,6 @@ import { prisma, closeDb } from '../../lib/db/client.ts';
 import { POST as uploadPhotos, PATCH as patchPhotos, DELETE as deletePhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { GET as getUpload, HEAD as headUpload } from '../../app/uploads/[...path]/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
-import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
-import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
 import { createSession as createAuthSession, buildSessionCookie } from '../../lib/auth/session.ts';
@@ -129,7 +127,7 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     );
     for (const photo of body.data.photos as Array<{ url: string }>) {
       const url = photo.url;
-      assert.match(url, new RegExp(`^uploads/${batchId}/${batchId}_\\d+_\\d+\\.(jpg|png)$`));
+      assert.match(url, new RegExp(`^uploads/${batchId}/${batchId}_[0-9a-f-]{36}_\\d+\\.(jpg|png)$`));
       const st = await stat(path.join(process.cwd(), 'public', url));
       assert.ok(st.isFile());
 
@@ -287,20 +285,13 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
       }
     );
     const groupId = `${batchNoPhoto}-SR`;
-    const sess = await (
-      await call(
-        createSession,
-        `http://localhost:3000/api/v1/groups/${groupId}/sessions`,
-        { groupId },
-        { timepointCode: 'H0', warmupDone: true }
-      )
-    ).json();
-    await call(
-      completeSession,
-      `http://localhost:3000/api/v1/sessions/${sess.data.sessionId}/complete`,
-      { sessionId: sess.data.sessionId },
-      { cleaningDone: true }
-    );
+    // A completed historical session is sufficient for the photo-lock contract;
+    // sensor eligibility is covered by the dedicated quality integration suite.
+    await prisma.measurementSession.create({ data: {
+      sessionId: `SES-20990303-02-H0-SR`, groupId, batchId: batchNoPhoto,
+      timepointCode: 'H0', elapsedHours: 0, startedAtUtc: new Date('2099-03-03T06:00:00Z'),
+      endedAtUtc: new Date('2099-03-03T06:15:00Z'), status: 'COMPLETE', warmupDone: true, cleaningDone: true,
+    } });
 
     const noPhoto = await call(
       lockBatch,

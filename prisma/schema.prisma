@@ -56,6 +56,11 @@ enum InitialCondition {
   ALIVE
 }
 
+enum ShrimpType {
+  VANAME
+  WINDU
+}
+
 enum StorageCondition {
   ROOM_TEMP
   COLD
@@ -250,6 +255,7 @@ model CollectionBatch {
   // Teks bebas sesuai revisi (bukan dropdown); non-empty dijaga CHECK.
   marketSource      String               @map("market_source") @db.VarChar(100)
   sourceType        CollectionSourceType @default(MARKET) @map("source_type")
+  shrimpType        ShrimpType?          @map("shrimp_type")
   shrimpCount       Int                  @map("shrimp_count")
   sizeGrade         Int                  @map("size_grade")
   shrimpLengthCm    Decimal?             @map("shrimp_length_cm") @db.Decimal(5, 2)
@@ -313,9 +319,9 @@ model SampleGroup {
   storageCondition  StorageCondition @map("storage_condition")
   coldStorageMode   ColdStorageMode  @default(CHAMBER) @map("cold_storage_mode")
   targetTempC       Decimal          @map("target_temp_c") @db.Decimal(5, 2)
-  labTempC          Decimal          @map("lab_temp_c") @db.Decimal(5, 2)
+  labTempC          Decimal?         @map("lab_temp_c") @db.Decimal(5, 2)
   visualCheck       VisualCheck      @map("visual_check")
-  labWeightBeforeG  Decimal              @map("lab_weight_before_g") @db.Decimal(8, 2)
+  labWeightBeforeG  Decimal?             @map("lab_weight_before_g") @db.Decimal(8, 2)
   labWeightAfterG   Decimal?             @map("lab_weight_after_g") @db.Decimal(8, 2)
   sampleShrimpCount Int              @map("sample_shrimp_count")
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -365,6 +371,7 @@ model MeasurementSession {
   photos        BatchPhoto[]
 
   @@unique([groupId, timepointCode])
+  @@index([chamberId, startedAtUtc])
   @@map("measurement_sessions")
 }
 

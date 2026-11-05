@@ -1,3 +1,4 @@
+import { isShrimpType } from '../../shared/shrimp.ts';
 import { validationError } from './errors.ts';
 import {
   parseIsoDate,
@@ -113,10 +114,15 @@ export function parseStorageCondition(val: unknown): {
   throw validationError('Field "storageCondition" harus room_temp atau cold');
 }
 
+function assertMeasurementPrecision(value: number, fieldName: string): void {
+  if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-7) throw validationError(`Field "${fieldName}" maksimal 2 angka desimal`);
+}
+
 export function parsePositiveNumber(val: unknown, fieldName: string, max: number): number {
   if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0 || val > max) {
     throw validationError(`Field "${fieldName}" harus angka > 0 dan ≤ ${max}`);
   }
+  assertMeasurementPrecision(val, fieldName);
   return val;
 }
 
@@ -131,11 +137,12 @@ export function parseBoundedNumber(val: unknown, fieldName: string, min: number,
   if (typeof val !== 'number' || !Number.isFinite(val) || val < min || val > max) {
     throw validationError(`Field "${fieldName}" harus ${min} sampai ${max}`);
   }
+  assertMeasurementPrecision(val, fieldName);
   return val;
 }
 
 export function parseIntMinimum(val: unknown, fieldName: string, min: number): number {
-  if (typeof val !== 'number' || !Number.isInteger(val) || val < min) {
+  if (typeof val !== 'number' || !Number.isSafeInteger(val) || val < min || val > 2147483647) {
     throw validationError(`Field "${fieldName}" harus bilangan bulat ≥ ${min}`);
   }
   return val;
@@ -168,6 +175,7 @@ type DbBatch = {
   procuredAtUtc: Date;
   marketSource: string;
   sourceType: string;
+  shrimpType: string | null;
   shrimpCount: number;
   sizeGrade: number;
   shrimpLengthCm: { toNumber(): number } | null;
@@ -191,6 +199,7 @@ export function serializeBatch(b: DbBatch) {
     departedAtUtc: iso(b.departedAtUtc),
     procuredAtUtc: b.procuredAtUtc.toISOString(),
     marketSource: b.marketSource,
+    shrimpType: b.shrimpType?.toLowerCase() ?? null,
     sourceType: DB_TO_SOURCE[b.sourceType] ?? b.sourceType,
     shrimpCount: b.shrimpCount,
     sizeGrade: b.sizeGrade,
@@ -222,9 +231,9 @@ type DbGroup = {
   storageCondition: string;
   coldStorageMode: string;
   targetTempC: { toNumber(): number };
-  labTempC: { toNumber(): number };
+  labTempC: { toNumber(): number } | null;
   visualCheck: string;
-  labWeightBeforeG: { toNumber(): number };
+  labWeightBeforeG: { toNumber(): number } | null;
   labWeightAfterG: { toNumber(): number } | null;
   sampleShrimpCount: number;
   createdAt: Date;
@@ -381,12 +390,13 @@ export function assertProcurementWindow(label: string, atUtc: Date): void {
  * coolerTempMinC/MaxC, dsb.) — dibaca hanya field yang relevan; sizeGrade
  * selalu dihitung ulang dari jumlah ÷ berat agar kontra uyar selalu serasi.
  */
-export function parseBatchFields(body: Record<string, unknown> | undefined): {
+export function parseBatchFields(body: Record<string, unknown> | undefined, requireShrimpType = true): {
   departedAtUtc: Date;
   procuredAtUtc: Date;
   arrivedAtUtc: Date;
   marketSource: string;
   sourceType: 'MARKET' | 'FARM' | 'SUPERMARKET';
+  shrimpType: 'VANAME' | 'WINDU' | null;
   shrimpCount: number;
   sizeGrade: number;
   shrimpLengthCm: number;
@@ -406,11 +416,12 @@ export function parseBatchFields(body: Record<string, unknown> | undefined): {
   const procuredAtUtc = parseIsoDate(asStr(b?.procuredAtUtc), 'procuredAtUtc', true)!;
   const marketSource = parseRequiredString(b?.marketSource, 'marketSource', 1, 100);
   const sourceType = parseSourceType(b?.sourceType);
+  const shrimpType = b.shrimpType == null && !requireShrimpType ? null : parseShrimpType(b.shrimpType);
   const shrimpCount = parseIntMinimum(b?.shrimpCount, 'shrimpCount', 10);
   // Ukuran ekor/kg terhitung otomatis (tidak dibaca dari input):
   // jumlah ekor ÷ berat total (gram) × 1000, dibulatkan ke bilangan bulat.
   const totalWeightG = parsePositiveNumber(b?.totalWeightG, 'totalWeightG', 2000);
-  const sizeGrade = Math.round((shrimpCount / totalWeightG) * 1000);
+  const sizeGrade = parseIntMinimum(Math.round((shrimpCount / totalWeightG) * 1000), 'sizeGrade', 1);
   const shrimpLengthCm = parseBoundedNumber(b?.shrimpLengthCm, 'shrimpLengthCm', 1, 50);
   const initialCondition = parseInitialCondition(b?.initialCondition);
   const initialTempC = parseBoundedNumber(
@@ -459,6 +470,7 @@ export function parseBatchFields(body: Record<string, unknown> | undefined): {
     arrivedAtUtc,
     marketSource,
     sourceType,
+    shrimpType,
     shrimpCount,
     sizeGrade,
     shrimpLengthCm,
@@ -471,4 +483,9 @@ export function parseBatchFields(body: Record<string, unknown> | undefined): {
     iceToShrimpRatio,
     rejectionNotes,
   };
+}
+
+export function parseShrimpType(value: unknown): 'VANAME' | 'WINDU' {
+  if (!isShrimpType(value)) throw validationError('Field "shrimpType" wajib vaname atau windu');
+  return value === 'vaname' ? 'VANAME' : 'WINDU';
 }

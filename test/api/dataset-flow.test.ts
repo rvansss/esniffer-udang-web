@@ -127,7 +127,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         departedAtUtc: `${DAY}T00:00:00.000Z`, // 07:00 WIB
         procuredAtUtc: `${DAY}T00:30:00.000Z`,
         marketSource: 'Pasar Flow',
-        sourceType: 'market',
+        sourceType: 'market', shrimpType: 'vaname',
         shrimpCount: 12,
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
@@ -149,7 +149,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
         departedAtUtc: `${DAY}T00:00:00.000Z`, // 07:00 WIB
         procuredAtUtc: `${DAY}T00:30:00.000Z`,
         marketSource: 'Pasar Flow',
-        sourceType: 'market',
+        sourceType: 'market', shrimpType: 'vaname',
         shrimpCount: 12,
         shrimpLengthCm: 12.5,
         totalWeightG: 485.5,
@@ -180,7 +180,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const sessionRes = await createSession(
       post(adminCookie, `http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
         timepointCode: 'H0',
-        warmupDone: true,
+        warmupDone: true, shrimpTempC: 5, shrimpWeightG: 450,
         startedAtUtc: START.toISOString(),
         chamberId,
         deviceId,
@@ -211,7 +211,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const dup = await createSession(
       post(adminCookie, `http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
         timepointCode: 'H0',
-        warmupDone: true,
+        warmupDone: true, shrimpTempC: 5, shrimpWeightG: 450,
       }),
       { params: Promise.resolve({ groupId: groupSr }) }
     );
@@ -223,7 +223,7 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     const h6 = await createSession(
       post(adminCookie, `http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
         timepointCode: 'H6',
-        warmupDone: true,
+        warmupDone: true, shrimpTempC: 5, shrimpWeightG: 450,
         startedAtUtc: new Date(START.getTime() + 6 * 3_600_000).toISOString(),
         chamberId,
         deviceId,
