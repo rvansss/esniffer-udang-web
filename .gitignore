@@ -70,3 +70,8 @@ public/uploads/*
 
 # workbook/CSV hasil analisis lokal untuk stakeholder (jangan di-commit)
 /exports/
+
+# tooling AI agent lokal (skill yang di-vendor per mesin + konfigurasi MCP
+# personal berisi path absolut dan referensi token) — bukan bagian aplikasi
+/.agents/
+/opencode.json
