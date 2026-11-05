@@ -27,6 +27,48 @@ const WINDOW_MESSAGE = 'Harus di antara 05:00–08:00 WIB (Anda mengisi jam di l
 export const SOURCE_TYPE_VALUES = ['market', 'supermarket', 'farm'] as const;
 export type SourceTypeValue = (typeof SOURCE_TYPE_VALUES)[number];
 
+/** Nilai `visualCheck` yang diakui kontrak API (lowercase). */
+export const VISUAL_CHECK_VALUES = ['normal', 'melanosis', 'damaged', 'mixed_species'] as const;
+
+/**
+ * Batas baris pengukuran per ekor yang dirender wizard. Pengaman UI: API tetap
+ * menerima `shrimpCount` ≥ 10 berapa pun, tetapi mengetik 12 000 ekor tidak
+ * boleh membuat halaman merender 24 000 input.
+ */
+export const SHRIMP_ROW_LIMIT = 100;
+
+/**
+ * Jumlah baris pengukuran per ekor yang layak dirender: 0 bila isian belum
+ * berupa bilangan bulat 10..`SHRIMP_ROW_LIMIT` (mis. kosong, 9, 12.5, 101).
+ */
+export function shrimpRowCount(shrimpCount: string): number {
+  const count = parseFormNumber(shrimpCount);
+  if (count === null || !Number.isInteger(count)) return 0;
+  return count >= 10 && count <= SHRIMP_ROW_LIMIT ? count : 0;
+}
+
+/**
+ * Rata-rata isian form, dibulatkan 2 desimal — presisi yang diterima kolom
+ * `DECIMAL(5,2)` dan `assertMeasurementPrecision` di API. `null` bila daftar
+ * kosong atau ada isian kosong/bukan angka, supaya kolom turunan tidak pernah
+ * menampilkan angka setengah jadi.
+ */
+export function meanFormNumber(values: readonly string[]): number | null {
+  if (!values.length) return null;
+  let total = 0;
+  for (const value of values) {
+    const parsed = parseFormNumber(value);
+    if (parsed === null || Number.isNaN(parsed)) return null;
+    total += parsed;
+  }
+  return Math.round((total / values.length) * 100) / 100;
+}
+
+/** Teks tampilan kolom turunan: kosong saat rata-rata belum bisa dihitung. */
+export function formatMean(value: number | null): string {
+  return value === null ? '' : String(value);
+}
+
 /**
  * Nilai numerik dari input form: null bila kosong, NaN bila isian bukan
  * angka (pesan galat "bukan bilangan" lebih tepat daripada "wajib diisi").
@@ -62,10 +104,11 @@ export function wibInputToUtcIso(value: string): string {
 
 /** Field milik langkah 1 — keberangkatan & sumber. */
 export const STEP_A_FIELDS = ['departedAt', 'coolerDeparture', 'marketSource', 'sourceType'] as const;
-/** Field milik langkah 2 — pembelian, kondisi & dokumentasi. */
+/** Field milik langkah 2 — pembelian & kondisi udang (temuan visual ikut di sini). */
 export const STEP_B_FIELDS = [
   'procuredAt',
   'initialCondition',
+  'visualCheck',
   'shrimpType',
   'shrimpCount',
   'shrimpLengthCm',
@@ -75,10 +118,14 @@ export const STEP_B_FIELDS = [
   'photos',
 ] as const;
 
+/** Field dinamis pengukuran per ekor: `shrimpTemp-3`, `shrimpLength-12`, dst. */
+export const SHRIMP_ROW_FIELD_PATTERN = /^shrimp(?:Temp|Length)-\d+$/;
+
 /** Nomor langkah (0-based) yang memiliki sebuah field galat. */
 export function stepOfField(key: string): number {
   if ((STEP_A_FIELDS as readonly string[]).includes(key)) return 0;
   if ((STEP_B_FIELDS as readonly string[]).includes(key)) return 1;
+  if (SHRIMP_ROW_FIELD_PATTERN.test(key)) return 1;
   return 2;
 }
 
@@ -92,11 +139,19 @@ export interface StepAInput {
 export interface StepBInput {
   procuredAt: string;
   departedAt: string;
+  initialCondition?: string;
   shrimpType: string;
   shrimpCount: string;
-  shrimpLengthCm: string;
+  /** Form edit halaman detail: satu panjang untuk seluruh batch. */
+  shrimpLengthCm?: string;
+  /** Form edit halaman detail: satu suhu awal untuk seluruh batch. */
+  initialTempC?: string;
+  /** Wizard: pengukuran per ekor menggantikan dua field skalar di atas. */
+  shrimpTemperatures?: string[];
+  shrimpLengths?: string[];
+  /** Wizard: temuan visual pindah ke langkah Kondisi Udang. */
+  visualCheck?: string;
   totalWeightG: string;
-  initialTempC: string;
   coolerMarket: string;
 }
 
@@ -146,9 +201,15 @@ export function validateStepA(input: StepAInput): WizardErrors {
 }
 
 /**
- * Langkah 2 — pembelian, kondisi & dokumentasi: jam beli (05:00–08:00 WIB),
- * urutan berangkat < beli, jenis udang, lalu jumlah/panjang/berat/suhu udang
- * dan suhu cool box di pasar.
+ * Langkah 2 — pembelian & kondisi udang: jam beli (05:00–08:00 WIB), urutan
+ * berangkat < beli, jenis udang, temuan visual, lalu jumlah/berat udang dan
+ * suhu cool box di pasar.
+ *
+ * Suhu awal dan panjang udang punya dua jalur:
+ * - wizard mengirim `shrimpTemperatures`/`shrimpLengths` (pengukuran per ekor);
+ *   tiap baris divalidasi sendiri dan nilai agregatnya diturunkan, bukan diketik;
+ * - form edit halaman detail (dan pemanggil lama) mengirim `initialTempC` /
+ *   `shrimpLengthCm` skalar, yang tetap divalidasi seperti sebelumnya.
  */
 export function validateStepB(input: StepBInput): WizardErrors {
   const e: WizardErrors = {};
@@ -166,18 +227,57 @@ export function validateStepB(input: StepBInput): WizardErrors {
 
   if (!isShrimpType(input.shrimpType)) e.shrimpType = 'Wajib memilih Vaname atau Windu.';
 
+  if (
+    input.visualCheck !== undefined &&
+    !(VISUAL_CHECK_VALUES as readonly string[]).includes(input.visualCheck)
+  ) {
+    e.visualCheck = 'Wajib dipilih.';
+  }
+
+  const temperatures = input.shrimpTemperatures;
+  const lengths = input.shrimpLengths;
+  const measuredPerShrimp = temperatures !== undefined && lengths !== undefined;
+
   const count = parseFormNumber(input.shrimpCount);
   if (count === null) {
     e.shrimpCount = 'Wajib diisi.';
   } else if (!Number.isInteger(count) || count < 10) {
     e.shrimpCount = 'Minimal 10 ekor (bilangan bulat).';
+  } else if (measuredPerShrimp && count > SHRIMP_ROW_LIMIT) {
+    e.shrimpCount = `Maksimal ${SHRIMP_ROW_LIMIT} ekor untuk pencatatan suhu & panjang per ekor.`;
   }
 
-  const len = parseFormNumber(input.shrimpLengthCm);
-  if (len === null) {
-    e.shrimpLengthCm = 'Wajib diisi.';
-  } else if (!(len >= 1 && len <= 50)) {
-    e.shrimpLengthCm = 'Harus 1 sampai 50 cm.';
+  if (temperatures && lengths) {
+    const rows = shrimpRowCount(input.shrimpCount);
+    for (let i = 0; i < rows; i += 1) {
+      const key = i + 1;
+      const temp = parseFormNumber(temperatures[i] ?? '');
+      if (temp === null) {
+        e[`shrimpTemp-${key}`] = 'Wajib diisi.';
+      } else if (!(temp >= INITIAL_TEMP_MIN_C && temp <= INITIAL_TEMP_MAX_C)) {
+        e[`shrimpTemp-${key}`] = `Harus ${INITIAL_TEMP_MIN_C} sampai ${INITIAL_TEMP_MAX_C} °C.`;
+      }
+      const len = parseFormNumber(lengths[i] ?? '');
+      if (len === null) {
+        e[`shrimpLength-${key}`] = 'Wajib diisi.';
+      } else if (!(len >= 1 && len <= 50)) {
+        e[`shrimpLength-${key}`] = 'Harus 1 sampai 50 cm.';
+      }
+    }
+  } else {
+    const len = parseFormNumber(input.shrimpLengthCm ?? '');
+    if (len === null) {
+      e.shrimpLengthCm = 'Wajib diisi.';
+    } else if (!(len >= 1 && len <= 50)) {
+      e.shrimpLengthCm = 'Harus 1 sampai 50 cm.';
+    }
+
+    const t = parseFormNumber(input.initialTempC ?? '');
+    if (t === null) {
+      e.initialTempC = 'Wajib diisi.';
+    } else if (!(t >= INITIAL_TEMP_MIN_C && t <= INITIAL_TEMP_MAX_C)) {
+      e.initialTempC = `Harus ${INITIAL_TEMP_MIN_C} sampai ${INITIAL_TEMP_MAX_C} °C.`;
+    }
   }
 
   const w = parseFormNumber(input.totalWeightG);
@@ -187,13 +287,6 @@ export function validateStepB(input: StepBInput): WizardErrors {
     e.totalWeightG = 'Harus lebih dari 0 sampai 2000 gram.';
   }
 
-  const t = parseFormNumber(input.initialTempC);
-  if (t === null) {
-    e.initialTempC = 'Wajib diisi.';
-  } else if (!(t >= INITIAL_TEMP_MIN_C && t <= INITIAL_TEMP_MAX_C)) {
-    e.initialTempC = `Harus ${INITIAL_TEMP_MIN_C} sampai ${INITIAL_TEMP_MAX_C} °C.`;
-  }
-
   const cmarket = parseFormNumber(input.coolerMarket);
   if (cmarket === null) {
     e.coolerMarket = 'Wajib diisi.';
@@ -201,23 +294,44 @@ export function validateStepB(input: StepBInput): WizardErrors {
     e.coolerMarket = `Harus ${COOLER_TEMP_MIN_C} sampai ${COOLER_TEMP_MAX_C} °C.`;
   }
 
-
   return e;
 }
 
 /**
- * Aturan kolom grup tanpa prefiks — sumber tunggal untuk wizard batch baru
- * maupun form edit grup di halaman detail (butir 3: validasi tidak disalin).
+ * Aturan kolom grup — sumber tunggal untuk wizard batch baru maupun form edit
+ * grup di halaman detail (butir 3: validasi tidak disalin).
+ *
+ * Jumlah udang per sesi punya dua bentuk masukan: satu nilai untuk kedua grup
+ * (form edit halaman detail, `sampleShrimpCount`) atau terpisah suhu ruang /
+ * suhu dingin (wizard, `sampleShrimpCountRoomTemp` + `sampleShrimpCountCold`).
  */
-export interface StepCInput extends GroupFormInput {
+export interface StepCInput extends Omit<GroupFormInput, 'visualCheck' | 'sampleShrimpCount'> {
   procuredAt: string;
   arrivedAt: string;
   coolerLab: string;
   deviationAck: boolean;
+  visualCheck?: string;
+  sampleShrimpCount?: string;
+  sampleShrimpCountRoomTemp?: string;
+  sampleShrimpCountCold?: string;
 }
 
 export function validateStepC(input: StepCInput): WizardErrors {
-  const e = validateGroupFields(input);
+  const perStorage =
+    input.sampleShrimpCountRoomTemp !== undefined || input.sampleShrimpCountCold !== undefined;
+  const e: WizardErrors = perStorage
+    ? {}
+    : validateGroupFields({
+        ...input,
+        visualCheck: input.visualCheck ?? '',
+        sampleShrimpCount: input.sampleShrimpCount ?? '',
+      });
+
+  if (perStorage) {
+    validateSampleCount(e, 'sampleShrimpCountRoomTemp', input.sampleShrimpCountRoomTemp);
+    validateSampleCount(e, 'sampleShrimpCountCold', input.sampleShrimpCountCold);
+  }
+
   const proc = parseWibInput(input.procuredAt);
   const arr = parseWibInput(input.arrivedAt);
   if (arr.error) {
@@ -242,19 +356,28 @@ export function validateStepC(input: StepCInput): WizardErrors {
   return e;
 }
 
+/** Aturan jumlah udang per sesi (3–5 ekor) untuk satu kunci error. */
+function validateSampleCount(
+  target: Record<string, string>,
+  key: string,
+  value: string | undefined
+): void {
+  const count = parseFormNumber(value ?? '');
+  if (count === null) {
+    target[key] = 'Wajib diisi.';
+  } else if (!Number.isInteger(count) || count < 3 || count > 5) {
+    target[key] = 'Harus 3–5 ekor.';
+  }
+}
+
 export function validateGroupFields(group: GroupFormInput): Record<string, string> {
   const e: Record<string, string> = {};
 
-  if (!['normal', 'melanosis', 'damaged', 'mixed_species'].includes(group.visualCheck)) {
+  if (!(VISUAL_CHECK_VALUES as readonly string[]).includes(group.visualCheck)) {
     e.visualCheck = 'Wajib dipilih.';
   }
 
-  const c = parseFormNumber(group.sampleShrimpCount);
-  if (c === null) {
-    e.sampleShrimpCount = 'Wajib diisi.';
-  } else if (!Number.isInteger(c) || c < 3 || c > 5) {
-    e.sampleShrimpCount = 'Harus 3–5 ekor.';
-  }
+  validateSampleCount(e, 'sampleShrimpCount', group.sampleShrimpCount);
 
   return e;
 }

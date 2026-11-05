@@ -689,15 +689,24 @@ Login menggunakan padding lebih besar (`px-4 py-3`), border putih 20%, dan focus
 | Checkbox | Aksen emerald untuk proses, rose untuk seleksi hapus, cyan pada konteks tertentu |
 | File upload | Foto JPEG/PNG, preview, caption per gambar, dan aksi hapus |
 
+Catatan wizard setelah revisi langkah “Kondisi Udang”:
+
+- **Kondisi awal udang** memakai radio chip native (dua pilihan: mati/hidup), bukan select. Fieldset-nya ber-`tabIndex={-1}` agar fokus programatik dari pesan error mendarat di grup pilihan.
+- **Jumlah total udang (ekor)** (10–100) memunculkan daftar **pengukuran per ekor** di area bergulir `max-h-80`: setiap baris “Udang N” punya input suhu (°C, −10…10) dan panjang (cm, 1–50). Baris 1-based sehingga pesan error memakai kode `shrimpTemp-N` / `shrimpLength-N`.
+- **Suhu awal udang saat pembelian (°C)** dan **Panjang udang (cm)** di bawah daftar bersifat **disabled** dan terisi otomatis dari rata-rata baris tersebut (pembulatan 2 desimal), dengan helper text yang menyebut asal angkanya.
+- **Berat total udang saat pembelian (g)** tetap satu kolom karena berat ditimbang sekaligus untuk semua udang.
+- Langkah **Pengelompokan** memuat waktu tiba, suhu cool box di lab, dan **dua** kolom jumlah udang per sesi: **suhu ruang (SR)** dan **suhu dingin (SD)**.
+- **Temuan visual udang** berada di langkah Kondisi Udang dan berlaku untuk kedua grup.
+
 ### 12.3 Validasi dan progres
 
-- Wizard terdiri dari “Pengadaan”, “Kondisi & Dokumentasi”, dan “Pengelompokan”.
+- Wizard terdiri dari “Pengadaan”, “Kondisi Udang”, dan “Pengelompokan”.
 - Melompat ke langkah berikutnya memvalidasi langkah yang dilewati.
 - Field invalid diberi `aria-invalid`; sejumlah field juga memiliki `aria-required`.
 - Error tampil dekat field dan tersedia error tingkat form dengan `role="alert"`.
 - Fokus diarahkan ke field bermasalah; error dapat dibersihkan ketika nilainya diperbaiki.
 - Pesan menjelaskan syarat secara konkret, misalnya “Wajib diisi.” atau batas jam pengadaan.
-- Aksi utama memakai label tujuan langkah, misalnya “Lanjut ke Kondisi & Dokumentasi”.
+- Aksi utama memakai label tujuan langkah, misalnya “Lanjut ke Kondisi Udang”.
 - Tombol bawah wizard berada dalam action bar sticky dengan latar `slate-900/85`, blur, border, dan radius 16px.
 
 Aturan bisnis seperti rentang suhu, urutan keberangkatan–pembelian–kedatangan, dan jendela 05:00–08:00 WIB berasal dari `lib/batch-wizard.ts` dan `shared/dataset.ts`. Jangan menduplikasi aturan ini sebagai nilai desain yang terpisah.

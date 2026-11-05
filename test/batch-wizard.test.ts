@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
+  formatMean,
+  meanFormNumber,
   parseFormNumber,
   parseWibInput,
+  shrimpRowCount,
   stepOfField,
   validateGroupFields,
   validateGroupForm,
@@ -11,6 +14,7 @@ import {
   validateStepB,
   validateStepC,
   wibInputToUtcIso,
+  SHRIMP_ROW_LIMIT,
 } from '../lib/batch-wizard.ts';
 import { wibDateTimeLocal } from '../shared/dataset.ts';
 
@@ -44,6 +48,20 @@ const groupOk = {
   labWeightAfterG: '478.5',
   sampleShrimpCount: '4',
 };
+
+/** Langkah 2 dengan pengukuran per ekor lengkap (12 ekor, sama seperti default). */
+const perShrimpOk = {
+  ...stepBOk,
+  visualCheck: 'normal',
+  shrimpTemperatures: Array.from({ length: 12 }, () => '2.5'),
+  shrimpLengths: Array.from({ length: 12 }, () => '12.5'),
+};
+
+/** Ganti satu nilai pada daftar pengukuran per ekor. */
+const withTemperature = (index: number, value: string) =>
+  perShrimpOk.shrimpTemperatures.map((current, i) => (i === index ? value : current));
+const withLength = (index: number, value: string) =>
+  perShrimpOk.shrimpLengths.map((current, i) => (i === index ? value : current));
 
 describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () => {
   describe('langkah 1 — keberangkatan & sumber', () => {
@@ -176,6 +194,110 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
     });
   });
 
+  describe('langkah Kondisi Udang — pengukuran per ekor', () => {
+    it('nilai pengukuran per ekor yang lengkap tidak menghasilkan galat', () => {
+      assert.deepStrictEqual(validateStepB(perShrimpOk), {});
+    });
+
+    it('suhu & panjang skalar tidak divalidasi saat pengukuran per ekor dikirim', () => {
+      const errs = validateStepB(perShrimpOk);
+      assert.strictEqual(errs.initialTempC, undefined);
+      assert.strictEqual(errs.shrimpLengthCm, undefined);
+    });
+
+    it('baris yang belum terisi dilaporkan per nomor udang', () => {
+      const errs = validateStepB({
+        ...perShrimpOk,
+        shrimpTemperatures: perShrimpOk.shrimpTemperatures.slice(0, 1),
+        shrimpLengths: perShrimpOk.shrimpLengths.slice(0, 1),
+      });
+      assert.strictEqual(errs['shrimpTemp-2'], 'Wajib diisi.');
+      assert.strictEqual(errs['shrimpLength-2'], 'Wajib diisi.');
+      assert.strictEqual(errs['shrimpTemp-12'], 'Wajib diisi.');
+      assert.strictEqual(errs['shrimpTemp-1'], undefined);
+    });
+
+    it('suhu per ekor dibatasi -10..10 °C dan panjang 1–50 cm', () => {
+      const tempMsg = 'Harus -10 sampai 10 °C.';
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(3, '10.1') })['shrimpTemp-4'],
+        tempMsg
+      );
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, '-10.1') })['shrimpTemp-1'],
+        tempMsg
+      );
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, '-10') })['shrimpTemp-1'],
+        undefined
+      );
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '0.5') })['shrimpLength-3'],
+        'Harus 1 sampai 50 cm.'
+      );
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '51') })['shrimpLength-3'],
+        'Harus 1 sampai 50 cm.'
+      );
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '12.5') })['shrimpLength-3'],
+        undefined
+      );
+    });
+
+    it('jumlah ekor di atas batas baris pengukuran ditolak dengan pesan jelas', () => {
+      const errs = validateStepB({ ...perShrimpOk, shrimpCount: String(SHRIMP_ROW_LIMIT + 1) });
+      assert.strictEqual(
+        errs.shrimpCount,
+        `Maksimal ${SHRIMP_ROW_LIMIT} ekor untuk pencatatan suhu & panjang per ekor.`
+      );
+      // Jumlah tidak sah tidak boleh membanjiri layar dengan error per baris.
+      assert.strictEqual(Object.keys(errs).filter((key) => key.startsWith('shrimpTemp-')).length, 0);
+    });
+
+    it('temuan visual divalidasi di langkah Kondisi Udang', () => {
+      assert.strictEqual(validateStepB({ ...perShrimpOk, visualCheck: '' }).visualCheck, 'Wajib dipilih.');
+      assert.strictEqual(
+        validateStepB({ ...perShrimpOk, visualCheck: 'busuk' }).visualCheck,
+        'Wajib dipilih.'
+      );
+      assert.strictEqual(validateStepB({ ...perShrimpOk, visualCheck: 'melanosis' }).visualCheck, undefined);
+    });
+  });
+
+  describe('helper turunan pengukuran per ekor', () => {
+    it('shrimpRowCount hanya menerima bilangan bulat 10..batas', () => {
+      assert.strictEqual(shrimpRowCount(''), 0);
+      assert.strictEqual(shrimpRowCount('9'), 0);
+      assert.strictEqual(shrimpRowCount('12.5'), 0);
+      assert.strictEqual(shrimpRowCount('abc'), 0);
+      assert.strictEqual(shrimpRowCount('10'), 10);
+      assert.strictEqual(shrimpRowCount('12'), 12);
+      assert.strictEqual(shrimpRowCount(String(SHRIMP_ROW_LIMIT)), SHRIMP_ROW_LIMIT);
+      assert.strictEqual(shrimpRowCount(String(SHRIMP_ROW_LIMIT + 1)), 0);
+    });
+
+    it('meanFormNumber merata-ratakan lalu membulatkan 2 desimal', () => {
+      assert.strictEqual(meanFormNumber(['2.5', '2.5', '2.6']), 2.53);
+      assert.strictEqual(meanFormNumber(['12', '12.5']), 12.25);
+      assert.strictEqual(meanFormNumber(['-2', '-2']), -2);
+      // Presisi 2 desimal diterima kolom DECIMAL(5,2) dan assertMeasurementPrecision.
+      assert.ok(Math.abs((meanFormNumber(['2.1', '2.2', '2.4']) as number) * 100 - Math.round(2.23 * 100)) < 1e-9);
+    });
+
+    it('meanFormNumber menolak daftar kosong atau isian belum lengkap', () => {
+      assert.strictEqual(meanFormNumber([]), null);
+      assert.strictEqual(meanFormNumber(['2.5', '']), null);
+      assert.strictEqual(meanFormNumber(['2.5', 'abc']), null);
+    });
+
+    it('formatMean mengosongkan nilai yang belum bisa dihitung', () => {
+      assert.strictEqual(formatMean(null), '');
+      assert.strictEqual(formatMean(2.53), '2.53');
+      assert.strictEqual(formatMean(12), '12');
+    });
+  });
+
   describe('langkah C — Pengelompokan', () => {
     it('nilai sah tidak menghasilkan galat', () => {
       assert.deepStrictEqual(validateGroupForm('sr', groupOk), {});
@@ -199,6 +321,27 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(errs['sr-labWeightAfterG'], undefined);
       assert.strictEqual(errs['sr-sampleShrimpCount'], 'Harus 3–5 ekor.');
     });
+
+    it('jumlah udang per sesi di wizard dipisah suhu ruang dan suhu dingin', () => {
+      assert.deepStrictEqual(
+        validateStepC({ ...stepBOk, sampleShrimpCountRoomTemp: '4', sampleShrimpCountCold: '3' }),
+        {}
+      );
+      const tooFar = validateStepC({
+        ...stepBOk,
+        sampleShrimpCountRoomTemp: '2',
+        sampleShrimpCountCold: '6',
+      });
+      assert.strictEqual(tooFar.sampleShrimpCountRoomTemp, 'Harus 3–5 ekor.');
+      assert.strictEqual(tooFar.sampleShrimpCountCold, 'Harus 3–5 ekor.');
+      assert.strictEqual(tooFar.sampleShrimpCount, undefined);
+      assert.strictEqual(
+        validateStepC({ ...stepBOk, sampleShrimpCountCold: '' }).sampleShrimpCountCold,
+        'Wajib diisi.'
+      );
+      // Jalur form edit halaman detail (satu nilai untuk kedua grup) tetap berlaku.
+      assert.deepStrictEqual(validateStepC({ ...stepBOk, ...groupOk }), {});
+    });
   });
 
   describe('pemetaan field ke langkah', () => {    it('field langkah 1/2/3 dipetakan dengan benar', () => {
@@ -215,6 +358,11 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(stepOfField('photos'), 1);
       assert.strictEqual(stepOfField('sr-labTempC'), 2);
       assert.strictEqual(stepOfField('sd-sampleShrimpCount'), 2);
+      assert.strictEqual(stepOfField('visualCheck'), 1);
+      assert.strictEqual(stepOfField('shrimpTemp-1'), 1);
+      assert.strictEqual(stepOfField('shrimpLength-12'), 1);
+      assert.strictEqual(stepOfField('sampleShrimpCountRoomTemp'), 2);
+      assert.strictEqual(stepOfField('sampleShrimpCountCold'), 2);
     });
   });
 

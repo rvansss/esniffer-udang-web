@@ -236,6 +236,48 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     );
   });
 
+  it('2d. POST /batches menyimpan jumlah udang per sesi terpisah SR & SD', async () => {
+    const post = (grouping: unknown) => createBatch(
+      new Request('http://localhost:3000/api/v1/batches', {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify(batchBody({ grouping })),
+      })
+    );
+    const counts = async (batchIdToRead: string) => {
+      const detail = await getBatchDetail(
+        new Request(`http://localhost:3000/api/v1/batches/${batchIdToRead}`, { headers: postHeaders(adminCookie) }),
+        { params: Promise.resolve({ batchId: batchIdToRead }) }
+      );
+      const body = await detail.json();
+      return Object.fromEntries(
+        body.data.sampleGroups.map((g: { storageCondition: string; sampleShrimpCount: number }) => [
+          g.storageCondition,
+          g.sampleShrimpCount,
+        ])
+      );
+    };
+
+    // Wizard mengirim dua hitungan; masing-masing grup mendapat nilainya sendiri.
+    const perStorage = await post({
+      visualCheck: 'normal',
+      sampleShrimpCount: 4,
+      sampleShrimpCountRoomTemp: 4,
+      sampleShrimpCountCold: 3,
+    });
+    assert.strictEqual(perStorage.status, 201);
+    assert.deepStrictEqual(await counts((await perStorage.json()).data.batchId), { room_temp: 4, cold: 3 });
+
+    // Klien lama (satu nilai) tetap mendapat dua grup bernilai sama.
+    const legacy = await post({ visualCheck: 'normal', sampleShrimpCount: 5 });
+    assert.strictEqual(legacy.status, 201);
+    assert.deepStrictEqual(await counts((await legacy.json()).data.batchId), { room_temp: 5, cold: 5 });
+
+    // Nilai per suhu tetap dibatasi 3–5 ekor.
+    const invalid = await post({ visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: 6 });
+    assert.strictEqual(invalid.status, 422);
+  });
+
   it('3. POST /batches menolak tiba sebelum/saat beli dan beli sebelum/saat berangkat (422)', async () => {
     // Tiba sebelum beli → tolak 422, bukan 500.
     const early = await createBatch(

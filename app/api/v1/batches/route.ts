@@ -1,4 +1,4 @@
-import { createBatchGroups, parseGrouping } from '../../../../lib/dataset/groups.ts';
+import { createBatchGroups, parseBatchGrouping } from '../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../lib/auth/guard.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../lib/api/response.ts';
@@ -52,7 +52,7 @@ export async function POST(request: Request): Promise<Response> {
     // Satu sumber kebenaran parsing/gerbang: dipakai juga oleh PATCH
     // /api/v1/batches/[batchId] (form edit semua bagian di halaman detail).
     const fields = parseBatchFields(body);
-    const grouping = body?.grouping === undefined ? undefined : parseGrouping(body.grouping);
+    const grouping = body?.grouping === undefined ? undefined : parseBatchGrouping(body.grouping);
     // Foto selalu mulai kosong dan diisi lewat upload (tabel batch_photos).
 
     // Auto batch_id server-side; retry naik bila balapan request bersamaan.

@@ -70,7 +70,7 @@ describe('Batch draft (revisi putaran 2, butir 13)', () => {
     assert.ok(draftMeaningful(filled));
     // Waktu dari jam device selalu terisi otomatis — bukan tanda user mengetik.
     assert.strictEqual(draftMeaningful({ procuredAt: '2099-02-02T07:00', arrivedAt: '2099-02-02T07:10' }), false);
-    assert.strictEqual(draftMeaningful({ step: 2, groupSr: { labTempC: '6.5' } }), false);
+    assert.strictEqual(draftMeaningful({ step: 2, shrimpTemperatures: [] }), false);
     assert.strictEqual(draftMeaningful({}), false);
     // Nilai bawaan form juga bukan isian pengguna.
     assert.strictEqual(
@@ -143,15 +143,42 @@ describe('Batch draft (revisi putaran 2, butir 13)', () => {
     saveBatchDraft({
       ...filled,
       batchCaptions: ['Di pasar'],
-      groupCaptionsSr: ['Di chamber'],
-      groupCaptionsSd: [],
+      groupingCaptions: ['Di chamber'],
     });
     const loaded = loadBatchDraft();
     assert.deepStrictEqual(loaded?.batchCaptions, ['Di pasar']);
-    assert.deepStrictEqual(loaded?.groupCaptionsSr, ['Di chamber']);
-    assert.strictEqual(loaded?.groupCaptionsSd?.length, 0);
+    assert.deepStrictEqual(loaded?.groupingCaptions, ['Di chamber']);
     // Tidak ada berkas foto di draf.
     assert.strictEqual((loaded as Record<string, unknown> | null)?.files, undefined);
+  });
+
+  it('pengukuran per ekor dan jumlah sampel per suhu ikut tersimpan', () => {
+    saveBatchDraft({
+      ...filled,
+      visualCheck: 'melanosis',
+      sampleShrimpCountRoomTemp: '4',
+      sampleShrimpCountCold: '3',
+      shrimpTemperatures: ['2.5', '', '2.6'],
+      shrimpLengths: ['12.5', '13', ''],
+    });
+    const loaded = loadBatchDraft();
+    assert.deepStrictEqual(loaded?.shrimpTemperatures, ['2.5', '', '2.6']);
+    assert.deepStrictEqual(loaded?.shrimpLengths, ['12.5', '13', '']);
+    assert.strictEqual(loaded?.sampleShrimpCountRoomTemp, '4');
+    assert.strictEqual(loaded?.sampleShrimpCountCold, '3');
+    assert.strictEqual(loaded?.visualCheck, 'melanosis');
+  });
+
+  it('baris pengukuran terisi dianggap isi draf; jumlah sampel bawaan tidak', () => {
+    assert.strictEqual(draftMeaningful({ shrimpTemperatures: ['', ''] }), false);
+    assert.ok(draftMeaningful({ shrimpTemperatures: ['2.5'] }));
+    assert.ok(draftMeaningful({ shrimpLengths: ['12.5'] }));
+    assert.strictEqual(
+      draftMeaningful({ sampleShrimpCountRoomTemp: '4', sampleShrimpCountCold: '4', visualCheck: 'normal' }),
+      false
+    );
+    assert.ok(draftMeaningful({ sampleShrimpCountCold: '3' }));
+    assert.ok(draftMeaningful({ visualCheck: 'damaged' }));
   });
 
   it('localStorage tidak tersedia: semua operasi aman', () => {

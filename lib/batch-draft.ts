@@ -19,34 +19,35 @@ export interface BatchDraft {
   marketSource?: string;
   sourceType?: string;
   shrimpType?: string;
-  grouping?: unknown;
   groupingCaptions?: string[];
   shrimpCount?: string;
-  shrimpLengthCm?: string;
   totalWeightG?: string;
   initialCondition?: string;
-  initialTempC?: string;
+  visualCheck?: string;
+  /** Pengukuran per ekor yang diketik di wizard (suhu dan panjang, sejajar). */
+  shrimpTemperatures?: string[];
+  shrimpLengths?: string[];
+  /** Jumlah udang per sesi terpisah untuk suhu ruang (SR) dan dingin (SD). */
+  sampleShrimpCountRoomTemp?: string;
+  sampleShrimpCountCold?: string;
   coolerMarket?: string;
   coolerLab?: string;
   deviationAck?: boolean;
-  groupSr?: unknown;
-  groupSd?: unknown;
   /** Cap waktu simpan terakhir (epoch ms) — dasar masa berlaku draf. */
   savedAt?: number;
   /** Pemilik draf; draf milik akun lain diabaikan. */
   userId?: string;
   /** Caption foto tersimpan (berkas foto tidak ikut, lihat butir 13). */
   batchCaptions?: string[];
-  groupCaptionsSr?: string[];
-  groupCaptionsSd?: string[];
 }
 
 /**
- * Kunci penyimpanan draf. Dinaikkan ke v4 untuk jenis udang dan pengelompokan bersama;
- * draf v3 tidak lagi cocok dengan form ini,
- * jadi sengaja diabaikan dan dibiarkan kedaluwarsa sendiri.
+ * Kunci penyimpanan draf. Dinaikkan ke v5 karena pengukuran per ekor
+ * (`shrimpTemperatures`/`shrimpLengths`) dan jumlah udang per sesi yang
+ * terpisah suhu ruang/dingin menggantikan field skalar v4; draf v4 tidak lagi
+ * cocok dengan form ini, jadi sengaja diabaikan dan dibiarkan kedaluwarsa.
  */
-export const BATCH_DRAFT_KEY = 'esniffer:batch-draft-v4';
+export const BATCH_DRAFT_KEY = 'esniffer:batch-draft-v5';
 
 /** Draf dianggap kedaluwarsa setelah 7 hari. */
 export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -56,6 +57,9 @@ const PRISTINE_DEFAULTS: Record<string, string> = {
   sourceType: 'market',
   shrimpCount: '12',
   initialCondition: 'dead',
+  visualCheck: 'normal',
+  sampleShrimpCountRoomTemp: '4',
+  sampleShrimpCountCold: '4',
 };
 
 const storage = (): Storage | null => {
@@ -67,22 +71,29 @@ const storage = (): Storage | null => {
   }
 };
 
+/** Ada isian pada daftar pengukuran per ekor (indeks mana pun). */
+const hasMeasurement = (values: string[] | undefined): boolean =>
+  Array.isArray(values) && values.some((value) => typeof value === 'string' && value.trim() !== '');
+
 /**
  * Draf dianggap bermakna bila ada isian di luar nilai bawaan. Waktu otomatis
  * dari jam device tidak dihitung — filled form tanpa sentuhan pengguna bukan
- * draf yang perlu dipulihkan.
+ * draf yang perlu dipulihkan. Baris pengukuran per ekor selalu isian pengguna.
  */
 export const draftMeaningful = (d: BatchDraft): boolean =>
+  hasMeasurement(d.shrimpTemperatures) ||
+  hasMeasurement(d.shrimpLengths) ||
   (
     [
       'shrimpType',
       'marketSource',
       'sourceType',
       'shrimpCount',
-      'shrimpLengthCm',
       'totalWeightG',
       'initialCondition',
-      'initialTempC',
+      'visualCheck',
+      'sampleShrimpCountRoomTemp',
+      'sampleShrimpCountCold',
       'coolerDeparture',
       'coolerMarket',
       'coolerLab',
@@ -104,16 +115,16 @@ const hasAnyContent = (d: BatchDraft): boolean => {
     'marketSource',
     'sourceType',
     'shrimpCount',
-    'shrimpLengthCm',
     'totalWeightG',
     'initialCondition',
-    'initialTempC',
+    'visualCheck',
     'coolerMarket',
     'coolerLab',
   ] as const;
   if (scalars.some((k) => typeof d[k] === 'string' && d[k]!.trim() !== '')) return true;
   if (d.deviationAck === true) return true;
-  const captionGroups = [d.batchCaptions, d.groupingCaptions, d.groupCaptionsSr, d.groupCaptionsSd];
+  if (hasMeasurement(d.shrimpTemperatures) || hasMeasurement(d.shrimpLengths)) return true;
+  const captionGroups = [d.batchCaptions, d.groupingCaptions];
   return captionGroups.some(
     (c) => Array.isArray(c) && c.some((x) => typeof x === 'string' && x.trim() !== '')
   );
