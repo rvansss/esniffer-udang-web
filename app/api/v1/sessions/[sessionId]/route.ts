@@ -4,6 +4,7 @@ import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
 import { conflict, notFound, validationError } from '../../../../../lib/api/errors.ts';
 import { serializeSession, parseBoundedNumber, parsePositiveNumber } from '../../../../../lib/api/dataset.ts';
+import { OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C } from '../../../../../shared/dataset.ts';
 
 /**
  * Koreksi data observasi satu tahap (ikon pensil di tabel riwayat dinamis
@@ -45,7 +46,7 @@ export async function PATCH(
     if (body?.shrimpTempC !== undefined) {
       data.shrimpTempC = body.shrimpTempC === null
         ? null
-        : parseBoundedNumber(body.shrimpTempC, 'shrimpTempC', -2, 30);
+        : parseBoundedNumber(body.shrimpTempC, 'shrimpTempC', OBSERVATION_TEMP_MIN_C, OBSERVATION_TEMP_MAX_C);
     }
     if (body?.shrimpWeightG !== undefined) {
       data.shrimpWeightG = body.shrimpWeightG === null

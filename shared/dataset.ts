@@ -28,6 +28,13 @@ export const COOLER_TEMP_MAX_C = 10;
 export const INITIAL_TEMP_MIN_C = -10;
 export const INITIAL_TEMP_MAX_C = 10;
 
+// Suhu udang yang dicatat pada tiap tahap observasi (H0, H6, …) lebih lebar
+// daripada suhu saat pembelian: sampel bisa diukur setelah dikeluarkan dari
+// cool box, jadi batasnya -2..30 °C. Satu sumber kebenaran untuk modal tahap
+// di UI dan dua route API yang menulis kolom `shrimp_temp_c`.
+export const OBSERVATION_TEMP_MIN_C = -2;
+export const OBSERVATION_TEMP_MAX_C = 30;
+
 // Durasi baseline udara bersih per sesi (PRD Tahap D): 2 menit pertama.
 export const BASELINE_SECONDS = 120;
 

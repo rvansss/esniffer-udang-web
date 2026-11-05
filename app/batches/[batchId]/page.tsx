@@ -9,9 +9,10 @@ import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
 import SessionResultModal from '../../../components/batches/SessionResultModal';
+import ObservationTempFields from '../../../components/batches/ObservationTempFields';
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
-import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
-import { parseWibInput } from '../../../lib/batch-wizard.ts';
+import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C, wibDateTimeLocal } from '../../../shared/dataset.ts';
+import { observationRowCount, observationTempMean, parseWibInput } from '../../../lib/batch-wizard.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -207,6 +208,9 @@ export default function BatchDetailPage() {
   }, []);
 
   // Modal form pra-sesi: input suhu berat foto sebelum start sesi atau ambil data waktu.
+  // Suhu disimpan sebagai baris per ekor (`shrimpTemps`), bukan satu angka:
+  // jumlah udang per sesi grup menentukan panjangnya, dan kolom "Suhu udang"
+  // yang tersimpan adalah rata-ratanya (lihat observationTempMean).
   const [sessionModal, setSessionModal] = useState<{
     mode: 'create' | 'edit';
     captureMode?: 'live' | 'time_range';
@@ -216,7 +220,7 @@ export default function BatchDetailPage() {
     sessionId?: string;
     timepointCode: string;
     durationMinutes: number;
-    shrimpTempC: string;
+    shrimpTemps: string[];
     shrimpWeightG: string;
     photos: File[];
     photoPreviews: string[];
@@ -386,6 +390,10 @@ export default function BatchDetailPage() {
   const usedCodes = (g: GroupItem): Set<string> =>
     new Set(g.sessions.filter((s) => s.status !== 'incomplete').map((s) => s.timepointCode));
 
+  /** Grup milik modal tahap yang sedang terbuka — sumber jumlah udang per sesi. */
+  const modalGroupOf = (groupId: string): GroupItem | null =>
+    batch?.sampleGroups.find((g) => g.groupId === groupId) ?? null;
+
   const handleReopen = async (s: SessionItem) => {
     setBusy(true);
     setError(null);
@@ -446,7 +454,7 @@ export default function BatchDetailPage() {
       chamberId: defaultChamberId,
       timepointCode,
       durationMinutes: defaultMins,
-      shrimpTempC: '',
+      shrimpTemps: Array.from({ length: observationRowCount(g.sampleShrimpCount) }, () => ''),
       shrimpWeightG: '',
       photos: [],
       photoPreviews: [],
@@ -480,13 +488,15 @@ export default function BatchDetailPage() {
   const openSessionEdit = (g: GroupItem, s: SessionItem) => {
     // Ikon pensil di tabel riwayat: koreksi data observasi satu tahap.
     // Input type=number memakai titik desimal, jadi prefill tanpa konversi.
+    // Mode edit sengaja satu baris: yang tersimpan di sesi hanya satu angka
+    // rata-rata, jadi tidak ada pengukuran per ekor yang bisa ditampilkan.
     setSessionModal({
       mode: 'edit',
       groupId: g.groupId,
       sessionId: s.sessionId,
       timepointCode: s.timepointCode,
       durationMinutes: s.durationSeconds ? Math.round(s.durationSeconds / 60) : 15,
-      shrimpTempC: s.shrimpTempC === null ? '' : String(s.shrimpTempC),
+      shrimpTemps: [s.shrimpTempC === null ? '' : String(s.shrimpTempC)],
       shrimpWeightG: s.shrimpWeightG === null ? '' : String(s.shrimpWeightG),
       photos: [],
       photoPreviews: [],
@@ -516,22 +526,40 @@ export default function BatchDetailPage() {
       sessionId,
       timepointCode,
       durationMinutes,
-      shrimpTempC,
+      shrimpTemps,
       shrimpWeightG,
       photos,
       photoCaptions,
     } = sessionModal;
     const fail = (msg: string) =>
       setSessionModal((m) => (m ? { ...m, err: msg, busy: false } : null));
-    const tempOk = shrimpTempC.trim() === '' ? mode === 'edit' : Number.isFinite(Number(shrimpTempC)) && Number(shrimpTempC) >= -2 && Number(shrimpTempC) <= 30;
+    // Suhu yang disimpan diturunkan dari baris per ekor (mode create) atau dari
+    // satu angka tersimpan (mode edit). Di mode edit baris kosong tetap sah:
+    // artinya pengguna menghapus nilai lama, jadi hanya isian terisi yang
+    // divalidasi. Mode create wajib lengkap karena rata-rata dari data
+    // setengah jadi tidak boleh masuk dataset.
+    const tempRowCount = mode === 'edit' ? 1 : shrimpTemps.length;
+    const measuredTempC = observationTempMean(shrimpTemps, tempRowCount);
+    const tempBlank = mode === 'edit' && (shrimpTemps[0] ?? '').trim() === '';
+    const tempOk = mode === 'edit' ? tempBlank || measuredTempC !== null : measuredTempC !== null;
     const weightOk = shrimpWeightG.trim() === '' ? mode === 'edit' : Number.isFinite(Number(shrimpWeightG)) && Number(shrimpWeightG) > 0 && Number(shrimpWeightG) <= 2000;
     const durationOk = Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 120;
     if (!durationOk) {
       fail('Durasi pengujian harus antara 1 sampai 120 menit.');
       return;
     }
-    if (!tempOk || !weightOk) {
-      fail('Isi suhu -2 sampai 30 °C dan berat lebih dari 0 sampai 2000 g untuk tahap ini.');
+    if (!tempOk) {
+      if (tempRowCount < 1) {
+        fail('Jumlah udang per sesi grup ini belum terbaca. Perbaiki pengelompokan batch sebelum memulai sesi.');
+      } else if (mode === 'edit') {
+        fail(`Suhu udang harus ${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C.`);
+      } else {
+        fail(`Isi suhu tiap udang pada baris per ekor, ${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C.`);
+      }
+      return;
+    }
+    if (!weightOk) {
+      fail('Berat total udang harus lebih dari 0 sampai 2000 g untuk tahap ini.');
       return;
     }
 
@@ -567,10 +595,10 @@ export default function BatchDetailPage() {
     }
     setSessionModal((m) => (m ? { ...m, busy: true, err: null } : null));
     try {
-      // 1. Suhu/berat: mode edit kirim semua (pencil koreksi, kosong = null);
-      // mode create hanya kirim yang diisi lalu ke POST sesi.
+      // 1. Suhu/berat: yang dikirim adalah nilai turunan (rata-rata baris per
+      // ekor) di mode create, atau angka tunggal tersimpan di mode edit.
       const shrimpFields: Record<string, unknown> = {};
-      if (shrimpTempC.trim() !== '') shrimpFields.shrimpTempC = Number(shrimpTempC);
+      if (measuredTempC !== null) shrimpFields.shrimpTempC = measuredTempC;
       if (shrimpWeightG.trim() !== '') shrimpFields.shrimpWeightG = Number(shrimpWeightG);
 
       let createdSessionId: string | undefined;
@@ -581,7 +609,7 @@ export default function BatchDetailPage() {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            shrimpTempC: shrimpTempC.trim() === '' ? null : Number(shrimpTempC),
+            shrimpTempC: measuredTempC,
             shrimpWeightG: shrimpWeightG.trim() === '' ? null : Number(shrimpWeightG),
           }),
         });
@@ -881,6 +909,16 @@ export default function BatchDetailPage() {
 
   const isAdmin = user.role === 'ADMIN';
   const locked = !!batch.lockedAt;
+
+  // Modal tahap: jumlah udang per sesi milik grup menentukan panjang baris
+  // suhu per ekor. Mode edit tetap satu baris karena sesi hanya menyimpan
+  // satu angka rata-rata yang bisa dikoreksi langsung.
+  const modalGroup = sessionModal ? modalGroupOf(sessionModal.groupId) : null;
+  const modalTempRows = !sessionModal
+    ? 0
+    : sessionModal.mode === 'edit'
+      ? 1
+      : observationRowCount(modalGroup?.sampleShrimpCount ?? 0);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -1530,10 +1568,7 @@ export default function BatchDetailPage() {
           >
             <h3 id="pre-session-title" className="text-base font-mono font-bold text-white">
               {sessionModal.mode === 'edit' ? 'Edit Tahap' : 'Tahap'}{' '}
-              {(() => {
-                const modalGroup = batch.sampleGroups.find((g) => g.groupId === sessionModal.groupId);
-                return modalGroup ? tahapOf(modalGroup, sessionModal.timepointCode) : '';
-              })()}
+              {modalGroup ? tahapOf(modalGroup, sessionModal.timepointCode) : ''}
             </h3>
             {sessionModal.mode === 'create' && (
               <div className="flex p-1 rounded-xl bg-black/40 border border-white/10 gap-1">
@@ -1769,26 +1804,59 @@ export default function BatchDetailPage() {
                   </p>
                 </div>
               ) : null}
+              {/* Jumlah udang per sesi berasal dari pengelompokan batch (wizard
+                  langkah 3). Disabled karena mengubahnya berarti mengubah
+                  batch, bukan sesi ini — dan angkanya menentukan panjang baris
+                  suhu per ekor di bawah. */}
               <div>
-                <label htmlFor="pre-temp" className="block text-[12px] font-mono text-white/75 mb-1">
-                  Suhu udang (°C)
+                <label htmlFor="pre-sample-count" className="block text-[12px] font-mono text-white/75 mb-1">
+                  Jumlah udang per sesi {modalGroup?.storageCondition === 'cold' ? 'suhu dingin (SD)' : 'suhu ruang (SR)'} (ekor)
                 </label>
                 <input
-                  id="pre-temp"
-                  type="number"
-                  step="0.1"
-                  lang="en"
-                  aria-label="Suhu udang dalam derajat Celsius, titik desimal pakai titik"
-                  value={sessionModal.shrimpTempC}
-                  onChange={(e) =>
-                    setSessionModal((m) => (m ? { ...m, shrimpTempC: e.target.value } : null))}
-                  placeholder="Contoh: 28.5"
-                  className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-white text-sm font-mono placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                  id="pre-sample-count"
+                  type="text"
+                  disabled
+                  value={modalGroup ? `${modalGroup.sampleShrimpCount} ekor` : EM_DASH}
+                  aria-describedby="pre-sample-count-hint"
+                  className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-white/70 text-sm font-mono cursor-not-allowed opacity-70"
                 />
-                <p className="text-[11px] font-mono text-white/45 mt-1">
-                  Angka desimal menggunakan titik, mis. 28.5
+                <p id="pre-sample-count-hint" className="text-[11px] font-mono text-white/45 mt-1">
+                  Dari pengelompokan batch. Untuk mengubahnya, koreksi pengelompokan lewat ikon pensil.
                 </p>
               </div>
+              {sessionModal.mode === 'create' ? (
+                <ObservationTempFields
+                  count={modalTempRows}
+                  values={sessionModal.shrimpTemps}
+                  onChangeRow={(index, value) =>
+                    setSessionModal((m) =>
+                      m ? { ...m, shrimpTemps: m.shrimpTemps.map((t, i) => (i === index ? value : t)) } : null
+                    )}
+                />
+              ) : (
+                <div>
+                  <label htmlFor="pre-temp" className="block text-[12px] font-mono text-white/75 mb-1">
+                    Suhu udang (°C)
+                  </label>
+                  <input
+                    id="pre-temp"
+                    type="number"
+                    step="0.1"
+                    lang="en"
+                    min={OBSERVATION_TEMP_MIN_C}
+                    max={OBSERVATION_TEMP_MAX_C}
+                    aria-label="Suhu udang dalam derajat Celsius, titik desimal pakai titik"
+                    value={sessionModal.shrimpTemps[0] ?? ''}
+                    onChange={(e) =>
+                      setSessionModal((m) => (m ? { ...m, shrimpTemps: [e.target.value] } : null))}
+                    placeholder="Contoh: 28.5"
+                    className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-white text-sm font-mono placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                  />
+                  <p className="text-[11px] font-mono text-white/45 mt-1">
+                    Angka desimal menggunakan titik, mis. 28.5. Kosongkan untuk menghapus nilai tahap ini.
+                  </p>
+                </div>
+              )}
               <div>
                 <label htmlFor="pre-weight" className="block text-[12px] font-mono text-white/75 mb-1">
                   Berat total udang (g)

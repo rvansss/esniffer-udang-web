@@ -12,6 +12,8 @@ import {
   DatasetValidationError,
   INITIAL_TEMP_MAX_C,
   INITIAL_TEMP_MIN_C,
+  OBSERVATION_TEMP_MAX_C,
+  OBSERVATION_TEMP_MIN_C,
   isColdChainCompliant,
   isProcurementWindow,
   transportDurationMs,
@@ -67,6 +69,39 @@ export function meanFormNumber(values: readonly string[]): number | null {
 /** Teks tampilan kolom turunan: kosong saat rata-rata belum bisa dihitung. */
 export function formatMean(value: number | null): string {
   return value === null ? '' : String(value);
+}
+
+/**
+ * Jumlah baris suhu per ekor pada modal tahap = jumlah udang per sesi grup
+ * (`sample_shrimp_count`; domainnya 3–5 ekor, ditegakkan constraint DB).
+ * Yang dijaga di sini hanya kelayakan render: 0 menandai nilai yang tidak
+ * masuk akal — data lama aneh harus memunculkan peringatan, bukan modal tanpa
+ * baris yang diam-diam menyimpan suhu kosong.
+ */
+export function observationRowCount(sampleShrimpCount: number): number {
+  if (!Number.isInteger(sampleShrimpCount)) return 0;
+  return sampleShrimpCount >= 1 && sampleShrimpCount <= SHRIMP_ROW_LIMIT ? sampleShrimpCount : 0;
+}
+
+/**
+ * Rata-rata suhu udang untuk satu tahap observasi.
+ *
+ * Sama seperti `initialTempC` pada wizard batch: pengukuran per ekor adalah
+ * sumber masukan, sedangkan kolom sesi (`shrimp_temp_c`) hanya menyimpan satu
+ * angka. Karena itu nilai ringkasannya diturunkan, bukan diketik. `null`
+ * berarti belum bisa dipakai — `count` tidak masuk akal, barisnya kurang,
+ * ada isian kosong/bukan angka, atau ada nilai di luar
+ * `OBSERVATION_TEMP_MIN_C..MAX_C` — sehingga pemanggil wajib memblokir submit
+ * daripada menyimpan rata-rata dari data setengah jadi.
+ */
+export function observationTempMean(rows: readonly string[], count: number): number | null {
+  if (!Number.isInteger(count) || count < 1 || rows.length < count) return null;
+  for (let i = 0; i < count; i += 1) {
+    const value = parseFormNumber(rows[i] ?? '');
+    if (value === null || Number.isNaN(value)) return null;
+    if (value < OBSERVATION_TEMP_MIN_C || value > OBSERVATION_TEMP_MAX_C) return null;
+  }
+  return meanFormNumber(rows.slice(0, count));
 }
 
 /**

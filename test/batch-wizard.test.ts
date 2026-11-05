@@ -3,6 +3,8 @@ import assert from 'node:assert';
 import {
   formatMean,
   meanFormNumber,
+  observationTempMean,
+  observationRowCount,
   parseFormNumber,
   parseWibInput,
   shrimpRowCount,
@@ -416,6 +418,51 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(groupWeightWarning(groupOk), null);
       assert.strictEqual(groupWeightWarning({ ...groupOk, labWeightAfterG: '490' }), null);
       assert.strictEqual(groupWeightWarning({ ...groupOk, labWeightAfterG: '' }), null);
+    });
+  });
+
+  describe('suhu tahap observasi — baris per ekor menjadi rata-rata', () => {
+    it('jumlah baris mengikuti jumlah udang per sesi grup', () => {
+      assert.strictEqual(observationRowCount(3), 3);
+      assert.strictEqual(observationRowCount(4), 4);
+      assert.strictEqual(observationRowCount(5), 5);
+      assert.strictEqual(observationRowCount(SHRIMP_ROW_LIMIT), SHRIMP_ROW_LIMIT);
+    });
+
+    it('jumlah udang per sesi yang tidak layak dirender menghasilkan 0 baris', () => {
+      for (const bad of [0, -1, 2.5, SHRIMP_ROW_LIMIT + 1, Number.NaN]) {
+        assert.strictEqual(observationRowCount(bad), 0, `nilai ${bad} harus ditolak`);
+      }
+      // Batas 3–5 ekor ditegakkan constraint DB pengelompokan; di sini yang
+      // dijaga hanya kelayakan render, jadi nilai lain tetap mendapat barisnya.
+      assert.strictEqual(observationRowCount(6), 6);
+    });
+
+    it('rata-rata dari seluruh baris, dibulatkan 2 desimal', () => {
+      assert.strictEqual(observationTempMean(['5', '5.5', '6'], 3), 5.5);
+      assert.strictEqual(observationTempMean(['5.11', '5.12'], 2), 5.12);
+      assert.strictEqual(observationTempMean(['-2'], 1), -2);
+      assert.strictEqual(observationTempMean(['30'], 1), 30);
+    });
+
+    it('baris belum lengkap atau bukan angka tidak menghasilkan angka setengah jadi', () => {
+      assert.strictEqual(observationTempMean(['5'], 3), null);
+      assert.strictEqual(observationTempMean(['5', '', '6'], 3), null);
+      assert.strictEqual(observationTempMean(['5', '  ', '6'], 3), null);
+      assert.strictEqual(observationTempMean(['5', 'abc', '6'], 3), null);
+      assert.strictEqual(observationTempMean([], 0), null);
+      assert.strictEqual(observationTempMean([], 3), null);
+      assert.strictEqual(observationTempMean(['5', '5'], Number.NaN), null);
+    });
+
+    it('nilai di luar rentang suhu tahap ditolak, batasnya inklusif', () => {
+      assert.strictEqual(observationTempMean(['-2.1'], 1), null);
+      assert.strictEqual(observationTempMean(['30.1'], 1), null);
+      assert.strictEqual(observationTempMean(['5', '99'], 2), null);
+    });
+
+    it('baris di luar jumlah ekor diabaikan, bukan menggeser rata-rata', () => {
+      assert.strictEqual(observationTempMean(['5', '6', '7'], 2), 5.5);
     });
   });
 });

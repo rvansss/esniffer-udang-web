@@ -8,7 +8,9 @@ Istilah pengadaan dan pengujian udang untuk pengumpulan dataset.
 
 **Grup SR/SD**: Pembagian sampel batch berdasarkan penyimpanan suhu ruang (SR) atau suhu dingin (SD). Keduanya diuji menggunakan chamber.
 
-**Tahap pengukuran**: Observasi pada waktu tertentu, misalnya H0 atau H6, yang memiliki pengukuran berat dan suhu udang tersendiri.
+**Tahap pengukuran**: Observasi pada waktu tertentu, misalnya H0 atau H6, yang memiliki pengukuran berat dan suhu udang tersendiri. Suhu diukur per ekor pada sampel grup (3–5 ekor); yang disimpan sebagai suhu tahap adalah rata-ratanya.
+
+**Jumlah udang per sesi**: Banyaknya udang sampel yang diuji pada setiap tahap sebuah grup, 3–5 ekor. Ditetapkan sekali saat pengelompokan batch (terpisah untuk SR dan SD) dan dipakai lagi sebagai panjang baris pengukuran suhu tiap tahap.
 
 **Baseline**: Pembacaan udara bersih pada dua menit pertama sesi sebelum pembacaan sampel.
 

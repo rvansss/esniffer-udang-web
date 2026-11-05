@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import { parseWibInput } from '../lib/batch-wizard.ts';
+import { observationTempMean, parseWibInput } from '../lib/batch-wizard.ts';
+import { OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C } from '../shared/dataset.ts';
 
 // Jalankan handler UI asli dengan pengganti state/network, agar regresi cabang
 // create/edit terdeteksi tanpa menyalin logika handler ke dalam tes.
@@ -36,12 +37,15 @@ function setup(overrides: Record<string, unknown> = {}) {
     mode: 'create', captureMode: 'time_range', groupId: 'BT-20261024-01-SR',
     timepointCode: 'H6', chamberId: 'chamber-1',
     startTimeWib: '2020-10-24T20:10', durationMinutes: 1,
-    shrimpTempC: '5.5', shrimpWeightG: '480', photos: [], photoCaptions: [],
+    shrimpTemps: ['5', '5.5', '6'], shrimpWeightG: '480', photos: [], photoCaptions: [],
     ...overrides,
   };
   const context = {
     sessionModal: modal,
     parseWibInput,
+    observationTempMean,
+    OBSERVATION_TEMP_MIN_C,
+    OBSERVATION_TEMP_MAX_C,
     MAX_PHOTO_CAPTION_LENGTH: 140,
     warmup: { 'BT-20261024-01-SR': true },
     chSel: {},
@@ -87,13 +91,43 @@ test('buat sesi rentang waktu mengirim POST, menautkan data, dan membuka hasil s
 });
 
 test('edit tahap hanya PATCH sesi yang dipilih, tanpa membuat sesi baru', async () => {
-  const h = setup({ mode: 'edit', captureMode: undefined, sessionId: 'SES-20261024-H6-SR' });
+  const h = setup({ mode: 'edit', captureMode: undefined, sessionId: 'SES-20261024-H6-SR', shrimpTemps: ['5.5'] });
   await h.submit();
   assert.equal(h.requests.length, 1);
   assert.equal(h.requests[0].method, 'PATCH');
   assert.equal(h.requests[0].url, '/api/v1/sessions/SES-20261024-H6-SR');
   assert.equal(h.requests[0].payload.shrimpTempC, 5.5);
   assert.match(h.notices[0], /berhasil diperbarui/);
+});
+
+test('edit tahap yang dikosongkan mengirim null, bukan angka tebakan', async () => {
+  const h = setup({ mode: 'edit', captureMode: undefined, sessionId: 'SES-20261024-H6-SR', shrimpTemps: [''] });
+  await h.submit();
+  assert.equal(h.requests.length, 1);
+  assert.strictEqual(h.requests[0].payload.shrimpTempC, null);
+});
+
+test('suhu tahap baru dikirim sebagai rata-rata baris per ekor', async () => {
+  const h = setup({ captureMode: 'live' });
+  await h.submit();
+  assert.equal(h.requests[0].payload.shrimpTempC, 5.5);
+});
+
+test('baris suhu belum lengkap memblokir pembuatan sesi', async () => {
+  for (const shrimpTemps of [['5', '', '6'], ['5', 'abc', '6'], ['5', '99', '6']]) {
+    const h = setup({ captureMode: 'live', shrimpTemps });
+    await h.submit();
+    assert.equal(h.requests.length, 0, `baris ${JSON.stringify(shrimpTemps)} tidak boleh terkirim`);
+    assert.equal(h.notices.length, 0);
+    assert.ok(h.modal?.err, 'pesan galat harus tampil di modal');
+  }
+});
+
+test('jumlah udang per sesi yang belum terbaca memblokir sesi dengan pesan pengelompokan', async () => {
+  const h = setup({ captureMode: 'live', shrimpTemps: [] });
+  await h.submit();
+  assert.equal(h.requests.length, 0);
+  assert.match(String(h.modal?.err), /pengelompokan/i);
 });
 
 test('rekam langsung membuat sesi tanpa rentang historis', async () => {
