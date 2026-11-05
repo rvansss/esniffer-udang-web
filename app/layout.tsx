@@ -21,9 +21,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id">
+    // suppressHydrationWarning pada <html>/<body> mematikan peringatan
+    // hydration di level elemen ini saja. Ekstensi browser (Grammarly,
+    // Google Translate, dsb.) menyuntikkan atribut ke <html>/<body> sebelum
+    // React hydrate sehingga atributnya tidak ada di HTML server; mismatch
+    // itu bukan bug aplikasi. Karena hanya berlaku satu level, mismatch pada
+    // elemen anak tetap dilaporkan.
+    <html lang="id" suppressHydrationWarning>
       {/* Body dibiarkan bersih dari warna background agar tidak bentrok dengan globals.css */}
-      <body className="text-white font-sans antialiased selection:bg-cyan-500/30">
+      <body
+        className="text-white font-sans antialiased selection:bg-cyan-500/30"
+        suppressHydrationWarning
+      >
         <a
           href="#konten-utama"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-cyan-600 focus:text-white focus:font-mono focus:text-xs"
