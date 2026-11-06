@@ -162,16 +162,26 @@ describe('HTTP API v1: Dataset Batch Photos Upload (Fase 4)', () => {
     assert.strictEqual(res.status, 422);
   });
 
-  it('3. File >5MB ditolak (413); jumlah foto tidak dibatasi', async () => {
+  it('3. Foto besar diterima (5 MB hanya peringatan); jumlah foto tidak dibatasi', async () => {
+    // 6 MB: di atas ambang peringatan, di bawah pagar pengaman server.
     const big = await photoReq(batchId, adminCookie, [
       { name: 'besar.jpg', type: 'image/jpeg', bytes: new Uint8Array(6 * 1024 * 1024) },
     ]);
-    assert.strictEqual(big.status, 413);
+    assert.strictEqual(big.status, 201, 'foto di atas 5 MB tidak boleh lagi ditolak');
+    assert.strictEqual((await big.json()).data.photos.length, 3);
+
+    // Sebagian ponsel mengirim MIME kosong untuk .jpeg: ekstensi jadi cadangan.
+    const noMime = await photoReq(batchId, adminCookie, [
+      { name: 'lanjutan.JPEG', type: '', bytes: PNG.bytes },
+    ]);
+    assert.strictEqual(noMime.status, 201);
+    const noMimePhotos = (await noMime.json()).data.photos as Array<{ url: string }>;
+    assert.match(noMimePhotos[noMimePhotos.length - 1].url, /\.jpg$/);
 
     const many = Array.from({ length: 9 }, (_, i) => ({ ...JPG, name: `f${i}.jpg` }));
-    const over = await photoReq(batchId, adminCookie, many); // 2 + 9 = 11 foto: tetap diterima
+    const over = await photoReq(batchId, adminCookie, many); // 4 + 9 = 13 foto: tetap diterima
     assert.strictEqual(over.status, 201);
-    assert.strictEqual((await over.json()).data.photos.length, 11);
+    assert.strictEqual((await over.json()).data.photos.length, 13);
   });
 
   it('4. Tanpa file, tanpa auth, dan VIEWER ditolak (422/401/403)', async () => {

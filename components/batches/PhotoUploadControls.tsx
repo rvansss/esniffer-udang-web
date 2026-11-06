@@ -1,5 +1,6 @@
 "use client";
 import { CameraIcon, GalleryIcon } from '../ui/icons';
+import { PHOTO_ACCEPT } from '../../shared/dataset.ts';
 
 /**
  * Dua kontrol bersama untuk semua input foto batch (wizard, unggah detail
@@ -34,7 +35,7 @@ export function PhotoSourcePicker({
       <input
         id={`${id}-gallery`}
         type="file"
-        accept="image/jpeg,image/png"
+        accept={PHOTO_ACCEPT}
         multiple={multiple}
         onChange={(e) => {
           onFiles(e.currentTarget.files, e.currentTarget);
@@ -51,7 +52,7 @@ export function PhotoSourcePicker({
       <input
         id={`${id}-camera`}
         type="file"
-        accept="image/jpeg,image/png"
+        accept={PHOTO_ACCEPT}
         capture="environment"
         // Tanpa `multiple`: kamera ponsel memang mengembalikan satu foto per
         // pengambilan, dan `multiple` + `capture` membuat sebagian penjelajah

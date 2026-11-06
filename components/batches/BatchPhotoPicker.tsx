@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { MAX_PHOTO_CAPTION_LENGTH } from '../../shared/dataset.ts';
+import { MAX_PHOTO_CAPTION_LENGTH, PHOTO_MAX_BYTES, PHOTO_WARN_BYTES, formatPhotoSize, isPhotoFile, isPhotoOversize, isPhotoTooLarge } from '../../shared/dataset.ts';
 import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from './PhotoUploadControls';
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono text-white/85';
@@ -20,7 +20,8 @@ const photoRemoveCls =
 /**
  * Pemilih foto wizard (butir 2): mengelola pratinjaunya sendiri lalu melapor
  * berkas + caption ke induk lewat onChange. Aturan file mengikuti foto batch:
- * JPG/PNG sampai 5 MB, tiap foto wajib ber-caption.
+ * JPG/JPEG/PNG tanpa batas ukuran (foto di atas 5 MB hanya diberi peringatan),
+ * tiap foto wajib ber-caption.
  */
 export default function PhotosBlock({
   prefix,
@@ -44,19 +45,21 @@ export default function PhotosBlock({
 
   const select = (list: FileList | null, input: HTMLInputElement) => {
     const incoming = Array.from(list ?? []);
-    const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
-    const fitting = usable.filter((f) => f.size <= 5 * 1024 * 1024);
+    // Ukuran tidak menyaring: yang ditolak hanya bukan JPG/JPEG/PNG atau di atas
+    // pagar pengaman server.
+    const usable = incoming.filter((f) => isPhotoFile(f) && !isPhotoTooLarge(f.size));
+    const oversize = usable.filter((f) => isPhotoOversize(f.size));
     if (usable.length < incoming.length) {
-      setNote('Hanya file JPG/PNG yang dipakai. File lain dilewati.');
-    } else if (fitting.length < usable.length) {
-      setNote('Tiap foto maksimal 5 MB. File lebih besar dilewati.');
+      setNote(`Hanya JPG/JPEG/PNG maksimal ${formatPhotoSize(PHOTO_MAX_BYTES)} yang dipakai. File lain dilewati.`);
+    } else if (oversize.length > 0) {
+      setNote(`${oversize.length} foto di atas ${formatPhotoSize(PHOTO_WARN_BYTES)} — tetap bisa diunggah, hanya lebih lambat.`);
     } else {
       setNote('');
     }
-    const nextFiles = [...files, ...fitting];
-    const nextCaptions = [...captions, ...fitting.map(() => '')];
+    const nextFiles = [...files, ...usable];
+    const nextCaptions = [...captions, ...usable.map(() => '')];
     setFiles(nextFiles);
-    const added = fitting.map((f) => URL.createObjectURL(f));
+    const added = usable.map((f) => URL.createObjectURL(f));
     previewRef.current.push(...added);
     setPreviews((prev) => [...prev, ...added]);
     setCaptions(nextCaptions);
@@ -99,35 +102,46 @@ export default function PhotosBlock({
         <>
           <CaptionGuide />
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {previews.map((src, i) => (
-              <div key={src} className="relative space-y-1">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
-                <label className={`${labelCls} flex items-center gap-1`} htmlFor={`${prefix}-photo-caption-${i}`}>
-                  Caption <span aria-hidden="true" className="text-rose-400">*</span>
-                </label>
-                <input
-                  id={`${prefix}-photo-caption-${i}`}
-                  name={`${prefix}-photo-caption-${i}`}
-                  type="text"
-                  maxLength={MAX_PHOTO_CAPTION_LENGTH}
-                  autoComplete="off"
-                  value={captions[i] ?? ''}
-                  aria-required="true"
-                  onChange={(e) => setCaption(i, e.target.value)}
-                  placeholder={CAPTION_PLACEHOLDER}
-                  className={inputCls}
-                />
-                <button
-                  type="button"
-                  onClick={() => remove(i)}
-                  aria-label={`Hapus foto ${i + 1}`}
-                  className={photoRemoveCls}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+            {previews.map((src, i) => {
+              const size = files[i]?.size ?? 0;
+              const oversize = isPhotoOversize(size);
+              return (
+                <div key={src} className="relative space-y-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
+                  <p
+                    className={`text-[10px] font-mono ${oversize ? 'text-amber-300' : 'text-white/40'}`}
+                    role={oversize ? 'status' : undefined}
+                  >
+                    {formatPhotoSize(size)}
+                    {oversize ? ` · > ${formatPhotoSize(PHOTO_WARN_BYTES)}, tetap bisa diunggah` : ''}
+                  </p>
+                  <label className={`${labelCls} flex items-center gap-1`} htmlFor={`${prefix}-photo-caption-${i}`}>
+                    Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    id={`${prefix}-photo-caption-${i}`}
+                    name={`${prefix}-photo-caption-${i}`}
+                    type="text"
+                    maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                    autoComplete="off"
+                    value={captions[i] ?? ''}
+                    aria-required="true"
+                    onChange={(e) => setCaption(i, e.target.value)}
+                    placeholder={CAPTION_PLACEHOLDER}
+                    className={inputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => remove(i)}
+                    aria-label={`Hapus foto ${i + 1}`}
+                    className={photoRemoveCls}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </>
       )}

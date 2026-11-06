@@ -8,16 +8,30 @@ import { jsonResponse, errorResponse, getRequestId } from '../../../../../../lib
 import { conflict, notFound, payloadTooLarge, validationError } from '../../../../../../lib/api/errors.ts';
 import { parsePhotoCaption } from '../../../../../../lib/api/dataset.ts';
 import { logger } from '../../../../../../lib/logging/logger.ts';
-import { MAX_PHOTO_BYTES } from '../../../../../../shared/dataset.ts';
+import { PHOTO_MAX_BYTES } from '../../../../../../shared/dataset.ts';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': '.jpg',
+  // Sebagian penjelajah ponsel mengirim MIME non-standar ini untuk berkas .jpg.
+  'image/jpg': '.jpg',
   'image/png': '.png',
 };
 
-/** Nama file aman anti-traversal: <batchId>_<timestamp>_<index>.<ext>. */
-function buildFileName(batchId: string, index: number, mimeType: string): string {
-  return `${batchId}_${randomUUID()}_${index}${ALLOWED_TYPES[mimeType]}`;
+/**
+ * Ekstensi tujuan berkas foto, atau `null` bila bukan JPG/JPEG/PNG. Tipe MIME
+ * dipercaya lebih dulu, ekstensi nama berkas jadi cadangan saat MIME kosong.
+ */
+function photoExtension(file: File): string | null {
+  const byMime = ALLOWED_TYPES[file.type.toLowerCase()];
+  if (byMime) return byMime;
+  const match = /\.(jpe?g|png)$/i.exec(file.name);
+  if (!match) return null;
+  return match[1].toLowerCase() === 'png' ? '.png' : '.jpg';
+}
+
+/** Nama file aman anti-traversal: <batchId>_<uuid>_<index>.<ext>. */
+function buildFileName(batchId: string, index: number, extension: string): string {
+  return `${batchId}_${randomUUID()}_${index}${extension}`;
 }
 
 export interface BatchPhotoItem {
@@ -46,9 +60,10 @@ function assertOwnedUrl(url: unknown, prefix: string, batchId: string): string {
 
 /**
  * Upload foto dokumentasi batch (ADMIN, multi-file, lokal).
- * Syarat: batch ada + belum terkunci, tiap file maks 5MB jpg/png,
- * tiap file wajib membawa caption (field "captions": array JSON
- * string sejajar urutan file "photos"). Jumlah foto tidak dibatasi.
+ * Syarat: batch ada + belum terkunci, tiap file jpg/jpeg/png, tiap file wajib
+ * membawa caption (field "captions": array JSON string sejajar urutan file
+ * "photos"). Jumlah foto dan UKURAN foto tidak dibatasi; 5 MB hanya peringatan di
+ * UI, dan server cuma menolak di atas pagar pengaman PHOTO_MAX_BYTES.
  */
 export async function POST(
   request: Request,
@@ -125,16 +140,22 @@ export async function POST(
 
     // Offset penomoran file agar tidak tabrakan dengan foto yang sudah ada.
     const existing = await prisma.batchPhoto.count({ where: { batchId } });
+    const extensions: string[] = [];
     for (const file of files) {
-      if (!(file.type in ALLOWED_TYPES)) {
-        throw validationError(`File "${file.name}" harus jpg/png`);
-      }
-      if (file.size > MAX_PHOTO_BYTES) {
-        throw payloadTooLarge(`File "${file.name}" melebihi 5MB`);
+      const extension = photoExtension(file);
+      if (!extension) {
+        throw validationError(`File "${file.name}" harus jpg, jpeg, atau png`);
       }
       if (file.size === 0) {
         throw validationError(`File "${file.name}" kosong`);
       }
+      if (file.size > PHOTO_MAX_BYTES) {
+        const limitMb = Math.round(PHOTO_MAX_BYTES / (1024 * 1024));
+        throw payloadTooLarge(
+          `File "${file.name}" melebihi batas pengaman ${limitMb} MB. Perkecil foto atau naikkan PHOTO_MAX_BYTES di shared/dataset.ts.`
+        );
+      }
+      extensions.push(extension);
     }
 
     const dir = path.join(process.cwd(), 'public', 'uploads', batchId);
@@ -142,7 +163,7 @@ export async function POST(
 
     const rows: Array<{ batchId: string; url: string; caption: string; sortOrder: number; groupId: string | null; sessionId: string | null }> = [];
     for (let i = 0; i < files.length; i += 1) {
-      const fileName = buildFileName(batchId, existing + i, files[i].type);
+      const fileName = buildFileName(batchId, existing + i, extensions[i]);
       const buffer = Buffer.from(await files[i].arrayBuffer());
       await writeFile(path.join(dir, fileName), buffer);
       rows.push({

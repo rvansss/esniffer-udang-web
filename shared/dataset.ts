@@ -16,10 +16,57 @@ export class DatasetValidationError extends Error {
   }
 }
 
-// Batas foto (PRD §3.1): tiap file maks 5MB, caption maks 140 karakter.
-// Jumlah foto per batch tidak dibatasi.
-export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+// Foto dokumentasi (PRD §3.1): caption maks 140 karakter, jumlah foto per batch
+// tidak dibatasi. UKURAN tidak lagi jadi syarat: kamera ponsel 12 MP menghasilkan
+// 4–8 MB per foto, dan penolakan 5 MB lama memaksa operator memotret ulang atau
+// mengompres sebelum data lapangan sempat tercatat.
+//
+// 5 MB kini hanya AMBANG PERINGATAN: UI memberi tahu fotonya besar, unggahan
+// tetap jalan.
+export const PHOTO_WARN_BYTES = 5 * 1024 * 1024;
+
+// Pagar pengaman teknis, bukan batas protokol: seluruh body multipart ditahan di
+// memori proses, jadi satu unggahan raksasa bisa menjatuhkan server. Naikkan
+// angka ini kalau memang perlu foto di atas 50 MB.
+export const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
+
 export const MAX_PHOTO_CAPTION_LENGTH = 140;
+
+/** Atribut `accept` untuk semua input foto: JPG, JPEG, dan PNG. */
+export const PHOTO_ACCEPT = 'image/jpeg,image/jpg,image/png,.jpg,.jpeg,.png';
+
+/**
+ * Berkas yang boleh diunggah sebagai foto: JPG/JPEG/PNG dan tidak kosong.
+ * Tipe MIME dipakai lebih dulu; sebagian penjelajah ponsel mengirim `image/jpg`
+ * atau tipe kosong untuk berkas .jpg, jadi ekstensi nama dipakai sebagai cadangan.
+ */
+export function isPhotoFile(file: { type: string; name: string; size: number }): boolean {
+  if (!(file.size > 0)) return false;
+  if (file.type === 'image/jpeg' || file.type === 'image/jpg' || file.type === 'image/png') {
+    return true;
+  }
+  return /\.(jpe?g|png)$/i.test(file.name);
+}
+
+/** Foto di atas 5 MB: tampilkan peringatan, bukan tolak. */
+export function isPhotoOversize(bytes: number): boolean {
+  return bytes > PHOTO_WARN_BYTES;
+}
+
+/** Foto di atas pagar pengaman: hanya ini yang boleh ditolak server. */
+export function isPhotoTooLarge(bytes: number): boolean {
+  return bytes > PHOTO_MAX_BYTES;
+}
+
+/** Ukuran berkas untuk label UI: "4,2 MB" / "812 KB". */
+export function formatPhotoSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes >= 1024 * 1024) {
+    const mb = (bytes / (1024 * 1024)).toLocaleString('id-ID', { maximumFractionDigits: 1 });
+    return `${mb} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 // Revisi validasi: kolom pengukuran (suhu cool box, suhu udang, panjang udang,
 // jumlah udang) TIDAK lagi punya rentang domain yang memblokir simpan. Yang

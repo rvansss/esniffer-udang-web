@@ -665,7 +665,8 @@ Kedua kontrol dipakai bersama oleh tiga titik unggah: pemilih foto wizard (`Batc
 | Alasan | `capture` memaksa kamera terbuka langsung dan menghilangkan pilihan galeri; perilaku itu hanya dipertahankan pada tombol khusus ponsel |
 | Ukuran target | Minimum tinggi 44px (`min-h-11`), radius 12px, surface putih 10%, border putih 15% |
 | Fokus | `focus-within:ring-2` emerald, karena elemen input aslinya `sr-only` |
-| Atribut berkas | `accept="image/jpeg,image/png"`, `multiple`; validasi 5 MB dan caption tetap di komponen pemanggil |
+| Atribut berkas | `accept={PHOTO_ACCEPT}` (JPG/JPEG/PNG), `multiple`; caption wajib di komponen pemanggil, ukuran **tidak** membatasi unggahan |
+| Ukuran foto | Tidak ada batas 5 MB. Di atas `PHOTO_WARN_BYTES` (5 MB) hanya tampil peringatan amber "tetap bisa diunggah"; server menolak hanya di atas pagar pengaman `PHOTO_MAX_BYTES` (50 MB) |
 | Struktur grup | Judul blok foto memakai `fieldset`/`legend` agar dua tombol sumber terbaca sebagai satu grup |
 
 `CaptionGuide` menerangkan format `kegiatan-udang<no>-tahap<no>-sr/sd` dengan contoh `suhu-udang1-tahap1-sr`, disertai arti `sr` = suhu ruang dan `sd` = suhu dingin. Panduan ini **bukan validasi**: caption tetap hanya wajib diisi dan dibatasi 140 karakter, sehingga data lama yang tidak mengikuti format tetap dapat disimpan.

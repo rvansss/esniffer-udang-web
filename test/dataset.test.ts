@@ -7,7 +7,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DatasetValidationError,
-  MAX_PHOTO_BYTES,
   isValidBatchId,
   isValidGroupId,
   isValidSessionId,
@@ -122,8 +121,38 @@ test('Jendela pengadaan: 05:00–08:00 WIB inklusif', () => {
   assert.ok(!isProcurementWindow(new Date('2026-10-02T02:00:00.000Z'))); // 09:00 WIB
 });
 
-test('Batas foto: tiap file maks 5MB, jumlah tidak dibatasi', () => {
-  assert.strictEqual(MAX_PHOTO_BYTES, 5 * 1024 * 1024);
+test('Foto: 5 MB hanya peringatan; hard limit 50 MB dan hanya JPG/JPEG/PNG', async () => {
+  const {
+    PHOTO_WARN_BYTES,
+    PHOTO_MAX_BYTES,
+    isPhotoOversize,
+    isPhotoTooLarge,
+    isPhotoFile,
+    formatPhotoSize,
+    PHOTO_ACCEPT,
+  } = await import('../shared/dataset.ts');
+  assert.strictEqual(PHOTO_WARN_BYTES, 5 * 1024 * 1024);
+  assert.strictEqual(PHOTO_MAX_BYTES, 50 * 1024 * 1024);
+  // Di atas 5 MB: peringatan, bukan penolakan. Di atas 50 MB: ditolak.
+  assert.strictEqual(isPhotoOversize(PHOTO_WARN_BYTES), false);
+  assert.strictEqual(isPhotoOversize(PHOTO_WARN_BYTES + 1), true);
+  assert.strictEqual(isPhotoOversize(10 * 1024 * 1024), true);
+  assert.strictEqual(isPhotoTooLarge(PHOTO_MAX_BYTES), false);
+  assert.strictEqual(isPhotoTooLarge(PHOTO_MAX_BYTES + 1), true);
+  assert.strictEqual(isPhotoTooLarge(12 * 1024 * 1024), false);
+  // Ekstensi .jpg/.jpeg/.png diterima, termasuk saat tipe MIME kosong/non-standar.
+  for (const name of ['a.jpg', 'b.jpeg', 'c.png', 'd.JPG']) {
+    assert.strictEqual(isPhotoFile({ type: '', name, size: 1 }), true, name);
+  }
+  assert.strictEqual(isPhotoFile({ type: 'image/jpg', name: 'x', size: 1 }), true);
+  assert.strictEqual(isPhotoFile({ type: 'image/jpeg', name: 'x', size: 1 }), true);
+  for (const name of ['a.gif', 'b.heic', 'c.webp', 'd.txt']) {
+    assert.strictEqual(isPhotoFile({ type: 'image/gif', name, size: 1 }), false, name);
+  }
+  assert.strictEqual(isPhotoFile({ type: 'image/jpeg', name: 'kosong.jpg', size: 0 }), false);
+  assert.strictEqual(formatPhotoSize(4.2 * 1024 * 1024), '4,2 MB');
+  assert.strictEqual(formatPhotoSize(512 * 1024), '512 KB');
+  assert.match(PHOTO_ACCEPT, /\.jpeg/);
 });
 
 test('Baseline cutoff: 2 menit setelah mulai sesi', async () => {

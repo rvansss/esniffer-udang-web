@@ -12,7 +12,7 @@ import SessionResultModal from '../../../components/batches/SessionResultModal';
 import ObservationTempFields from '../../../components/batches/ObservationTempFields';
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
 import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from '../../../components/batches/PhotoUploadControls';
-import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
+import { PHOTO_MAX_BYTES, PHOTO_WARN_BYTES, TIMEPOINT_SEQUENCES, MAX_PHOTO_CAPTION_LENGTH, formatPhotoSize, isPhotoFile, isPhotoOversize, isPhotoTooLarge, wibDateTimeLocal } from '../../../shared/dataset.ts';
 import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
 import { pickUploadCandidates } from '../../../lib/photo-queue.ts';
 import {
@@ -873,14 +873,21 @@ export default function BatchDetailPage() {
    * Pilih foto: selalu DITAMBAH ke daftar, bukan menggantikan. Di ponsel kamera
    * mengembalikan satu foto per pengambilan, jadi tanpa penambahan foto kedua
    * akan menghapus foto pertama — persis keluhan "foto terganti versi terbaru".
+   *
+   * Ukuran tidak lagi menyaring apa pun: foto 10 MB ke atas tetap diterima, hanya
+   * diberi peringatan per foto di daftar. Yang dilewati cuma berkas bukan
+   * JPG/JPEG/PNG atau di atas pagar pengaman server.
    */
   const handlePhotoSelect = (list: FileList | null, input: HTMLInputElement) => {
     const incoming = Array.from(list ?? []);
-    const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
-    const fitting = usable.filter((f) => f.size <= MAX_PHOTO_BYTES);
-    const accepted = fitting;
-    if (accepted.length < incoming.length) {
-      setError('Ada file yang dilewati: hanya JPG/PNG dan maksimal 5 MB per file.');
+    const accepted = incoming.filter((f) => isPhotoFile(f) && !isPhotoTooLarge(f.size));
+    const tooLarge = incoming.filter((f) => isPhotoFile(f) && isPhotoTooLarge(f.size));
+    if (tooLarge.length > 0) {
+      setError(
+        `${tooLarge.length} file dilewati karena melebihi batas pengaman ${formatPhotoSize(PHOTO_MAX_BYTES)}: ${tooLarge.map((f) => f.name).join(', ')}.`
+      );
+    } else if (accepted.length < incoming.length) {
+      setError('Ada file yang dilewati: hanya JPG/JPEG/PNG.');
     }
     setFiles((prev) => [...prev, ...accepted]);
     setFilePreviews((prev) => [...prev, ...accepted.map((f) => URL.createObjectURL(f))]);
@@ -1324,45 +1331,57 @@ export default function BatchDetailPage() {
                   . Foto baru ditambahkan, tidak menggantikan yang lama.
                 </p>
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {filePreviews.map((src, i) => (
-                    <div key={src} className="relative space-y-1">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
-                      <label className="flex items-center gap-1 text-[11px] font-mono font-semibold text-white/85" htmlFor={`upload-caption-${i}`}>
-                        Caption <span aria-hidden="true" className="text-rose-400">*</span>
-                      </label>
-                      <input
-                        id={`upload-caption-${i}`}
-                        name={`upload-caption-${i}`}
-                        type="text"
-                        maxLength={MAX_PHOTO_CAPTION_LENGTH}
-                        autoComplete="off"
-                        value={fileCaptions[i] ?? ''}
-                        aria-required="true"
-                        onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
-                        placeholder={CAPTION_PLACEHOLDER}
-                        className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleUpload(i)}
-                        disabled={busy || (fileCaptions[i] ?? '').trim() === ''}
-                        aria-label={`Unggah foto ${i + 1} sekarang`}
-                        title="Unggah foto ini saja, tanpa menunggu foto lain bercaption"
-                        className="w-full px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 text-[11px] font-mono font-bold transition-colors disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
-                      >
-                        Unggah
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removePhoto(i)}
-                        aria-label={`Hapus foto ${i + 1} dari pilihan`}
-                        className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                  {filePreviews.map((src, i) => {
+                    const size = files[i]?.size ?? 0;
+                    const oversize = isPhotoOversize(size);
+                    return (
+                      <div key={src} className="relative space-y-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                        {/* Ukuran selalu tampil: >5 MB memicu peringatan, bukan penolakan. */}
+                        <p
+                          className={`text-[10px] font-mono ${oversize ? 'text-amber-300' : 'text-white/40'}`}
+                          role={oversize ? 'status' : undefined}
+                        >
+                          {formatPhotoSize(size)}
+                          {oversize ? ` · > ${formatPhotoSize(PHOTO_WARN_BYTES)}, tetap bisa diunggah` : ''}
+                        </p>
+                        <label className="flex items-center gap-1 text-[11px] font-mono font-semibold text-white/85" htmlFor={`upload-caption-${i}`}>
+                          Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                        </label>
+                        <input
+                          id={`upload-caption-${i}`}
+                          name={`upload-caption-${i}`}
+                          type="text"
+                          maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                          autoComplete="off"
+                          value={fileCaptions[i] ?? ''}
+                          aria-required="true"
+                          onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
+                          placeholder={CAPTION_PLACEHOLDER}
+                          className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleUpload(i)}
+                          disabled={busy || (fileCaptions[i] ?? '').trim() === ''}
+                          aria-label={`Unggah foto ${i + 1} sekarang`}
+                          title="Unggah foto ini saja, tanpa menunggu foto lain bercaption"
+                          className="w-full px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 text-[11px] font-mono font-bold transition-colors disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                        >
+                          Unggah
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(i)}
+                          aria-label={`Hapus foto ${i + 1} dari pilihan`}
+                          className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -2222,12 +2241,16 @@ export default function BatchDetailPage() {
                   id="session-photo"
                   onFiles={(list) => {
                     const incoming = Array.from(list ?? []);
-                    const usable = incoming.filter(
-                      (f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0 && f.size <= MAX_PHOTO_BYTES
-                    );
+                    // Ukuran tidak menyaring: foto besar tetap dilampirkan, hanya
+                    // diberi peringatan di daftar. Yang dilewati cuma berkas yang
+                    // bukan JPG/JPEG/PNG atau di atas pagar pengaman server.
+                    const usable = incoming.filter((f) => isPhotoFile(f) && !isPhotoTooLarge(f.size));
                     if (usable.length === 0) {
                       if (incoming.length > 0) {
-                        setSessionModal((m) => (m ? { ...m, err: 'File dilewati: wajib jpg/png maks 5MB.' } : null));
+                        setSessionModal((m) => (m ? {
+                          ...m,
+                          err: `File dilewati: wajib JPG/JPEG/PNG, maksimal ${formatPhotoSize(PHOTO_MAX_BYTES)}.`,
+                        } : null));
                       }
                       return;
                     }
@@ -2247,7 +2270,7 @@ export default function BatchDetailPage() {
                             err:
                               usable.length === incoming.length
                                 ? null
-                                : 'Beberapa file dilewati: wajib jpg/png maks 5MB.',
+                                : `Beberapa file dilewati: wajib JPG/JPEG/PNG, maksimal ${formatPhotoSize(PHOTO_MAX_BYTES)}.`,
                           }
                         : null
                     );
@@ -2264,46 +2287,57 @@ export default function BatchDetailPage() {
                 )}
                 {sessionModal.photoPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    {sessionModal.photoPreviews.map((src, i) => (
-                      <div key={src} className="relative space-y-1">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={src}
-                          alt={`Pratinjau foto ${i + 1}`}
-                          className="w-full h-20 object-cover rounded-lg border border-white/10"
-                        />
-                        <input
-                          type="text"
-                          maxLength={MAX_PHOTO_CAPTION_LENGTH}
-                          autoComplete="off"
-                          aria-label={`Caption foto ${i + 1}`}
-                          value={sessionModal.photoCaptions[i] ?? ''}
-                          onChange={(e) =>
-                            setSessionModal((m) => (m ? {
-                              ...m,
-                              photoCaptions: m.photoCaptions.map((c, j) => (j === i ? e.target.value : c)),
-                            } : null))}
-                          placeholder={CAPTION_PLACEHOLDER}
-                          className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            URL.revokeObjectURL(src);
-                            setSessionModal((m) => (m ? {
-                              ...m,
-                              photos: m.photos.filter((_, j) => j !== i),
-                              photoPreviews: m.photoPreviews.filter((_, j) => j !== i),
-                              photoCaptions: m.photoCaptions.filter((_, j) => j !== i),
-                            } : null));
-                          }}
-                          aria-label={`Hapus foto ${i + 1} dari pilihan`}
-                          className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                    {sessionModal.photoPreviews.map((src, i) => {
+                      const size = sessionModal.photos[i]?.size ?? 0;
+                      const oversize = isPhotoOversize(size);
+                      return (
+                        <div key={src} className="relative space-y-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={src}
+                            alt={`Pratinjau foto ${i + 1}`}
+                            className="w-full h-20 object-cover rounded-lg border border-white/10"
+                          />
+                          <p
+                            className={`text-[10px] font-mono ${oversize ? 'text-amber-300' : 'text-white/40'}`}
+                            role={oversize ? 'status' : undefined}
+                          >
+                            {formatPhotoSize(size)}
+                            {oversize ? ` · > ${formatPhotoSize(PHOTO_WARN_BYTES)}, tetap bisa diunggah` : ''}
+                          </p>
+                          <input
+                            type="text"
+                            maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                            autoComplete="off"
+                            aria-label={`Caption foto ${i + 1}`}
+                            value={sessionModal.photoCaptions[i] ?? ''}
+                            onChange={(e) =>
+                              setSessionModal((m) => (m ? {
+                                ...m,
+                                photoCaptions: m.photoCaptions.map((c, j) => (j === i ? e.target.value : c)),
+                              } : null))}
+                            placeholder={CAPTION_PLACEHOLDER}
+                            className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              URL.revokeObjectURL(src);
+                              setSessionModal((m) => (m ? {
+                                ...m,
+                                photos: m.photos.filter((_, j) => j !== i),
+                                photoPreviews: m.photoPreviews.filter((_, j) => j !== i),
+                                photoCaptions: m.photoCaptions.filter((_, j) => j !== i),
+                              } : null));
+                            }}
+                            aria-label={`Hapus foto ${i + 1} dari pilihan`}
+                            className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
