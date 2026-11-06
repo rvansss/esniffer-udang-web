@@ -90,6 +90,7 @@ test('buat sesi rentang waktu mengirim POST, menautkan data, dan membuka hasil s
   assert.equal(h.requests[0].payload.endedAtUtc, '2020-10-24T13:11:00.000Z');
   assert.equal(h.requests[0].payload.autoBackfill, true);
   assert.equal(h.requests[0].payload.chamberId, 'chamber-1');
+  assert.equal(h.requests[0].payload.durationSeconds, 60);
   assert.equal(h.resultSession, 'SES-20261024-H6-SR');
   assert.match(h.notices[0], /30 data sensor berhasil dikaitkan/);
   assert.equal(h.modal, null);
@@ -172,6 +173,25 @@ test('rekam langsung ditolak bila kalibrasi belum pernah dimulai', async () => {
   await h.submit();
   assert.equal(h.requests.length, 0);
   assert.match(String(h.modal?.err), /kalibrasi/i);
+});
+
+test('durasi dari form tahap tersimpan sebagai durationSeconds, bukan angka tetap', async () => {
+  // Satu-satunya isian durasi ada di modal; nilai operator harus ikut terkirim
+  // supaya baris DB dan rentang jam di kolom Tahap sesuai isian.
+  for (const durationMinutes of [1, 15, 25, 120]) {
+    const h = setup({ captureMode: 'live', durationMinutes });
+    await h.submit();
+    assert.equal(h.requests[0].payload.durationSeconds, durationMinutes * 60, `durasi ${durationMinutes} mnt`);
+  }
+});
+
+test('durasi di luar 1-120 menit memblokir pembuatan sesi', async () => {
+  for (const durationMinutes of [0, 121, Number.NaN]) {
+    const h = setup({ captureMode: 'live', durationMinutes });
+    await h.submit();
+    assert.equal(h.requests.length, 0, `durasi ${String(durationMinutes)} tidak boleh terkirim`);
+    assert.match(String(h.modal?.err), /durasi/i);
+  }
 });
 
 test('chamber grup yang tersimpan dipakai ketika pilihan sesi belum diubah', async () => {

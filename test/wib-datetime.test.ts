@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  formatWibClockRange,
   formatWibDateTime,
   formatWibTime,
   toWibIso,
@@ -43,4 +44,30 @@ test('format jam grafik dan notifikasi menyatakan WIB dengan ketelitian yang ses
   assert.equal(formatWibTime(instant, { label: false }), '03:05:09');
   assert.equal(formatWibDateTime(instant), '24/10/2026 03:05 WIB');
   assert.deepEqual(toWibParts(instant), { date: '2026-10-24', time: '03:05:09' });
+});
+
+test('rentang jam tahap: jam selesai kosong diberi label, dan tetap WIB lintas hari', () => {
+  assert.equal(
+    formatWibClockRange('2026-10-24T01:00:00.000Z', '2026-10-24T01:15:00.000Z'),
+    '08:00–08:15'
+  );
+  // Sesi yang masih berjalan: jam selesai belum ada di DB.
+  assert.equal(formatWibClockRange('2026-10-24T01:00:00.000Z', null), '08:00–…');
+  assert.equal(formatWibClockRange('2026-10-24T01:00:00.000Z', undefined, 'berjalan'), '08:00–berjalan');
+
+  // Lintas tengah malam WIB (H12 ke hari berikutnya) dan tidak tergantung zona perangkat.
+  const originalZone = process.env.TZ;
+  try {
+    for (const zone of ['Asia/Jakarta', 'UTC', 'America/Los_Angeles']) {
+      process.env.TZ = zone;
+      assert.equal(
+        formatWibClockRange('2026-10-24T16:50:00.000Z', '2026-10-24T17:20:00.000Z'),
+        '23:50–00:20',
+        zone
+      );
+    }
+  } finally {
+    if (originalZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalZone;
+  }
 });

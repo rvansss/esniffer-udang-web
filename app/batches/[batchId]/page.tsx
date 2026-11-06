@@ -4,7 +4,7 @@ import BatchEditForm from '../../../components/batches/BatchEditForm';
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { WIB_TIME_ZONE } from '../../../shared/datetime.ts';
+import { WIB_TIME_ZONE, formatWibClockRange, formatWibDateTime } from '../../../shared/datetime.ts';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessNotice';
@@ -42,6 +42,7 @@ interface SessionItem {
   chamberId: string | null;
   deviceId: string | null;
   startedAtUtc?: string;
+  endedAtUtc?: string | null;
   durationSeconds?: number | null;
   shrimpTempC: number | null;
   shrimpWeightG: number | null;
@@ -102,6 +103,13 @@ interface BatchDetail {
 
 const SR_TIMEPOINTS = TIMEPOINT_SEQUENCES.room_temp;
 const SD_TIMEPOINTS = TIMEPOINT_SEQUENCES.cold;
+
+/**
+ * Durasi bawaan sesi baru. Satu sumber angka: form tahap ke-N yang mengisi
+ * `durationMinutes`, sesi baru memakai angka ini sampai operator mengubahnya.
+ */
+const DEFAULT_DURATION_MINS = 15;
+const DEFAULT_DURATION_SECONDS = DEFAULT_DURATION_MINS * 60;
 
 const cardCls = 'p-5 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 space-y-3';
 const btnPrimary =
@@ -218,8 +226,6 @@ export default function BatchDetailPage() {
   // dokumentasi + pengelompokan dalam satu form.
   const [editOpen, setEditOpen] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  // Durasi pengujian per group (dalam menit, default 15 menit)
-  const [durationMins, setDurationMins] = useState<Record<string, number>>({});
   // Input timepoint kustom per grup
   const [customTp, setCustomTp] = useState<Record<string, string>>({});
   // Konfirmasi hapus tahap pengujian
@@ -514,7 +520,7 @@ export default function BatchDetailPage() {
       setError('Selesaikan kalibrasi sensor dulu: tunggu hitungan mundur kalibrasi habis sebelum Start Tahap.');
       return;
     }
-    const defaultMins = durationMins[g.groupId] ?? 15;
+    const defaultMins = DEFAULT_DURATION_MINS;
     const defaultChamberId = chSel[g.groupId] || g.chamberId || (chambers.length === 1 ? chambers[0].id : '');
     const defaultStart = captureMode === 'time_range'
       ? new Date(Date.now() - defaultMins * 60_000)
@@ -570,7 +576,7 @@ export default function BatchDetailPage() {
       groupId: g.groupId,
       sessionId: s.sessionId,
       timepointCode: s.timepointCode,
-      durationMinutes: s.durationSeconds ? Math.round(s.durationSeconds / 60) : 15,
+      durationMinutes: s.durationSeconds ? Math.round(s.durationSeconds / 60) : DEFAULT_DURATION_MINS,
       shrimpTemps: [s.shrimpTempC === null ? '' : String(s.shrimpTempC)],
       shrimpWeightG: s.shrimpWeightG === null ? '' : String(s.shrimpWeightG),
       photos: [],
@@ -797,7 +803,7 @@ export default function BatchDetailPage() {
       for (const s of g.sessions) {
         if (s.status === 'open' && s.startedAtUtc) {
           const startedMs = new Date(s.startedAtUtc).getTime();
-          const targetSeconds = s.durationSeconds ?? (durationMins[g.groupId] ? durationMins[g.groupId] * 60 : 900);
+          const targetSeconds = s.durationSeconds ?? DEFAULT_DURATION_SECONDS;
           const elapsedSeconds = Math.floor((nowMs - startedMs) / 1000);
           if (elapsedSeconds >= targetSeconds) {
             void handleCompleteRef.current(s, true);
@@ -805,7 +811,7 @@ export default function BatchDetailPage() {
         }
       }
     }
-  }, [nowMs, batch, durationMins]);
+  }, [nowMs, batch]);
 
   /** Pilih foto: tambah ke yang sudah ada (bukan mengganti). */
   const handlePhotoSelect = (list: FileList | null, input: HTMLInputElement) => {
@@ -1362,7 +1368,30 @@ export default function BatchDetailPage() {
                       const editable = isAdmin && !locked;
                       return (
                         <tr key={s.sessionId} className="border-b border-white/5 last:border-b-0">
-                          <td className="px-3 py-2 text-sm font-mono font-bold text-white">{tahap}</td>
+                          {/* Nomor tahap + rentang jam WIB. Jam selesai dipakai
+                              apa adanya dari DB (endedAtUtc); sesi yang masih
+                              open ditandai "berjalan", bukan jam rencana. */}
+                          <td className="px-3 py-2">
+                            <span className="block text-sm font-mono font-bold text-white whitespace-nowrap">
+                              Tahap {tahap}.
+                            </span>
+                            {s.startedAtUtc && (
+                              <span
+                                className="block text-[10px] font-mono text-white/55 whitespace-nowrap"
+                                title={
+                                  s.endedAtUtc
+                                    ? `Mulai ${formatWibDateTime(new Date(s.startedAtUtc))}, selesai ${formatWibDateTime(new Date(s.endedAtUtc))}`
+                                    : `Mulai ${formatWibDateTime(new Date(s.startedAtUtc))}, belum selesai`
+                                }
+                              >
+                                ({formatWibClockRange(
+                                  s.startedAtUtc,
+                                  s.endedAtUtc,
+                                  s.status === 'open' ? 'berjalan' : '…'
+                                )})
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2">
                             <div className="text-xs font-mono">
                               <span className="font-bold text-white">{s.timepointCode}</span>
@@ -1371,7 +1400,7 @@ export default function BatchDetailPage() {
                             {s.status === 'open' ? (
                               (() => {
                                 const startedMs = s.startedAtUtc ? new Date(s.startedAtUtc).getTime() : 0;
-                                const targetSec = s.durationSeconds ?? (durationMins[g.groupId] ? durationMins[g.groupId] * 60 : 900);
+                                const targetSec = s.durationSeconds ?? DEFAULT_DURATION_SECONDS;
                                 const elapsedSec = startedMs > 0 ? Math.max(0, Math.floor((nowMs - startedMs) / 1000)) : 0;
                                 const remSec = Math.max(0, targetSec - elapsedSec);
                                 const remM = Math.floor(remSec / 60);
@@ -1591,28 +1620,8 @@ export default function BatchDetailPage() {
                     </span>
                   </>
                 )}
-                <div className="flex items-center gap-1.5">
-                  <label htmlFor={`dur-${g.groupId}`} className="text-[11px] font-mono text-white/60">
-                    Durasi pengujian:
-                  </label>
-                  <div className="flex items-center">
-                    <input
-                      id={`dur-${g.groupId}`}
-                      type="number"
-                      min={1}
-                      max={120}
-                      value={durationMins[g.groupId] ?? 15}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setDurationMins({ ...durationMins, [g.groupId]: val });
-                      }}
-                      className="w-16 px-2 py-1.5 rounded-l-xl bg-black/25 border border-white/10 text-xs font-mono text-white text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300"
-                    />
-                    <span className="px-2 py-1.5 rounded-r-xl bg-white/10 border-y border-r border-white/10 text-[11px] font-mono text-white/60">
-                      mnt
-                    </span>
-                  </div>
-                </div>
+                {/* Durasi pengujian hanya diisi di form tahap ke-N (modal),
+                    supaya tidak ada dua kolom durasi yang bisa bertentangan. */}
                 {/* Kalibrasi sensor: durasi diisi operator. Dulu di sini ada
                     checkbox "warmup 30 menit" — durasinya tetap dan tidak ada
                     bukti waktunya. Chip di bawah = durasi yang pernah dipakai
@@ -1986,7 +1995,7 @@ export default function BatchDetailPage() {
                     className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-white text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                   />
                   <p className="text-[11px] font-mono text-white/45 mt-1">
-                    Default 15 menit. Grafik hasil pengujian sensor akan otomatis ditampilkan saat pengujian selesai.
+                    Default {DEFAULT_DURATION_MINS} menit (1–120). Angka ini menjadi durasi sesi yang tersimpan dan rentang jam di kolom Tahap. Grafik hasil pengujian sensor akan otomatis ditampilkan saat pengujian selesai.
                   </p>
                 </div>
               ) : null}

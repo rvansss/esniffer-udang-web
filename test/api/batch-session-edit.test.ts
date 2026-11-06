@@ -153,7 +153,18 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     const sessionBody = await sessionRes.json();
     assert.strictEqual(sessionBody.data.shrimpTempC, 4.5);
     assert.strictEqual(sessionBody.data.shrimpWeightG, 500.1);
+    // Kontrak kolom "Tahap": rentang jam dibaca dari startedAtUtc/endedAtUtc.
+    // Sesi live belum punya jam selesai, dan durasi bawaannya benar-benar
+    // tersimpan (bukan hanya diterima lalu dibuang).
+    assert.strictEqual(sessionBody.data.durationSeconds, 900);
+    assert.strictEqual(sessionBody.data.endedAtUtc, null);
+    assert.ok(sessionBody.data.startedAtUtc);
     sessionH0 = sessionBody.data.sessionId;
+    const storedSession = await prisma.measurementSession.findUniqueOrThrow({
+      where: { sessionId: sessionH0 },
+    });
+    assert.strictEqual(storedSession.durationSeconds, 900);
+    assert.strictEqual(storedSession.endedAtUtc, null);
   });
 
   after(async () => {
