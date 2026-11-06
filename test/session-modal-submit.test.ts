@@ -41,9 +41,13 @@ function setup(overrides: Record<string, unknown> = {}) {
     shrimpTemps: ['5', '5.5', '6'], shrimpWeightG: '480', photos: [], photoCaptions: [],
     ...overrides,
   };
-  // Kalibrasi grup ini sudah selesai 2 menit lalu (durasi 1 menit).
-  const calibRun: Record<string, { mins: number; startedAtMs: number } | null> = {
-    'BT-20261024-01-SR': { mins: 1, startedAtMs: Date.now() - 120_000 },
+  // Kalibrasi grup ini sudah selesai: dua tahap (2 langkah) habis beberapa menit lalu.
+  type CalibRun = { mins: number[]; starts: Array<number | null> } | null;
+  const calibRun: Record<string, CalibRun> = {
+    'BT-20261024-01-SR': {
+      mins: [1, 1],
+      starts: [Date.now() - 120_000, Date.now() - 60_000],
+    },
   };
   const context = {
     sessionModal: modal,
@@ -159,8 +163,10 @@ test('rekam langsung membuat sesi tanpa rentang historis', async () => {
 
 test('rekam langsung ditolak bila hitungan kalibrasi belum habis', async () => {
   const h = setup({ captureMode: 'live' });
-  // Baru mulai 30 detik dari durasi 5 menit: belum selesai.
-  h.context.calibRun = { 'BT-20261024-01-SR': { mins: 5, startedAtMs: Date.now() - 30_000 } };
+  // Baru mulai 30 detik dari durasi 5 menit: langkah 2 belum jalan.
+  h.context.calibRun = {
+    'BT-20261024-01-SR': { mins: [5, 5], starts: [Date.now() - 30_000, null] },
+  };
   await h.submit();
   assert.equal(h.requests.length, 0);
   assert.match(String(h.modal?.err), /kalibrasi/i);

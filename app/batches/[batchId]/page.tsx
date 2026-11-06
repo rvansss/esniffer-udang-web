@@ -14,19 +14,24 @@ import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons
 import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from '../../../components/batches/PhotoUploadControls';
 import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
 import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
+import { pickUploadCandidates } from '../../../lib/photo-queue.ts';
 import {
-  CALIBRATION_DEFAULT_MINS,
   CALIBRATION_MAX_MINS,
   CALIBRATION_MIN_MINS,
+  CALIBRATION_STEPS,
   calibrationDone,
-  calibrationRemainingMs,
   calibrationRunKey,
+  calibrationStepRemainingMs,
+  calibrationStepState,
   clearCalibrationRun,
+  defaultCalibrationDurations,
   formatCalibrationCountdown,
   normalizeCalibrationMins,
-  readCalibrationHistory,
+  readCalibrationDurations,
   readCalibrationRun,
-  rememberCalibrationMins,
+  saveCalibrationDurations,
+  startCalibration,
+  startCalibrationStep,
   writeCalibrationRun,
   type CalibrationRun,
 } from '../../../lib/calibration.ts';
@@ -201,11 +206,15 @@ export default function BatchDetailPage() {
   // form sesi per grup
   const [tpSel, setTpSel] = useState<Record<string, string>>({});
   // Kalibrasi sensor per grup (lib/calibration.ts). Menggantikan checkbox
-  // "warmup 30 menit": durasi diisi operator, hitungan mundur mengunci tombol
-  // Start Tahap sampai habis. Riwayat durasi dipakai sebagai pilihan cepat.
+  // "warmup 30 menit": dua tahap (chamber tertutup, lalu dibuka untuk mengukur
+  // suhu/berat) dihitung mundur dan mengunci tombol Start Tahap sampai kedua
+  // langkahnya habis. Waktu tunggu setelah udang masuk chamber tidak dihitung di
+  // sini — durasinya diisi di form tahap ("Durasi pengujian").
   const [calibRun, setCalibRun] = useState<Record<string, CalibrationRun | null>>({});
-  const [calibMins, setCalibMins] = useState<Record<string, string>>({});
-  const [calibHistory, setCalibHistory] = useState<number[]>([]);
+  /** Isian durasi per grup per langkah; indeks sejajar CALIBRATION_STEPS. */
+  const [calibMins, setCalibMins] = useState<Record<string, string[]>>({});
+  /** Durasi terakhir yang dipakai, jadi nilai awal isian grup berikutnya. */
+  const [calibDurations, setCalibDurations] = useState<number[]>(defaultCalibrationDurations);
   const [cleaning, setCleaning] = useState<Record<string, boolean>>({});
   const [chSel, setChSel] = useState<Record<string, string>>({});
   const [coldChamberDraft, setColdChamberDraft] = useState<Record<string, string>>({});
@@ -246,9 +255,10 @@ export default function BatchDetailPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Riwayat durasi kalibrasi: pilihan cepat agar angka yang sama tidak diketik ulang.
+  // Durasi kalibrasi terakhir jadi nilai awal isian. Dibaca setelah mount
+  // supaya hasil render server dan klien sama.
   useEffect(() => {
-    setCalibHistory(readCalibrationHistory());
+    setCalibDurations(readCalibrationDurations());
   }, []);
 
   // Pulihkan kalibrasi yang sedang berjalan setelah muat ulang halaman, supaya
@@ -476,24 +486,68 @@ export default function BatchDetailPage() {
     return `H${sorted[0].elapsedHours + 6}`;
   };
 
-  /** Durasi kalibrasi yang sedang diisi: isian operator, riwayat terakhir, bawaan. */
-  const calibMinsFor = (g: GroupItem): string =>
-    calibMins[g.groupId] ?? String(calibHistory[0] ?? CALIBRATION_DEFAULT_MINS);
+  /** Durasi satu langkah kalibrasi: isian operator, durasi terakhir, bawaan. */
+  const calibMinsFor = (g: GroupItem, index: number): string =>
+    calibMins[g.groupId]?.[index] ??
+    String(calibDurations[index] ?? CALIBRATION_STEPS[index].defaultMins);
 
-  /** Tombol Start Tahap terbuka hanya setelah hitungan kalibrasi habis. */
+  /** Tulis isian satu langkah tanpa mengubah isian langkah lain di grup ini. */
+  const setCalibStepMins = (g: GroupItem, index: number, value: string) => {
+    setCalibMins((prev) => {
+      const rows = prev[g.groupId]
+        ? [...prev[g.groupId]]
+        : CALIBRATION_STEPS.map((_, i) => calibMinsFor(g, i));
+      rows[index] = value;
+      return { ...prev, [g.groupId]: rows };
+    });
+  };
+
+  /** Tombol Start Tahap terbuka hanya setelah dua tahap kalibrasi habis. */
   const isCalibrated = (groupId: string): boolean =>
     calibrationDone(calibRun[groupId] ?? null, nowMs);
 
-  const handleStartCalibration = (g: GroupItem) => {
-    const mins = normalizeCalibrationMins(calibMinsFor(g));
-    if (mins === null) {
-      setError(`Durasi kalibrasi harus bilangan bulat ${CALIBRATION_MIN_MINS}–${CALIBRATION_MAX_MINS} menit.`);
-      return;
-    }
-    const run: CalibrationRun = { mins, startedAtMs: Date.now() };
+  /** Simpan kalibrasi yang berubah, catat durasinya, dan segarkan isian grup. */
+  const applyCalibrationRun = (g: GroupItem, run: CalibrationRun) => {
     writeCalibrationRun(calibrationRunKey(batchId, g.groupId), run);
     setCalibRun((prev) => ({ ...prev, [g.groupId]: run }));
-    setCalibHistory(rememberCalibrationMins(mins));
+    setCalibDurations(saveCalibrationDurations(run.mins));
+    setCalibMins((prev) => {
+      const next = { ...prev };
+      delete next[g.groupId];
+      return next;
+    });
+  };
+
+  /** Mulai kalibrasi: langkah 1 (chamber tertutup) langsung berjalan. */
+  const handleStartCalibration = (g: GroupItem) => {
+    const mins = CALIBRATION_STEPS.map((_, i) => normalizeCalibrationMins(calibMinsFor(g, i)));
+    const invalid = mins.findIndex((value) => value === null);
+    if (invalid >= 0) {
+      setError(
+        `Durasi ${CALIBRATION_STEPS[invalid].label} harus bilangan bulat ${CALIBRATION_MIN_MINS}–${CALIBRATION_MAX_MINS} menit.`
+      );
+      return;
+    }
+    const run = startCalibration(mins as number[], Date.now());
+    if (!run) return;
+    applyCalibrationRun(g, run);
+  };
+
+  /** Lanjut ke langkah kalibrasi berikutnya (chamber dibuka untuk ukur suhu & timbang). */
+  const handleNextCalibrationStep = (g: GroupItem, index: number) => {
+    if (index <= 0) {
+      handleStartCalibration(g);
+      return;
+    }
+    const mins = normalizeCalibrationMins(calibMinsFor(g, index));
+    const run = startCalibrationStep(calibRun[g.groupId] ?? null, index, mins, Date.now());
+    if (!run) {
+      setError(
+        `Langkah "${CALIBRATION_STEPS[index].label}" belum bisa dimulai: selesaikan dulu "${CALIBRATION_STEPS[index - 1].label}".`
+      );
+      return;
+    }
+    applyCalibrationRun(g, run);
   };
 
   /** Batalkan / ulangi kalibrasi: hitungan kembali ke nol, Start Tahap terkunci lagi. */
@@ -517,7 +571,9 @@ export default function BatchDetailPage() {
       return;
     }
     if (captureMode === 'live' && !isCalibrated(g.groupId)) {
-      setError('Selesaikan kalibrasi sensor dulu: tunggu hitungan mundur kalibrasi habis sebelum Start Tahap.');
+      setError(
+        'Selesaikan kalibrasi dua tahap dulu: chamber tertutup, lalu chamber dibuka untuk ukur suhu & timbang udang.'
+      );
       return;
     }
     const defaultMins = DEFAULT_DURATION_MINS;
@@ -663,14 +719,14 @@ export default function BatchDetailPage() {
         return;
       }
     } else if (mode === 'create' && captureMode !== 'time_range' && !calibrationDone(calibRun[groupId] ?? null, nowMs)) {
-      fail('Selesaikan kalibrasi sensor dulu (tunggu hitungan mundur habis) sebelum mulai rekam langsung.');
+      fail('Selesaikan kalibrasi dua tahap dulu (chamber tertutup, lalu chamber dibuka untuk ukur suhu & timbang udang) sebelum mulai rekam langsung.');
       return;
     }
 
     if (photos.length > 0) {
       const badCaption = photoCaptions.findIndex((c) => c.trim() === '' || c.trim().length > MAX_PHOTO_CAPTION_LENGTH);
       if (badCaption >= 0) {
-        fail(`Caption foto ke-${badCaption + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter).`);
+        fail(`Caption foto ke-${badCaption + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter) atau fotonya dihapus dulu.`);
         return;
       }
     }
@@ -813,7 +869,11 @@ export default function BatchDetailPage() {
     }
   }, [nowMs, batch]);
 
-  /** Pilih foto: tambah ke yang sudah ada (bukan mengganti). */
+  /**
+   * Pilih foto: selalu DITAMBAH ke daftar, bukan menggantikan. Di ponsel kamera
+   * mengembalikan satu foto per pengambilan, jadi tanpa penambahan foto kedua
+   * akan menghapus foto pertama — persis keluhan "foto terganti versi terbaru".
+   */
   const handlePhotoSelect = (list: FileList | null, input: HTMLInputElement) => {
     const incoming = Array.from(list ?? []);
     const usable = incoming.filter((f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0);
@@ -835,26 +895,33 @@ export default function BatchDetailPage() {
     setFileCaptions((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleUpload = async () => {
-    if (files.length === 0) {
-      setError('Pilih minimal 1 file foto dulu');
+  /**
+   * Unggah foto yang captionnya sudah terisi — semua sekaligus, atau satu foto
+   * lewat `onlyIndex`. Foto tanpa caption TIDAK ikut dikirim dan tetap di
+   * daftar, jadi operator bisa memotret dulu beberapa kali lalu mengunggah
+   * bertahap tanpa kehilangan foto yang belum diberi caption.
+   */
+  const handleUpload = async (onlyIndex?: number) => {
+    const ready = pickUploadCandidates(files, fileCaptions, onlyIndex);
+    const tooLong = ready.find((item) => item.caption.length > MAX_PHOTO_CAPTION_LENGTH);
+    if (tooLong) {
+      setError(`Caption foto ke-${tooLong.index + 1} maksimal ${MAX_PHOTO_CAPTION_LENGTH} karakter.`);
       return;
     }
-    const badCaption = fileCaptions.findIndex(
-      (c) => c.trim() === '' || c.trim().length > MAX_PHOTO_CAPTION_LENGTH
-    );
-    if (badCaption >= 0) {
-      setError(`Caption foto ke-${badCaption + 1} wajib diisi (maks ${MAX_PHOTO_CAPTION_LENGTH} karakter).`);
+    if (ready.length === 0) {
+      setError(
+        onlyIndex === undefined
+          ? 'Isi caption minimal satu foto. Foto yang captionnya masih kosong tetap menunggu di daftar.'
+          : `Caption foto ke-${onlyIndex + 1} wajib diisi sebelum diunggah.`
+      );
       return;
     }
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
-      for (const f of files) {
-        form.append('photos', f);
-      }
-      form.append('captions', JSON.stringify(fileCaptions));
+      for (const item of ready) form.append('photos', item.file);
+      form.append('captions', JSON.stringify(ready.map((item) => item.caption)));
       const res = await apiFetch(`/api/v1/batches/${encodeURIComponent(batchId)}/photos`, {
         method: 'POST',
         body: form,
@@ -863,11 +930,20 @@ export default function BatchDetailPage() {
       if (!res.ok) {
         throw new Error(body.error?.message || `Gagal mengunggah foto (kode ${res.status}). Periksa koneksi lalu coba lagi.`);
       }
-      notify(`Berhasil mengunggah ${files.length} foto.`);
-      filePreviews.forEach((src) => URL.revokeObjectURL(src));
-      setFiles([]);
-      setFilePreviews([]);
-      setFileCaptions([]);
+      // Hanya yang terkirim yang dilepas dari daftar; sisanya tetap menunggu.
+      const uploaded = new Set(ready.map((item) => item.index));
+      filePreviews.forEach((src, i) => {
+        if (uploaded.has(i)) URL.revokeObjectURL(src);
+      });
+      const restFiles = files.filter((_, i) => !uploaded.has(i));
+      setFiles(restFiles);
+      setFilePreviews((prev) => prev.filter((_, i) => !uploaded.has(i)));
+      setFileCaptions((prev) => prev.filter((_, i) => !uploaded.has(i)));
+      notify(
+        restFiles.length > 0
+          ? `${ready.length} foto terunggah. ${restFiles.length} foto menunggu caption dan tetap di daftar.`
+          : `Berhasil mengunggah ${ready.length} foto.`
+      );
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal upload foto');
@@ -875,6 +951,9 @@ export default function BatchDetailPage() {
       setBusy(false);
     }
   };
+
+  /** Foto di daftar yang captionnya sudah terisi — siap diunggah. */
+  const photoReadyCount = files.filter((_, i) => (fileCaptions[i] ?? '').trim() !== '').length;
 
   const handleSaveCaption = async (photoUrl: string) => {
     const caption = (captionEdits[photoUrl] ?? '').trim();
@@ -1229,44 +1308,63 @@ export default function BatchDetailPage() {
               <PhotoSourcePicker id="batch-photo" onFiles={handlePhotoSelect} />
               <button
                 onClick={() => void handleUpload()}
-                disabled={busy || files.length === 0}
+                disabled={busy || photoReadyCount === 0}
                 className={btnPrimary}
               >
-                Upload{files.length > 0 ? ` (${files.length})` : ''}
+                Upload{photoReadyCount > 0 ? ` (${photoReadyCount})` : ''}
               </button>
             </div>
             {files.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                {filePreviews.map((src, i) => (
-                  <div key={src} className="relative space-y-1">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
-                    <label className="flex items-center gap-1 text-[11px] font-mono font-semibold text-white/85" htmlFor={`upload-caption-${i}`}>
-                      Caption <span aria-hidden="true" className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      id={`upload-caption-${i}`}
-                      name={`upload-caption-${i}`}
-                      type="text"
-                      maxLength={MAX_PHOTO_CAPTION_LENGTH}
-                      autoComplete="off"
-                      value={fileCaptions[i] ?? ''}
-                      aria-required="true"
-                      onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
-                      placeholder={CAPTION_PLACEHOLDER}
-                      className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(i)}
-                      aria-label={`Hapus foto ${i + 1} dari pilihan`}
-                      className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <>
+                <p className="text-[11px] font-mono text-white/55" role="status">
+                  {files.length} foto di daftar · {photoReadyCount} siap diunggah
+                  {files.length > photoReadyCount
+                    ? ` · ${files.length - photoReadyCount} menunggu caption`
+                    : ''}
+                  . Foto baru ditambahkan, tidak menggantikan yang lama.
+                </p>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {filePreviews.map((src, i) => (
+                    <div key={src} className="relative space-y-1">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-20 object-cover rounded-lg border border-white/10" />
+                      <label className="flex items-center gap-1 text-[11px] font-mono font-semibold text-white/85" htmlFor={`upload-caption-${i}`}>
+                        Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        id={`upload-caption-${i}`}
+                        name={`upload-caption-${i}`}
+                        type="text"
+                        maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                        autoComplete="off"
+                        value={fileCaptions[i] ?? ''}
+                        aria-required="true"
+                        onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
+                        placeholder={CAPTION_PLACEHOLDER}
+                        className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleUpload(i)}
+                        disabled={busy || (fileCaptions[i] ?? '').trim() === ''}
+                        aria-label={`Unggah foto ${i + 1} sekarang`}
+                        title="Unggah foto ini saja, tanpa menunggu foto lain bercaption"
+                        className="w-full px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 text-[11px] font-mono font-bold transition-colors disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                      >
+                        Unggah
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(i)}
+                        aria-label={`Hapus foto ${i + 1} dari pilihan`}
+                        className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -1276,11 +1374,12 @@ export default function BatchDetailPage() {
         const seq = g.storageCondition === 'cold' ? SD_TIMEPOINTS : SR_TIMEPOINTS;
         const taken = usedCodes(g);
         const available = seq.filter((t) => !taken.has(t));
-        // Kalibrasi grup ini: durasi terisi, hitungan berjalan, sudah selesai.
+        // Kalibrasi grup ini: status per langkah dan berapa langkah yang sudah habis.
         const calibRunOf = calibRun[g.groupId] ?? null;
         const calibDoneNow = calibrationDone(calibRunOf, nowMs);
-        const calibRemaining = calibrationRemainingMs(calibRunOf, nowMs);
-        const calibValue = calibMinsFor(g);
+        const calibDoneCount = CALIBRATION_STEPS.filter(
+          (_, i) => calibrationStepState(calibRunOf, i, nowMs) === 'done'
+        ).length;
         const nextTahapCode =
           tpSel[g.groupId] === 'CUSTOM'
             ? customTp[g.groupId] ?? ''
@@ -1622,107 +1721,145 @@ export default function BatchDetailPage() {
                 )}
                 {/* Durasi pengujian hanya diisi di form tahap ke-N (modal),
                     supaya tidak ada dua kolom durasi yang bisa bertentangan. */}
-                {/* Kalibrasi sensor: durasi diisi operator. Dulu di sini ada
-                    checkbox "warmup 30 menit" — durasinya tetap dan tidak ada
-                    bukti waktunya. Chip di bawah = durasi yang pernah dipakai
-                    (riwayat), supaya angka yang sama tidak diketik ulang. */}
-                <div className="flex w-full flex-wrap items-center gap-2 pt-1">
-                  <label htmlFor={`calib-mins-${g.groupId}`} className="text-[11px] font-mono text-white/60">
-                    Durasi kalibrasi:
-                  </label>
-                  <div className="flex items-center">
-                    <input
-                      id={`calib-mins-${g.groupId}`}
-                      type="number"
-                      min={CALIBRATION_MIN_MINS}
-                      max={CALIBRATION_MAX_MINS}
-                      step={1}
-                      inputMode="numeric"
-                      disabled={calibRunOf !== null}
-                      aria-describedby={`calib-hint-${g.groupId}`}
-                      value={calibValue}
-                      onChange={(e) => setCalibMins({ ...calibMins, [g.groupId]: e.target.value })}
-                      // Angka lama langsung terpilih saat fokus: mengetik angka
-                      // baru menimpanya, tidak menempel jadi "3015".
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="w-16 px-2 py-1.5 rounded-l-xl bg-black/25 border border-white/10 text-xs font-mono text-white text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300 disabled:opacity-60"
-                    />
-                    <span className="px-2 py-1.5 rounded-r-xl bg-white/10 border-y border-r border-white/10 text-[11px] font-mono text-white/60">
-                      mnt
-                    </span>
-                  </div>
-                  {calibHistory.map((mins) => (
-                    <button
-                      key={mins}
-                      type="button"
-                      disabled={calibRunOf !== null}
-                      aria-pressed={calibValue === String(mins)}
-                      onClick={() => setCalibMins({ ...calibMins, [g.groupId]: String(mins) })}
-                      title={`Pakai durasi kalibrasi ${mins} menit (riwayat)`}
-                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-mono transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${
-                        calibValue === String(mins)
-                          ? 'bg-emerald-500/25 border-emerald-400/50 text-emerald-100'
-                          : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
+                {/* Kalibrasi dua tahap: chamber tertutup, lalu chamber dibuka
+                    sambil mengukur suhu & menimbang udang. Tiap langkah dihitung
+                    mundur sendiri dan Start Tahap terkunci sampai keduanya habis.
+                    Waktu tunggu setelahnya ikut "Durasi pengujian" di form tahap,
+                    bukan langkah kalibrasi ketiga. Dulu di sini hanya ada checkbox
+                    "warmup 30 menit" tanpa bukti waktu. */}
+                <div className="w-full space-y-2 pt-1">
+                  <p className="text-[11px] font-mono font-bold tracking-widest uppercase text-amber-200/80">
+                    Kalibrasi sensor · 2 tahap
+                  </p>
+                  <ol className="space-y-2">
+                    {CALIBRATION_STEPS.map((step, i) => {
+                      const stepState = calibrationStepState(calibRunOf, i, nowMs);
+                      const stepRemaining = calibrationStepRemainingMs(calibRunOf, i, nowMs);
+                      const previousDone =
+                        i === 0 || calibrationStepState(calibRunOf, i - 1, nowMs) === 'done';
+                      const canStart = stepState === 'idle' && previousDone;
+                      return (
+                        <li
+                          key={step.key}
+                          className="rounded-xl bg-black/20 border border-white/10 p-2.5 space-y-1.5"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`text-[11px] font-mono font-semibold ${
+                                stepState === 'done' ? 'text-emerald-200' : 'text-white/85'
+                              }`}
+                            >
+                              {step.label}
+                            </span>
+                            <div className="flex items-center">
+                              <input
+                                id={`calib-mins-${g.groupId}-${step.key}`}
+                                type="number"
+                                min={CALIBRATION_MIN_MINS}
+                                max={CALIBRATION_MAX_MINS}
+                                step={1}
+                                inputMode="numeric"
+                                disabled={stepState !== 'idle'}
+                                aria-label={`Durasi ${step.label} dalam menit`}
+                                value={calibMinsFor(g, i)}
+                                onChange={(e) => setCalibStepMins(g, i, e.target.value)}
+                                // Angka lama langsung terpilih saat fokus: mengetik
+                                // angka baru menimpanya, tidak menempel jadi "3015".
+                                onFocus={(e) => e.currentTarget.select()}
+                                className="w-16 px-2 py-1.5 rounded-l-xl bg-black/25 border border-white/10 text-xs font-mono text-white text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300 disabled:opacity-60"
+                              />
+                              <span className="px-2 py-1.5 rounded-r-xl bg-white/10 border-y border-r border-white/10 text-[11px] font-mono text-white/60">
+                                mnt
+                              </span>
+                            </div>
+                            {stepState === 'running' ? (
+                              <span
+                                role="timer"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-[11px] font-mono font-bold text-amber-200"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"
+                                />
+                                {formatCalibrationCountdown(stepRemaining)}
+                              </span>
+                            ) : stepState === 'done' ? (
+                              <span
+                                role="status"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-mono font-bold text-emerald-200"
+                              >
+                                <span aria-hidden="true">✓</span> selesai
+                              </span>
+                            ) : canStart ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  i === 0
+                                    ? handleStartCalibration(g)
+                                    : handleNextCalibrationStep(g, i)
+                                }
+                                disabled={busy}
+                                className="px-3 py-1.5 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-[11px] font-mono font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                                title={`Mulai hitungan ${step.label}`}
+                              >
+                                {i === 0 ? 'Mulai kalibrasi' : 'Mulai langkah'}
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-mono text-white/35">
+                                menunggu langkah sebelumnya
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] font-mono text-white/45">{step.instruction}</p>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <div className="flex w-full flex-wrap items-center gap-2">
+                    <span
+                      role={calibDoneNow ? 'status' : 'timer'}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-mono font-bold ${
+                        calibDoneNow
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200'
+                          : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
                       }`}
                     >
-                      {mins} mnt
-                    </button>
-                  ))}
-                </div>
-                <div className="flex w-full flex-wrap items-center gap-2">
-                  {calibRunOf === null ? (
-                    <button
-                      type="button"
-                      onClick={() => handleStartCalibration(g)}
-                      disabled={busy}
-                      className="px-3 py-1.5 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-xs font-mono font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                      title={`Mulai hitungan mundur kalibrasi ${calibValue} menit`}
-                    >
-                      Mulai Kalibrasi
-                    </button>
-                  ) : (
-                    <>
                       <span
-                        role={calibDoneNow ? 'status' : 'timer'}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-mono font-bold ${
-                          calibDoneNow
-                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200'
-                            : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
-                        }`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`w-1.5 h-1.5 rounded-full ${calibDoneNow ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}
-                        />
-                        {calibDoneNow
-                          ? 'Kalibrasi selesai'
-                          : `Kalibrasi ${formatCalibrationCountdown(calibRemaining)}`}
-                      </span>
+                        aria-hidden="true"
+                        className={`w-1.5 h-1.5 rounded-full ${calibDoneNow ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}
+                      />
+                      {calibDoneNow
+                        ? 'Kalibrasi selesai'
+                        : calibRunOf
+                          ? `Kalibrasi ${calibDoneCount}/${CALIBRATION_STEPS.length} langkah`
+                          : 'Kalibrasi belum dimulai'}
+                    </span>
+                    {calibRunOf !== null && (
                       <button
                         type="button"
                         onClick={() => resetCalibration(g.groupId)}
                         disabled={busy}
                         className="px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-white/70 text-[11px] font-mono transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-                        title={calibDoneNow ? 'Ulangi kalibrasi dari nol' : 'Batalkan hitungan kalibrasi'}
+                        title={calibDoneNow ? 'Ulangi kalibrasi dari langkah 1' : 'Batalkan kalibrasi'}
                       >
                         {calibDoneNow ? 'Ulangi' : 'Batalkan'}
                       </button>
-                    </>
-                  )}
-                  <p id={`calib-hint-${g.groupId}`} className="w-full text-[11px] font-mono text-white/45">
-                    {calibDoneNow
-                      ? 'Kalibrasi selesai — Start Tahap terbuka. Hitungan diulang untuk tahap berikutnya.'
-                      : calibRunOf
-                        ? 'Tunggu hitungan mundur habis. Start Tahap terkunci sampai kalibrasi selesai.'
-                        : 'Isi durasi kalibrasi lalu mulai. Start Tahap terkunci sampai hitungan mundur habis.'}
-                  </p>
+                    )}
+                    <p id={`calib-hint-${g.groupId}`} className="w-full text-[11px] font-mono text-white/45">
+                      {calibDoneNow
+                        ? 'Kalibrasi selesai — Start Tahap terbuka. Kalibrasi diulang untuk tahap berikutnya.'
+                        : calibRunOf
+                          ? 'Tekan "Mulai langkah" hanya setelah langkah sebelumnya selesai. Start Tahap terkunci sampai 2 tahap kalibrasi habis.'
+                          : 'Isi durasi tiap langkah lalu mulai. Start Tahap terkunci sampai 2 tahap kalibrasi habis.'}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => void handleCreateSession(g, 'live')}
                     disabled={busy || !calibDoneNow}
                     className={btnGhost}
-                    title={!calibDoneNow ? 'Selesaikan kalibrasi dulu (tunggu hitungan mundur habis) untuk rekam langsung' : 'Mulai rekam langsung (live countdown)'}
+                    title={!calibDoneNow ? 'Selesaikan 2 tahap kalibrasi dulu untuk rekam langsung' : 'Mulai rekam langsung (live countdown)'}
                   >
                     Start Tahap {tahapOf(g, nextTahapCode)}
                   </button>
@@ -2019,6 +2156,12 @@ export default function BatchDetailPage() {
                   Dari pengelompokan batch. Untuk mengubahnya, koreksi pengelompokan lewat ikon pensil.
                 </p>
               </div>
+              {sessionModal.mode === 'create' && (
+                <p className="text-[11px] font-mono text-cyan-100/70">
+                  Isi hasil pengukuran saat chamber dibuka (tahap 2 kalibrasi): suhu tiap udang dan berat
+                  totalnya.
+                </p>
+              )}
               {sessionModal.mode === 'create' ? (
                 <ObservationTempFields
                   count={modalTempRows}
@@ -2082,21 +2225,43 @@ export default function BatchDetailPage() {
                     const usable = incoming.filter(
                       (f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0 && f.size <= MAX_PHOTO_BYTES
                     );
-                    if (usable.length !== incoming.length) {
-                      setSessionModal((m) => (m ? {
-                        ...m,
-                        err: 'Beberapa file dilewati: wajib jpg/png maks 5MB.',
-                      } : null));
+                    if (usable.length === 0) {
+                      if (incoming.length > 0) {
+                        setSessionModal((m) => (m ? { ...m, err: 'File dilewati: wajib jpg/png maks 5MB.' } : null));
+                      }
+                      return;
                     }
-                    setSessionModal((m) => (m ? {
-                      ...m,
-                      photos: usable,
-                      photoPreviews: usable.map((f) => URL.createObjectURL(f)),
-                      photoCaptions: usable.map(() => ''),
-                      err: null,
-                    } : null));
+                    // URL pratinjau dibuat di luar updater state supaya tidak ganda
+                    // saat React memanggil updater-nya dua kali.
+                    const previews = usable.map((f) => URL.createObjectURL(f));
+                    // DITAMBAH, bukan diganti: kamera ponsel mengembalikan satu foto
+                    // per pengambilan dan foto sebelumnya tidak boleh hilang walau
+                    // captionnya belum terisi.
+                    setSessionModal((m) =>
+                      m
+                        ? {
+                            ...m,
+                            photos: [...m.photos, ...usable],
+                            photoPreviews: [...m.photoPreviews, ...previews],
+                            photoCaptions: [...m.photoCaptions, ...usable.map(() => '')],
+                            err:
+                              usable.length === incoming.length
+                                ? null
+                                : 'Beberapa file dilewati: wajib jpg/png maks 5MB.',
+                          }
+                        : null
+                    );
                   }}
                 />
+                {sessionModal.photos.length > 0 && (
+                  <p className="text-[11px] font-mono text-white/55" role="status">
+                    {sessionModal.photos.length} foto siap dilampirkan ke tahap ini
+                    {sessionModal.photoCaptions.some((c) => c.trim() === '')
+                      ? ' · isi caption sebelum menyimpan tahap'
+                      : ''}
+                    . Foto baru ditambahkan, tidak menggantikan yang lama.
+                  </p>
+                )}
                 {sessionModal.photoPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     {sessionModal.photoPreviews.map((src, i) => (
@@ -2123,13 +2288,15 @@ export default function BatchDetailPage() {
                         />
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            URL.revokeObjectURL(src);
                             setSessionModal((m) => (m ? {
                               ...m,
                               photos: m.photos.filter((_, j) => j !== i),
                               photoPreviews: m.photoPreviews.filter((_, j) => j !== i),
                               photoCaptions: m.photoCaptions.filter((_, j) => j !== i),
-                            } : null))}
+                            } : null));
+                          }}
                           aria-label={`Hapus foto ${i + 1} dari pilihan`}
                           className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-rose-500/90 text-white text-[12px] font-bold leading-none flex items-center justify-center hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
                         >

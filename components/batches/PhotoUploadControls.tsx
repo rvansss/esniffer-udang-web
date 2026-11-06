@@ -10,6 +10,9 @@ import { CameraIcon, GalleryIcon } from '../ui/icons';
  *   sempit (ponsel) lewat `md:hidden`. Desktop cukup satu tombol yang membuka
  *   pemilih berkas biasa. Tombol galeri sengaja tanpa `capture` supaya
  *   pengguna ponsel bisa memilih foto yang sudah ada.
+ *   Kamera ponsel mengembalikan SATU foto per pengambilan, jadi `onFiles`
+ *   bisa terpanggil berkali-kali; pemanggil wajib MENAMBAHKAN berkas ke daftar,
+ *   bukan menggantinya, supaya foto sebelumnya tidak hilang.
  * - `CaptionGuide`: panduan format caption, satu tempat agar tidak menyimpang
  *   antarhalaman.
  */
@@ -50,7 +53,9 @@ export function PhotoSourcePicker({
         type="file"
         accept="image/jpeg,image/png"
         capture="environment"
-        multiple={multiple}
+        // Tanpa `multiple`: kamera ponsel memang mengembalikan satu foto per
+        // pengambilan, dan `multiple` + `capture` membuat sebagian penjelajah
+        // iOS membuka galeri, bukan kamera.
         onChange={(e) => {
           onFiles(e.currentTarget.files, e.currentTarget);
           e.currentTarget.value = '';
