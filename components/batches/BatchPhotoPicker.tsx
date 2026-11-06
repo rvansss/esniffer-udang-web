@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
 import { MAX_PHOTO_CAPTION_LENGTH } from '../../shared/dataset.ts';
+import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from './PhotoUploadControls';
 const fieldCls = 'flex flex-col gap-1.5';
 const labelCls = 'text-[13px] font-mono text-white/85';
 const hintCls = 'text-xs font-mono text-white/60';
@@ -11,8 +12,6 @@ export interface PhotoGroup {
 }
 
 
-const photoFileCls =
-  'text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono';
 const photoRemoveCls =
   // 32px: tombol hapus menempel di sudut pratinjau — 44px akan menutupi thumbnail
   // tetangga; 32px masih memenuhi WCAG 2.5.8 (target minimal 24px).
@@ -82,20 +81,9 @@ export default function PhotosBlock({
   };
 
   return (
-    <div className={fieldCls}>
-      <label className={labelCls} htmlFor={`${prefix}-photos`}>
-        {title}
-      </label>
-      <input
-        id={`${prefix}-photos`}
-        name={`${prefix}-photos`}
-        type="file"
-        accept="image/jpeg,image/png"
-        capture="environment"
-        multiple
-        onChange={(e) => select(e.target.files, e.target)}
-        className={photoFileCls}
-      />
+    <fieldset className={fieldCls}>
+      <legend className={labelCls}>{title}</legend>
+      <PhotoSourcePicker id={`${prefix}-photos`} onFiles={select} />
       <p className={hintCls}>{hint}</p>
       {note && !error ? (
         <p className="text-[11px] font-mono text-amber-300" role="status">
@@ -108,39 +96,42 @@ export default function PhotosBlock({
         </p>
       ) : null}
       {previews.length > 0 && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {previews.map((src, i) => (
-            <div key={src} className="relative space-y-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
-              <label className={`${labelCls} flex items-center gap-1`} htmlFor={`${prefix}-photo-caption-${i}`}>
-                Caption <span aria-hidden="true" className="text-rose-400">*</span>
-              </label>
-              <input
-                id={`${prefix}-photo-caption-${i}`}
-                name={`${prefix}-photo-caption-${i}`}
-                type="text"
-                maxLength={MAX_PHOTO_CAPTION_LENGTH}
-                autoComplete="off"
-                value={captions[i] ?? ''}
-                aria-required="true"
-                onChange={(e) => setCaption(i, e.target.value)}
-                placeholder="Di pasar…"
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                aria-label={`Hapus foto ${i + 1}`}
-                className={photoRemoveCls}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
+        <>
+          <CaptionGuide />
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {previews.map((src, i) => (
+              <div key={src} className="relative space-y-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={`Pratinjau foto ${i + 1}`} className="w-full h-16 object-cover rounded-lg border border-white/10" />
+                <label className={`${labelCls} flex items-center gap-1`} htmlFor={`${prefix}-photo-caption-${i}`}>
+                  Caption <span aria-hidden="true" className="text-rose-400">*</span>
+                </label>
+                <input
+                  id={`${prefix}-photo-caption-${i}`}
+                  name={`${prefix}-photo-caption-${i}`}
+                  type="text"
+                  maxLength={MAX_PHOTO_CAPTION_LENGTH}
+                  autoComplete="off"
+                  value={captions[i] ?? ''}
+                  aria-required="true"
+                  onChange={(e) => setCaption(i, e.target.value)}
+                  placeholder={CAPTION_PLACEHOLDER}
+                  className={inputCls}
+                />
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  aria-label={`Hapus foto ${i + 1}`}
+                  className={photoRemoveCls}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
-    </div>
+    </fieldset>
   );
 }
 

@@ -11,6 +11,7 @@ import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessN
 import SessionResultModal from '../../../components/batches/SessionResultModal';
 import ObservationTempFields from '../../../components/batches/ObservationTempFields';
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
+import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from '../../../components/batches/PhotoUploadControls';
 import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
 import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
@@ -945,7 +946,10 @@ export default function BatchDetailPage() {
       : observationRowCount(modalGroup?.sampleShrimpCount ?? 0);
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    // `w-full` wajib: `mx-auto` (margin otomatis) mematikan stretch flex, sehingga
+    // tanpa lebar pasti kontainer ini mengikuti konten terlebarnya (tabel riwayat
+    // sesi min-w-[620px]) dan seluruh halaman melebar melewati viewport ponsel.
+    <div className="w-full space-y-6 max-w-4xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl md:text-2xl font-mono font-black text-white tracking-widest">{batch.batchId}</h2>
@@ -1085,6 +1089,7 @@ export default function BatchDetailPage() {
 
       <div className={cardCls}>
         <h3 className="text-sm font-mono font-bold text-white tracking-widest">FOTO DOKUMENTASI ({batch.photos.length})</h3>
+        {isAdmin && !locked && <CaptionGuide />}
         {batch.photos.length > 0 && (
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {batch.photos.map((p, i) => (
@@ -1109,7 +1114,7 @@ export default function BatchDetailPage() {
                       aria-required="true"
                       aria-label={`Caption foto ${i + 1}`}
                       onChange={(e) => setCaptionEdits((prev) => ({ ...prev, [p.url]: e.target.value }))}
-                      placeholder="Caption…"
+                      placeholder={CAPTION_PLACEHOLDER}
                       className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
                     />
                     {captionEdits[p.url] !== undefined && captionEdits[p.url] !== p.caption && (
@@ -1149,15 +1154,7 @@ export default function BatchDetailPage() {
         {isAdmin && !locked && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="file"
-                accept="image/jpeg,image/png"
-                capture="environment"
-                multiple
-                aria-label="Pilih file foto untuk diunggah"
-                onChange={(e) => handlePhotoSelect(e.target.files, e.currentTarget)}
-                className="text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
-              />
+              <PhotoSourcePicker id="batch-photo" onFiles={handlePhotoSelect} />
               <button
                 onClick={() => void handleUpload()}
                 disabled={busy || files.length === 0}
@@ -1184,7 +1181,7 @@ export default function BatchDetailPage() {
                       value={fileCaptions[i] ?? ''}
                       aria-required="true"
                       onChange={(e) => setFileCaptions((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))}
-                      placeholder="Di pasar…"
+                      placeholder={CAPTION_PLACEHOLDER}
                       className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
                     />
                     <button
@@ -1903,18 +1900,15 @@ export default function BatchDetailPage() {
                   Angka desimal menggunakan titik, mis. 478.5
                 </p>
               </div>
-              <div>
-                <label htmlFor="pre-photo" className="block text-[12px] font-mono text-white/75 mb-1">
+              <div className="space-y-1.5">
+                <p className="block text-[12px] font-mono text-white/75">
                   Foto dokumentasi
-                </label>
-                <input
-                  id="pre-photo"
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  capture="environment"
-                  multiple
-                  onChange={(e) => {
-                    const incoming = Array.from(e.target.files ?? []);
+                </p>
+                <CaptionGuide />
+                <PhotoSourcePicker
+                  id="session-photo"
+                  onFiles={(list) => {
+                    const incoming = Array.from(list ?? []);
                     const usable = incoming.filter(
                       (f) => /image\/(jpeg|png)/.test(f.type) && f.size > 0 && f.size <= MAX_PHOTO_BYTES
                     );
@@ -1932,7 +1926,6 @@ export default function BatchDetailPage() {
                       err: null,
                     } : null));
                   }}
-                  className="w-full text-xs font-mono text-white/60 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:bg-white/10 file:border file:border-white/10 file:text-white/80 file:text-xs file:font-mono"
                 />
                 {sessionModal.photoPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1955,7 +1948,7 @@ export default function BatchDetailPage() {
                               ...m,
                               photoCaptions: m.photoCaptions.map((c, j) => (j === i ? e.target.value : c)),
                             } : null))}
-                          placeholder="Caption wajib"
+                          placeholder={CAPTION_PLACEHOLDER}
                           className="w-full text-[11px] font-mono px-2 py-1 rounded-lg bg-black/25 border border-white/10 text-white/80 placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
                         />
                         <button

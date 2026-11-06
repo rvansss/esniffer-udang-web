@@ -14,4 +14,6 @@ Istilah pengadaan dan pengujian udang untuk pengumpulan dataset.
 
 **Baseline**: Pembacaan udara bersih pada dua menit pertama sesi sebelum pembacaan sampel.
 
+**Caption foto**: Keterangan wajib (maksimal 140 karakter) untuk setiap foto dokumentasi, ditulis dengan format `kegiatan-udang<no>-tahap<no>-sr/sd`, misalnya `suhu-udang1-tahap1-sr`. Kegiatan adalah jenis dokumentasi (mis. `suhu`, `berat`, `visual`), `udang<no>` adalah nomor udang, `tahap<no>` adalah urutan tahap pengukuran, dan akhiran `sr` berarti suhu ruang sedangkan `sd` berarti suhu dingin. Foto tanpa tahap (kondisi awal, pengelompokan) cukup `kegiatan-udang<no>`.
+
 **Lolos kualitas ML**: Data yang memenuhi aturan kelengkapan, konsistensi, waktu, dan kualitas sensor untuk ekspor dataset. Status ini tidak menyatakan tingkat kesegaran udang.

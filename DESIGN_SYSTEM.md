@@ -426,6 +426,7 @@ Dashboard memiliki `min-h-[550px]`. Area grafik memiliki `min-h-[320px]`, beruba
 - Email akun menggunakan `truncate` dan batas lebar 140/180px.
 - Tabel telemetri memiliki minimum lebar 760px dan scroll di container modal.
 - Tabel sesi detail batch memiliki minimum lebar 620px dan scroll horizontal lokal.
+- Kontainer halaman detail batch wajib memakai `w-full` bersama `max-w-4xl mx-auto`. Margin otomatis mematikan stretch flex, sehingga tanpa lebar pasti kontainer mengikuti konten terlebarnya (tabel 620px) dan seluruh halaman melebar melewati viewport ponsel; akibatnya tombol aksi di kartu foto ikut terpotong.
 - Modal besar menggunakan batas tinggi viewport dan scroll internal.
 
 Pemeriksaan mobile 390px hanya menjadi sampel. Keberadaan `overflow-hidden` pada shell tidak boleh dianggap bukti bahwa semua konten sudah bebas terpotong; uji isi panjang, banyak chamber, modal, dan zoom secara terpisah.
@@ -650,6 +651,24 @@ Header tabel sticky; angka rata kanan; kolom numerik memakai `tabular-nums`. Bar
 | `useSuccessNotice` | Pesan menghilang setelah 5000ms atau ditutup pengguna |
 
 Pada mobile, toast memakai offset kiri dan kanan 16px; mulai `sm` menggunakan posisi kanan dengan maksimum lebar 448px. Audio notifikasi bergantung izin autoplay browser dan interaksi pengguna; audio bukan satu-satunya indikator kesiapan.
+
+### 11.10 PhotoSourcePicker dan CaptionGuide
+
+**Sumber:** `components/batches/PhotoUploadControls.tsx`.
+
+Kedua kontrol dipakai bersama oleh tiga titik unggah: pemilih foto wizard (`BatchPhotoPicker`), unggah foto dokumentasi batch, dan foto tahap di dialog sesi.
+
+| Aspek | Spesifikasi |
+| --- | --- |
+| Tombol galeri | Label "Pilih dari galeri", input `type="file"` **tanpa** `capture`, input `sr-only` + `<label>` sebagai pemicu |
+| Tombol kamera | Label "Ambil dari kamera", input dengan `capture="environment"`, hanya dirender di bawah breakpoint `md` (`md:hidden`) |
+| Alasan | `capture` memaksa kamera terbuka langsung dan menghilangkan pilihan galeri; perilaku itu hanya dipertahankan pada tombol khusus ponsel |
+| Ukuran target | Minimum tinggi 44px (`min-h-11`), radius 12px, surface putih 10%, border putih 15% |
+| Fokus | `focus-within:ring-2` emerald, karena elemen input aslinya `sr-only` |
+| Atribut berkas | `accept="image/jpeg,image/png"`, `multiple`; validasi 5 MB dan caption tetap di komponen pemanggil |
+| Struktur grup | Judul blok foto memakai `fieldset`/`legend` agar dua tombol sumber terbaca sebagai satu grup |
+
+`CaptionGuide` menerangkan format `kegiatan-udang<no>-tahap<no>-sr/sd` dengan contoh `suhu-udang1-tahap1-sr`, disertai arti `sr` = suhu ruang dan `sd` = suhu dingin. Panduan ini **bukan validasi**: caption tetap hanya wajib diisi dan dibatasi 140 karakter, sehingga data lama yang tidak mengikuti format tetap dapat disimpan.
 
 ## 12. Form dan validasi
 
