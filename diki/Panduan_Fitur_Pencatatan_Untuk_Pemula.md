@@ -207,8 +207,9 @@ Anda tidak perlu menghafal ini — sistem yang menegakkannya:
   Urutannya: berangkat dari lab → beli di pasar → tiba kembali ke lab,
   jadi berangkat < beli < tiba, dan ketiganya di jendela 05:00–08:00 WIB.
 - *Suhu cool box saat di pasar & saat di lab* — suhu *udara box* di dua
-  titik berbeda; protokol menjaga 0–4 °C, input menerima −10 sampai
-  10 °C agar kondisi nyata di lapangan tetap tercatat.
+  titik berbeda; protokol menjaga 0–4 °C, tetapi input menerima angka
+  desimal apa pun agar kondisi nyata di lapangan tetap tercatat: nilai di
+  luar 0–4 °C hanya memunculkan peringatan kuning, bukan galat.
 
 **Pengelompokan (diisi 2x: Suhu Ruang dan Suhu Dingin)** — mencatat perlakuan tiap kelompok:
 - *Suhu tusuk saat tiba* — titik nol kurva pembusukan masing-masing grup.
@@ -420,7 +421,9 @@ Ringkasan ini agar Anda tidak bingung bila istilah di layar beda dengan catatan/
 |---|---|
 | Jendela waktu 06:00–08:00 WIB | **05:00–08:00 WIB** untuk berangkat, beli, dan tiba |
 | Belum ada kolom keberangkatan | `departed_date`, `departed_time_wib`, `cooler_temp_departure_c` (baris lama = sel kosong) |
-| Suhu cool box 0–4 °C, suhu awal udang −2…30 °C | Keduanya menerima **−10…10 °C** (form, API, dan CHECK DB) |
+| Suhu cool box 0–4 °C, suhu awal udang −2…30 °C | Keduanya menerima **desimal bebas rentang** (form & API); acuan 0–4 °C untuk cool box hanya peringatan, CHECK DB rentang dihapus |
+| Jumlah udang minimal 10 ekor, per sesi 3–5 ekor | Bilangan bulat **≥ 1 tanpa batas atas**; acuan 1–10 ekor hanya peringatan |
+| Panjang udang 1–50 cm | Angka desimal **bebas rentang** |
 | "Jenis sumber" berupa radio | **Dropdown** dengan Pasar sebagai pilihan awal |
 | Beli & tiba di step 1 | Beli & tiba pindah ke step 2 (Kondisi & Dokumentasi); step 1 berisi keberangkatan + sumber |
 

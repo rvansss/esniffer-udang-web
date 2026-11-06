@@ -692,7 +692,8 @@ Login menggunakan padding lebih besar (`px-4 py-3`), border putih 20%, dan focus
 Catatan wizard setelah revisi langkah “Kondisi Udang”:
 
 - **Kondisi awal udang** memakai radio chip native (dua pilihan: mati/hidup), bukan select. Fieldset-nya ber-`tabIndex={-1}` agar fokus programatik dari pesan error mendarat di grup pilihan.
-- **Jumlah total udang (ekor)** (10–100) memunculkan daftar **pengukuran per ekor** di area bergulir `max-h-80`: setiap baris “Udang N” punya input suhu (°C, −10…10) dan panjang (cm, 1–50). Baris 1-based sehingga pesan error memakai kode `shrimpTemp-N` / `shrimpLength-N`.
+- **Jumlah total udang (ekor)** (minimal 1, acuan 1–10; di luar acuan hanya peringatan amber) memunculkan daftar **pengukuran per ekor** di area bergulir `max-h-80`: setiap baris “Udang N” punya input suhu (°C) dan panjang (cm) **tanpa rentang** dan menerima desimal (maks 2 angka desimal). Baris 1-based sehingga pesan error memakai kode `shrimpTemp-N` / `shrimpLength-N`. Baris di luar viewport memakai `content-visibility: auto` agar jumlah besar tetap ringan.
+- **Suhu cool box** (berangkat, di pasar, di lab) menerima angka desimal apa pun; nilai di luar acuan **0–4 °C** hanya memunculkan peringatan `role="status"` di bawah input (bukan galat) sehingga data tetap bisa disimpan.
 - **Suhu awal udang saat pembelian (°C)** dan **Panjang udang (cm)** di bawah daftar bersifat **disabled** dan terisi otomatis dari rata-rata baris tersebut (pembulatan 2 desimal), dengan helper text yang menyebut asal angkanya.
 - **Berat total udang saat pembelian (g)** tetap satu kolom karena berat ditimbang sekaligus untuk semua udang.
 - Langkah **Pengelompokan** memuat waktu tiba, suhu cool box di lab, dan **dua** kolom jumlah udang per sesi: **suhu ruang (SR)** dan **suhu dingin (SD)**.
