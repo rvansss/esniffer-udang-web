@@ -10,10 +10,8 @@ import {
   parseTimepointCode,
   timepointToElapsedHours,
   isNextTimepoint,
-  OBSERVATION_TEMP_MAX_C,
-  OBSERVATION_TEMP_MIN_C,
 } from '../../../../../../shared/dataset.ts';
-import { serializeSession, parseBoundedNumber, parsePositiveNumber } from '../../../../../../lib/api/dataset.ts';
+import { serializeSession, parseDecimalNumber, parsePositiveNumber } from '../../../../../../lib/api/dataset.ts';
 import { backfillSessionReadings } from '../../../../../../lib/dataset/backfill.ts';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -146,7 +144,7 @@ export async function POST(
     // Data observasi tahap ini (modal pra-sesi): suhu udang, berat total
     // udang, dan foto (foto lewat route /photos dengan sessionId). Kolom
     // grup tidak ditimpa lagi — tiap tahap menyimpan pengukurannya sendiri.
-    const shrimpTempC = parseBoundedNumber(body?.shrimpTempC, 'shrimpTempC', OBSERVATION_TEMP_MIN_C, OBSERVATION_TEMP_MAX_C);
+    const shrimpTempC = parseDecimalNumber(body?.shrimpTempC, 'shrimpTempC');
     const shrimpWeightG = parsePositiveNumber(body?.shrimpWeightG, 'shrimpWeightG', 2000);
 
     if (!deviceId) throw validationError('Chamber harus memiliki alat yang ditugaskan untuk rentang sesi');

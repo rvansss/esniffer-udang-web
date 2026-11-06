@@ -1,6 +1,5 @@
 "use client";
 
-import { INITIAL_TEMP_MIN_C, INITIAL_TEMP_MAX_C } from '../../shared/dataset.ts';
 import { formatMean, meanFormNumber, type WizardErrors } from '../../lib/batch-wizard.ts';
 
 const rowInputCls = 'w-full px-2 py-2 rounded-lg bg-black/25 border border-white/20 text-sm font-mono text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 [color-scheme:dark]';
@@ -31,22 +30,28 @@ export default function ShrimpMeasurementFields({ count, temperatures, lengths, 
       Ukur suhu dan panjang tiap udang. Berat ditimbang sekaligus untuk seluruh udang, jadi tetap satu kolom total di atas.
     </p>
     {count === 0
-      ? <p className="text-xs font-mono text-amber-200">Isi jumlah total udang (10–100 ekor) agar kolom suhu dan panjang tiap ekor muncul.</p>
+      ? <p className="text-xs font-mono text-amber-200">Isi jumlah total udang (minimal 1 ekor) agar kolom suhu dan panjang tiap ekor muncul.</p>
       : <ol className="space-y-2 max-h-80 overflow-y-auto pr-1" aria-label={`Pengukuran ${count} ekor udang`}>
       {Array.from({ length: count }, (_, index) => {
         const row = index + 1;
         const tempKey = `shrimpTemp-${row}`;
         const lengthKey = `shrimpLength-${row}`;
         const hasError = Boolean(errors[tempKey] || errors[lengthKey]);
-        return <li key={row} className="grid grid-cols-[minmax(56px,auto)_1fr_1fr] items-center gap-2">
+        return <li
+          key={row}
+          // Baris di luar viewport ditunda paint-nya: jumlah ekor tidak lagi
+          // dibatasi 10–100, jadi daftar panjang tetap responsif tanpa
+          // mengubah DOM atau urutan fokus.
+          style={{ contentVisibility: 'auto', containIntrinsicSize: '52px' }}
+          className="grid grid-cols-[minmax(56px,auto)_1fr_1fr] items-center gap-2"
+        >
           <span className="text-[12px] font-mono text-white/70">Udang {row}</span>
           <input
             id={tempKey}
             type="number"
             required
-            min={INITIAL_TEMP_MIN_C}
-            max={INITIAL_TEMP_MAX_C}
-            step="0.1"
+            step="any"
+            lang="en"
             inputMode="decimal"
             placeholder="°C"
             aria-label={`Suhu udang ${row} (°C)`}
@@ -60,9 +65,8 @@ export default function ShrimpMeasurementFields({ count, temperatures, lengths, 
             id={lengthKey}
             type="number"
             required
-            min={1}
-            max={50}
-            step="0.1"
+            step="any"
+            lang="en"
             inputMode="decimal"
             placeholder="cm"
             aria-label={`Panjang udang ${row} (cm)`}

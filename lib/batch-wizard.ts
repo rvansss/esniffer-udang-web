@@ -7,13 +7,12 @@ import { isShrimpType } from '../shared/shrimp.ts';
  * suite unit dan tidak ikut mati bersama state React.
  */
 import {
-  COOLER_TEMP_MAX_C,
-  COOLER_TEMP_MIN_C,
+  COOLER_TEMP_TARGET_MAX_C,
+  COOLER_TEMP_TARGET_MIN_C,
+  DECIMAL_5_2_MAX_ABS,
   DatasetValidationError,
-  INITIAL_TEMP_MAX_C,
-  INITIAL_TEMP_MIN_C,
-  OBSERVATION_TEMP_MAX_C,
-  OBSERVATION_TEMP_MIN_C,
+  SHRIMP_COUNT_GUIDE_MAX,
+  SHRIMP_COUNT_GUIDE_MIN,
   isColdChainCompliant,
   isProcurementWindow,
   transportDurationMs,
@@ -33,20 +32,23 @@ export type SourceTypeValue = (typeof SOURCE_TYPE_VALUES)[number];
 export const VISUAL_CHECK_VALUES = ['normal', 'melanosis', 'damaged', 'mixed_species'] as const;
 
 /**
- * Batas baris pengukuran per ekor yang dirender wizard. Pengaman UI: API tetap
- * menerima `shrimpCount` ≥ 10 berapa pun, tetapi mengetik 12 000 ekor tidak
- * boleh membuat halaman merender 24 000 input.
+ * Batas TEKNIS baris pengukuran per ekor yang dirender wizard/modal tahap.
+ *
+ * Bukan aturan domain: jumlah udang tidak dibatasi 10–100 atau 3–5 lagi.
+ * Angka ini hanya menjaga agar mengetik jumlah ekor yang sangat besar tidak
+ * membuat halaman merender ribuan input sekaligus. API dan constraint DB
+ * tetap menerima jumlah berapa pun (bilangan bulat ≥ 1).
  */
-export const SHRIMP_ROW_LIMIT = 100;
+export const SHRIMP_ROW_LIMIT = 1000;
 
 /**
  * Jumlah baris pengukuran per ekor yang layak dirender: 0 bila isian belum
- * berupa bilangan bulat 10..`SHRIMP_ROW_LIMIT` (mis. kosong, 9, 12.5, 101).
+ * berupa bilangan bulat 1..`SHRIMP_ROW_LIMIT` (mis. kosong, 0, 12.5, 1001).
  */
 export function shrimpRowCount(shrimpCount: string): number {
   const count = parseFormNumber(shrimpCount);
   if (count === null || !Number.isInteger(count)) return 0;
-  return count >= 10 && count <= SHRIMP_ROW_LIMIT ? count : 0;
+  return count >= 1 && count <= SHRIMP_ROW_LIMIT ? count : 0;
 }
 
 /**
@@ -72,11 +74,49 @@ export function formatMean(value: number | null): string {
 }
 
 /**
+ * Peringatan (bukan galat) untuk suhu cool box di luar acuan protokol
+ * 0–4 °C. Protokol menjaga cold-chain di rentang itu, tetapi angka lapangan
+ * yang menyimpang tetap harus bisa disimpan — jadi pesan ini tidak pernah
+ * masuk objek galat dan tidak memblokir navigasi/submit.
+ *
+ * `null` berarti tidak ada peringatan: isian masih kosong atau bukan angka
+ * (kasus itu ditangani validator sebagai galat "wajib diisi"/"harus angka").
+ */
+export function coolerTempWarning(value: string | number | null | undefined): string | null {
+  const temp = warningNumber(value);
+  if (temp === null) return null;
+  if (temp >= COOLER_TEMP_TARGET_MIN_C && temp <= COOLER_TEMP_TARGET_MAX_C) return null;
+  return `Di luar acuan ${COOLER_TEMP_TARGET_MIN_C}–${COOLER_TEMP_TARGET_MAX_C} °C — data tetap bisa disimpan.`;
+}
+
+/**
+ * Peringatan (bukan galat) untuk jumlah udang di luar acuan 1–10 ekor, baik
+ * jumlah total batch maupun jumlah udang per sesi grup. Jumlah tetap boleh
+ * berapa pun (bilangan bulat ≥ 1); hanya disorot agar penyimpangan terlihat.
+ */
+export function shrimpCountWarning(value: string | number | null | undefined): string | null {
+  const count = warningNumber(value);
+  if (count === null) return null;
+  if (count >= SHRIMP_COUNT_GUIDE_MIN && count <= SHRIMP_COUNT_GUIDE_MAX) return null;
+  return `Di luar acuan ${SHRIMP_COUNT_GUIDE_MIN}–${SHRIMP_COUNT_GUIDE_MAX} ekor — data tetap bisa disimpan.`;
+}
+
+/** Angka untuk peringatan: null bila kosong/bukan angka (bukan urusan warning). */
+function warningNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const parsed = parseFormNumber(value);
+  if (parsed === null || Number.isNaN(parsed)) return null;
+  return parsed;
+}
+
+/**
  * Jumlah baris suhu per ekor pada modal tahap = jumlah udang per sesi grup
- * (`sample_shrimp_count`; domainnya 3–5 ekor, ditegakkan constraint DB).
- * Yang dijaga di sini hanya kelayakan render: 0 menandai nilai yang tidak
- * masuk akal — data lama aneh harus memunculkan peringatan, bukan modal tanpa
- * baris yang diam-diam menyimpan suhu kosong.
+ * (`sample_shrimp_count`). Domain 3–5 ekor sudah dihapus; yang dijaga di sini
+ * hanya kelayakan render: 0 menandai nilai yang tidak masuk akal (kosong,
+ * pecahan, atau melebihi batas teknis baris) — data lama aneh harus
+ * memunculkan peringatan, bukan modal tanpa baris yang diam-diam menyimpan
+ * suhu kosong.
  */
 export function observationRowCount(sampleShrimpCount: number): number {
   if (!Number.isInteger(sampleShrimpCount)) return 0;
@@ -89,17 +129,16 @@ export function observationRowCount(sampleShrimpCount: number): number {
  * Sama seperti `initialTempC` pada wizard batch: pengukuran per ekor adalah
  * sumber masukan, sedangkan kolom sesi (`shrimp_temp_c`) hanya menyimpan satu
  * angka. Karena itu nilai ringkasannya diturunkan, bukan diketik. `null`
- * berarti belum bisa dipakai — `count` tidak masuk akal, barisnya kurang,
- * ada isian kosong/bukan angka, atau ada nilai di luar
- * `OBSERVATION_TEMP_MIN_C..MAX_C` — sehingga pemanggil wajib memblokir submit
- * daripada menyimpan rata-rata dari data setengah jadi.
+ * berarti belum bisa dipakai — `count` tidak masuk akal, barisnya kurang, atau
+ * ada isian kosong/bukan angka — sehingga pemanggil wajib memblokir submit
+ * daripada menyimpan rata-rata dari data setengah jadi. Nilai suhu sendiri
+ * tidak dibatasi rentang: angka apa pun yang diketik tetap dihitung.
  */
 export function observationTempMean(rows: readonly string[], count: number): number | null {
   if (!Number.isInteger(count) || count < 1 || rows.length < count) return null;
   for (let i = 0; i < count; i += 1) {
     const value = parseFormNumber(rows[i] ?? '');
     if (value === null || Number.isNaN(value)) return null;
-    if (value < OBSERVATION_TEMP_MIN_C || value > OBSERVATION_TEMP_MAX_C) return null;
   }
   return meanFormNumber(rows.slice(0, count));
 }
@@ -199,6 +238,35 @@ export interface GroupFormInput {
 }
 
 /**
+ * Isian angka pengukuran yang bebas rentang domain: wajib diisi, harus angka,
+ * dan harus muat kolom `DECIMAL(5,2)` (≤ 2 desimal, |nilai| ≤ 999.99).
+ * Rentang protokol tidak diperiksa di sini — penyimpangan hanya jadi peringatan
+ * (`coolerTempWarning`), bukan galat.
+ */
+function validateFreeDecimal(value: string, key: string, target: WizardErrors): void {
+  const parsed = parseFormNumber(value);
+  if (parsed === null) {
+    target[key] = 'Wajib diisi.';
+  } else if (Number.isNaN(parsed)) {
+    target[key] = 'Harus berupa angka.';
+  } else if (Math.abs(parsed) > DECIMAL_5_2_MAX_ABS) {
+    target[key] = `Maksimal ${DECIMAL_5_2_MAX_ABS} (kapasitas kolom).`;
+  }
+}
+
+/** Jumlah udang bebas batas domain: bilangan bulat ≥ 1, tanpa batas maksimum. */
+function validateFreeCount(value: string, key: string, target: WizardErrors): void {
+  const count = parseFormNumber(value);
+  if (count === null) {
+    target[key] = 'Wajib diisi.';
+  } else if (Number.isNaN(count)) {
+    target[key] = 'Harus berupa angka.';
+  } else if (!Number.isInteger(count) || count < 1) {
+    target[key] = 'Harus bilangan bulat minimal 1 ekor.';
+  }
+}
+
+/**
  * Langkah 1 — keberangkatan & sumber: jam berangkat (05:00–08:00 WIB), suhu
  * cool box saat berangkat, sumber (teks bebas), dan jenis sumber (dropdown).
  * Urutan berangkat → beli baru bisa diperiksa di langkah 2 karena jam beli
@@ -214,12 +282,7 @@ export function validateStepA(input: StepAInput): WizardErrors {
     e.departedAt = WINDOW_MESSAGE;
   }
 
-  const cooler = parseFormNumber(input.coolerDeparture);
-  if (cooler === null) {
-    e.coolerDeparture = 'Wajib diisi.';
-  } else if (!(cooler >= COOLER_TEMP_MIN_C && cooler <= COOLER_TEMP_MAX_C)) {
-    e.coolerDeparture = `Harus ${COOLER_TEMP_MIN_C} sampai ${COOLER_TEMP_MAX_C} °C.`;
-  }
+  validateFreeDecimal(input.coolerDeparture, 'coolerDeparture', e);
 
   const source = input.marketSource.trim();
   if (source === '') {
@@ -244,7 +307,10 @@ export function validateStepA(input: StepAInput): WizardErrors {
  * - wizard mengirim `shrimpTemperatures`/`shrimpLengths` (pengukuran per ekor);
  *   tiap baris divalidasi sendiri dan nilai agregatnya diturunkan, bukan diketik;
  * - form edit halaman detail (dan pemanggil lama) mengirim `initialTempC` /
- *   `shrimpLengthCm` skalar, yang tetap divalidasi seperti sebelumnya.
+ *   `shrimpLengthCm` skalar.
+ *
+ * Kedua jalur sama-sama bebas rentang domain (angka apa pun, desimal bebas,
+ * sebatas kapasitas kolom `DECIMAL(5,2)`); yang diwajibkan hanya terisi.
  */
 export function validateStepB(input: StepBInput): WizardErrors {
   const e: WizardErrors = {};
@@ -273,12 +339,10 @@ export function validateStepB(input: StepBInput): WizardErrors {
   const lengths = input.shrimpLengths;
   const measuredPerShrimp = temperatures !== undefined && lengths !== undefined;
 
-  const count = parseFormNumber(input.shrimpCount);
-  if (count === null) {
-    e.shrimpCount = 'Wajib diisi.';
-  } else if (!Number.isInteger(count) || count < 10) {
-    e.shrimpCount = 'Minimal 10 ekor (bilangan bulat).';
-  } else if (measuredPerShrimp && count > SHRIMP_ROW_LIMIT) {
+  validateFreeCount(input.shrimpCount, 'shrimpCount', e);
+  // Satu-satunya batas atas adalah batas TEKNIS render baris per ekor pada
+  // wizard; API/DB sendiri menerima jumlah berapa pun (bilangan bulat ≥ 1).
+  if (measuredPerShrimp && !e.shrimpCount && Number(input.shrimpCount) > SHRIMP_ROW_LIMIT) {
     e.shrimpCount = `Maksimal ${SHRIMP_ROW_LIMIT} ekor untuk pencatatan suhu & panjang per ekor.`;
   }
 
@@ -286,33 +350,12 @@ export function validateStepB(input: StepBInput): WizardErrors {
     const rows = shrimpRowCount(input.shrimpCount);
     for (let i = 0; i < rows; i += 1) {
       const key = i + 1;
-      const temp = parseFormNumber(temperatures[i] ?? '');
-      if (temp === null) {
-        e[`shrimpTemp-${key}`] = 'Wajib diisi.';
-      } else if (!(temp >= INITIAL_TEMP_MIN_C && temp <= INITIAL_TEMP_MAX_C)) {
-        e[`shrimpTemp-${key}`] = `Harus ${INITIAL_TEMP_MIN_C} sampai ${INITIAL_TEMP_MAX_C} °C.`;
-      }
-      const len = parseFormNumber(lengths[i] ?? '');
-      if (len === null) {
-        e[`shrimpLength-${key}`] = 'Wajib diisi.';
-      } else if (!(len >= 1 && len <= 50)) {
-        e[`shrimpLength-${key}`] = 'Harus 1 sampai 50 cm.';
-      }
+      validateFreeDecimal(temperatures[i] ?? '', `shrimpTemp-${key}`, e);
+      validateFreeDecimal(lengths[i] ?? '', `shrimpLength-${key}`, e);
     }
   } else {
-    const len = parseFormNumber(input.shrimpLengthCm ?? '');
-    if (len === null) {
-      e.shrimpLengthCm = 'Wajib diisi.';
-    } else if (!(len >= 1 && len <= 50)) {
-      e.shrimpLengthCm = 'Harus 1 sampai 50 cm.';
-    }
-
-    const t = parseFormNumber(input.initialTempC ?? '');
-    if (t === null) {
-      e.initialTempC = 'Wajib diisi.';
-    } else if (!(t >= INITIAL_TEMP_MIN_C && t <= INITIAL_TEMP_MAX_C)) {
-      e.initialTempC = `Harus ${INITIAL_TEMP_MIN_C} sampai ${INITIAL_TEMP_MAX_C} °C.`;
-    }
+    validateFreeDecimal(input.shrimpLengthCm ?? '', 'shrimpLengthCm', e);
+    validateFreeDecimal(input.initialTempC ?? '', 'initialTempC', e);
   }
 
   const w = parseFormNumber(input.totalWeightG);
@@ -322,12 +365,7 @@ export function validateStepB(input: StepBInput): WizardErrors {
     e.totalWeightG = 'Harus lebih dari 0 sampai 2000 gram.';
   }
 
-  const cmarket = parseFormNumber(input.coolerMarket);
-  if (cmarket === null) {
-    e.coolerMarket = 'Wajib diisi.';
-  } else if (!(cmarket >= COOLER_TEMP_MIN_C && cmarket <= COOLER_TEMP_MAX_C)) {
-    e.coolerMarket = `Harus ${COOLER_TEMP_MIN_C} sampai ${COOLER_TEMP_MAX_C} °C.`;
-  }
+  validateFreeDecimal(input.coolerMarket, 'coolerMarket', e);
 
   return e;
 }
@@ -381,28 +419,18 @@ export function validateStepC(input: StepCInput): WizardErrors {
     }
   }
 
-  const clab = parseFormNumber(input.coolerLab);
-  if (clab === null) {
-    e.coolerLab = 'Wajib diisi.';
-  } else if (!(clab >= COOLER_TEMP_MIN_C && clab <= COOLER_TEMP_MAX_C)) {
-    e.coolerLab = `Harus ${COOLER_TEMP_MIN_C} sampai ${COOLER_TEMP_MAX_C} °C.`;
-  }
+  validateFreeDecimal(input.coolerLab, 'coolerLab', e);
 
   return e;
 }
 
-/** Aturan jumlah udang per sesi (3–5 ekor) untuk satu kunci error. */
+/** Aturan jumlah udang per sesi (bilangan bulat ≥ 1, tanpa batas atas). */
 function validateSampleCount(
   target: Record<string, string>,
   key: string,
   value: string | undefined
 ): void {
-  const count = parseFormNumber(value ?? '');
-  if (count === null) {
-    target[key] = 'Wajib diisi.';
-  } else if (!Number.isInteger(count) || count < 3 || count > 5) {
-    target[key] = 'Harus 3–5 ekor.';
-  }
+  validateFreeCount(value ?? '', key, target);
 }
 
 export function validateGroupFields(group: GroupFormInput): Record<string, string> {

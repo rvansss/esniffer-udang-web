@@ -1,7 +1,6 @@
 "use client";
 
-import { COOLER_TEMP_MIN_C, COOLER_TEMP_MAX_C } from '../../shared/dataset.ts';
-import { parseWibInput, type WizardErrors } from '../../lib/batch-wizard.ts';
+import { coolerTempWarning, parseWibInput, type WizardErrors } from '../../lib/batch-wizard.ts';
 
 export interface ArrivalDraft {
   arrivedAt: string;
@@ -22,6 +21,8 @@ export default function ArrivalFields({ value, errors, onChange }: {
   errors: WizardErrors;
   onChange: (patch: Partial<ArrivalDraft>) => void;
 }) {
+  // Peringatan acuan 0–4 °C: tidak pernah memblokir simpan.
+  const coolerLabWarning = coolerTempWarning(value.coolerLab);
   return <>
     <label className={labelCls} htmlFor="arrivedAt">
       Tanggal dan jam tiba di lab (WIB) *
@@ -30,8 +31,21 @@ export default function ArrivalFields({ value, errors, onChange }: {
     </label>
     <label className={labelCls} htmlFor="coolerLab">
       Suhu cool box saat tiba di lab (°C) *
-      <input id="coolerLab" type="number" required min={COOLER_TEMP_MIN_C} max={COOLER_TEMP_MAX_C} step="0.1" value={value.coolerLab} onChange={(e) => onChange({ coolerLab: e.target.value })} aria-invalid={!!errors.coolerLab} aria-describedby={errors.coolerLab ? 'coolerLab-error' : undefined} className={inputCls} />
+      <input
+        id="coolerLab"
+        type="number"
+        required
+        step="any"
+        lang="en"
+        inputMode="decimal"
+        value={value.coolerLab}
+        onChange={(e) => onChange({ coolerLab: e.target.value })}
+        aria-invalid={!!errors.coolerLab}
+        aria-describedby={[errors.coolerLab ? 'coolerLab-error' : '', coolerLabWarning ? 'coolerLab-warning' : ''].filter(Boolean).join(' ') || undefined}
+        className={inputCls}
+      />
       {errors.coolerLab && <span id="coolerLab-error" role="alert" className="text-xs text-rose-300">{errors.coolerLab}</span>}
+      {coolerLabWarning && <span id="coolerLab-warning" role="status" className="text-xs text-amber-200">{coolerLabWarning}</span>}
     </label>
   </>;
 }

@@ -3,11 +3,13 @@ import { buildGroupId } from '../../shared/dataset.ts';
 import { parseVisualCheck, parseIntMinimum } from '../api/dataset.ts';
 import { conflict, notFound, validationError } from '../api/errors.ts';
 
-/** Jumlah udang per sesi 3–5 ekor (CHECK DB `sample_shrimp_count BETWEEN 3 AND 5`). */
-function sampleShrimpCountInRange(value: unknown, fieldName: string): number {
-  const count = parseIntMinimum(value, fieldName, 3);
-  if (count > 5) throw validationError('Jumlah sampel harus 3–5 ekor per sesi');
-  return count;
+/**
+ * Jumlah udang per sesi: bilangan bulat ≥ 1, tanpa batas atas domain.
+ * CHECK DB hanya `sample_shrimp_count >= 1`; nilai di luar acuan 1–10 ekor
+ * tetap diterima (UI menampilkan peringatan, bukan galat).
+ */
+function parseSampleShrimpCount(value: unknown, fieldName: string): number {
+  return parseIntMinimum(value, fieldName, 1);
 }
 
 export function parseGrouping(value: unknown) {
@@ -16,7 +18,7 @@ export function parseGrouping(value: unknown) {
   }
   const input = value as Record<string, unknown>;
   const visualCheck = parseVisualCheck(input.visualCheck);
-  const sampleShrimpCount = sampleShrimpCountInRange(input.sampleShrimpCount, 'sampleShrimpCount');
+  const sampleShrimpCount = parseSampleShrimpCount(input.sampleShrimpCount, 'sampleShrimpCount');
   return { visualCheck, sampleShrimpCount };
 }
 
@@ -40,13 +42,13 @@ export function parseBatchGrouping(value: unknown): {
   const visualCheck = parseVisualCheck(input.visualCheck);
   const shared = input.sampleShrimpCount === undefined
     ? undefined
-    : sampleShrimpCountInRange(input.sampleShrimpCount, 'sampleShrimpCount');
+    : parseSampleShrimpCount(input.sampleShrimpCount, 'sampleShrimpCount');
   const roomTemp = input.sampleShrimpCountRoomTemp === undefined
     ? shared
-    : sampleShrimpCountInRange(input.sampleShrimpCountRoomTemp, 'sampleShrimpCountRoomTemp');
+    : parseSampleShrimpCount(input.sampleShrimpCountRoomTemp, 'sampleShrimpCountRoomTemp');
   const cold = input.sampleShrimpCountCold === undefined
     ? shared
-    : sampleShrimpCountInRange(input.sampleShrimpCountCold, 'sampleShrimpCountCold');
+    : parseSampleShrimpCount(input.sampleShrimpCountCold, 'sampleShrimpCountCold');
   // Nilai yang hanya dikirim untuk satu grup dipakai juga oleh grup lainnya;
   // tanpa satu pun nilai, grouping dianggap tidak lengkap.
   const roomTempCount = roomTemp ?? cold;

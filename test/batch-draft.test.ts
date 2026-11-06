@@ -74,9 +74,11 @@ describe('Batch draft (revisi putaran 2, butir 13)', () => {
     assert.strictEqual(draftMeaningful({}), false);
     // Nilai bawaan form juga bukan isian pengguna.
     assert.strictEqual(
-      draftMeaningful({ sourceType: 'market', shrimpCount: '12', initialCondition: 'dead' }),
+      draftMeaningful({ sourceType: 'market', shrimpCount: '10', initialCondition: 'dead' }),
       false
     );
+    // Jumlah di luar nilai bawaan dianggap isian pengguna.
+    assert.ok(draftMeaningful({ shrimpCount: '12' }));
     assert.ok(draftMeaningful({ sourceType: 'supermarket' }));
   });
 

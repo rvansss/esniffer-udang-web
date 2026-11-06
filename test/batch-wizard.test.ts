@@ -1,12 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
+  coolerTempWarning,
   formatMean,
   meanFormNumber,
   observationTempMean,
   observationRowCount,
   parseFormNumber,
   parseWibInput,
+  shrimpCountWarning,
   shrimpRowCount,
   stepOfField,
   validateGroupFields,
@@ -85,13 +87,28 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(validateStepA({ ...stepAOk, departedAt: '2026-10-21T08:00' }).departedAt, undefined);
     });
 
-    it('suhu cool box saat berangkat wajib dan dibatasi -10..10 °C', () => {
-      const msg = 'Harus -10 sampai 10 °C.';
+    it('suhu cool box saat berangkat wajib, bebas rentang, dan hanya diwajibkan angka', () => {
       assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: '' }).coolerDeparture, 'Wajib diisi.');
-      assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: '-10.1' }).coolerDeparture, msg);
-      assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: '10.1' }).coolerDeparture, msg);
-      assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: '-10' }).coolerDeparture, undefined);
-      assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: '10' }).coolerDeparture, undefined);
+      assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: 'abc' }).coolerDeparture, 'Harus berupa angka.');
+      // Rentang -10..10 tidak lagi memblokir: nilai ekstrem tetap sah.
+      for (const value of ['-10.1', '10.1', '-45', '87.5', '3.75']) {
+        assert.strictEqual(validateStepA({ ...stepAOk, coolerDeparture: value }).coolerDeparture, undefined);
+      }
+    });
+
+    it('peringatan cool box hanya muncul di luar acuan 0–4 °C dan tidak memblokir', () => {
+      for (const value of ['0', '2.5', '4', '3.99']) assert.strictEqual(coolerTempWarning(value), null);
+      for (const value of ['-0.1', '4.01', '-10', '12']) {
+        assert.match(coolerTempWarning(value) ?? '', /Di luar acuan 0–4 °C/);
+        assert.match(coolerTempWarning(value) ?? '', /tetap bisa disimpan/);
+      }
+      // Kosong/bukan angka bukan urusan peringatan (validasi yang menangani).
+      assert.strictEqual(coolerTempWarning(''), null);
+      assert.strictEqual(coolerTempWarning('abc'), null);
+      assert.strictEqual(coolerTempWarning(null), null);
+      // Nilai numerik (tampilan baca halaman detail) juga didukung.
+      assert.strictEqual(coolerTempWarning(3.5), null);
+      assert.match(coolerTempWarning(9) ?? '', /Di luar acuan/);
     });
 
     it('sumber wajib diisi dan maksimal 100 karakter', () => {
@@ -156,23 +173,39 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(validateStepC({ ...slow, ...groupOk, deviationAck: true }).arrivedAt, undefined);
     });
 
-    it('jumlah udang minimal 10 ekor dan harus bilangan bulat', () => {
+    it('jumlah udang tanpa batas minimal/maksimal, cukup bilangan bulat ≥ 1', () => {
       assert.strictEqual(validateStepB({ ...stepBOk, shrimpCount: '' }).shrimpCount, 'Wajib diisi.');
-      assert.strictEqual(
-        validateStepB({ ...stepBOk, shrimpCount: '9' }).shrimpCount,
-        'Minimal 10 ekor (bilangan bulat).'
-      );
-      assert.strictEqual(
-        validateStepB({ ...stepBOk, shrimpCount: '12.5' }).shrimpCount,
-        'Minimal 10 ekor (bilangan bulat).'
-      );
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpCount: 'abc' }).shrimpCount, 'Harus berupa angka.');
+      for (const value of ['0', '-3', '12.5']) {
+        assert.strictEqual(
+          validateStepB({ ...stepBOk, shrimpCount: value }).shrimpCount,
+          'Harus bilangan bulat minimal 1 ekor.'
+        );
+      }
+      // Dulu ditolak (minimal 10): kini sah, peringatan pun tidak muncul.
+      for (const value of ['1', '5', '10']) {
+        assert.strictEqual(validateStepB({ ...stepBOk, shrimpCount: value }).shrimpCount, undefined);
+      }
+      assert.strictEqual(shrimpCountWarning('5'), null);
     });
 
-    it('panjang 1–50 cm dan berat > 0 sampai 2000 gram', () => {
-      assert.strictEqual(
-        validateStepB({ ...stepBOk, shrimpLengthCm: '0.5' }).shrimpLengthCm,
-        'Harus 1 sampai 50 cm.'
-      );
+    it('peringatan jumlah udang hanya muncul di luar acuan 1–10 ekor', () => {
+      for (const value of ['1', '4', '10', 10]) assert.strictEqual(shrimpCountWarning(value), null);
+      for (const value of ['0', '11', '40', 40]) {
+        assert.match(shrimpCountWarning(value) ?? '', /Di luar acuan 1–10 ekor/);
+        assert.match(shrimpCountWarning(value) ?? '', /tetap bisa disimpan/);
+      }
+      assert.strictEqual(shrimpCountWarning(''), null);
+      assert.strictEqual(shrimpCountWarning('abc'), null);
+      assert.strictEqual(shrimpCountWarning(undefined), null);
+    });
+
+    it('panjang udang bebas rentang; berat tetap > 0 sampai 2000 gram', () => {
+      for (const value of ['0.5', '51', '2.75', '120']) {
+        assert.strictEqual(validateStepB({ ...stepBOk, shrimpLengthCm: value }).shrimpLengthCm, undefined);
+      }
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpLengthCm: '' }).shrimpLengthCm, 'Wajib diisi.');
+      assert.strictEqual(validateStepB({ ...stepBOk, shrimpLengthCm: 'abc' }).shrimpLengthCm, 'Harus berupa angka.');
       assert.strictEqual(
         validateStepB({ ...stepBOk, totalWeightG: '0' }).totalWeightG,
         'Harus lebih dari 0 sampai 2000 gram.'
@@ -183,16 +216,17 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       );
     });
 
-    it('suhu awal udang dan tiga suhu cool box dibatasi -10..10 °C', () => {
-      const msg = 'Harus -10 sampai 10 °C.';
-      assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: '10.1' }).initialTempC, msg);
-      assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: '-10.1' }).initialTempC, msg);
-      assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: '-10' }).initialTempC, undefined);
-      assert.strictEqual(validateStepB({ ...stepBOk, coolerMarket: '10.5' }).coolerMarket, msg);
-      assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '-10.5' }).coolerLab, msg);
-      assert.strictEqual(validateStepB({ ...stepBOk, coolerMarket: '0' }).coolerMarket, undefined);
-      assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '4' }).coolerLab, undefined);
+    it('suhu awal udang dan tiga suhu cool box bebas rentang', () => {
+      for (const value of ['-10.1', '10.1', '-40', '85']) {
+        assert.strictEqual(validateStepB({ ...stepBOk, initialTempC: value }).initialTempC, undefined);
+        assert.strictEqual(validateStepB({ ...stepBOk, coolerMarket: value }).coolerMarket, undefined);
+        assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: value }).coolerLab, undefined);
+      }
       assert.strictEqual(validateStepC({ ...stepBOk, ...groupOk, coolerLab: '' }).coolerLab, 'Wajib diisi.');
+      assert.strictEqual(
+        validateStepC({ ...stepBOk, ...groupOk, coolerLab: 'hangat' }).coolerLab,
+        'Harus berupa angka.'
+      );
     });
   });
 
@@ -219,35 +253,31 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(errs['shrimpTemp-1'], undefined);
     });
 
-    it('suhu per ekor dibatasi -10..10 °C dan panjang 1–50 cm', () => {
-      const tempMsg = 'Harus -10 sampai 10 °C.';
+    it('suhu & panjang per ekor bebas rentang dan menerima desimal', () => {
+      for (const value of ['10.1', '-10.1', '99', '-5.75']) {
+        assert.strictEqual(
+          validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, value) })['shrimpTemp-1'],
+          undefined
+        );
+      }
+      for (const value of ['0.5', '51', '2.75', '120']) {
+        assert.strictEqual(
+          validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, value) })['shrimpLength-3'],
+          undefined
+        );
+      }
       assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(3, '10.1') })['shrimpTemp-4'],
-        tempMsg
+        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, 'hangat') })['shrimpTemp-1'],
+        'Harus berupa angka.'
       );
       assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, '-10.1') })['shrimpTemp-1'],
-        tempMsg
-      );
-      assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpTemperatures: withTemperature(0, '-10') })['shrimpTemp-1'],
-        undefined
-      );
-      assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '0.5') })['shrimpLength-3'],
-        'Harus 1 sampai 50 cm.'
-      );
-      assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '51') })['shrimpLength-3'],
-        'Harus 1 sampai 50 cm.'
-      );
-      assert.strictEqual(
-        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '12.5') })['shrimpLength-3'],
-        undefined
+        validateStepB({ ...perShrimpOk, shrimpLengths: withLength(2, '') })['shrimpLength-3'],
+        'Wajib diisi.'
       );
     });
 
-    it('jumlah ekor di atas batas baris pengukuran ditolak dengan pesan jelas', () => {
+    it('jumlah ekor di atas batas TEKNIS baris pengukuran ditolak dengan pesan jelas', () => {
+      // Batas 1.000 baris hanya pengaman render wizard; API/DB menerima lebih.
       const errs = validateStepB({ ...perShrimpOk, shrimpCount: String(SHRIMP_ROW_LIMIT + 1) });
       assert.strictEqual(
         errs.shrimpCount,
@@ -268,12 +298,14 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
   });
 
   describe('helper turunan pengukuran per ekor', () => {
-    it('shrimpRowCount hanya menerima bilangan bulat 10..batas', () => {
+    it('shrimpRowCount menerima bilangan bulat 1..batas teknis', () => {
       assert.strictEqual(shrimpRowCount(''), 0);
-      assert.strictEqual(shrimpRowCount('9'), 0);
+      assert.strictEqual(shrimpRowCount('0'), 0);
+      assert.strictEqual(shrimpRowCount('-2'), 0);
       assert.strictEqual(shrimpRowCount('12.5'), 0);
       assert.strictEqual(shrimpRowCount('abc'), 0);
-      assert.strictEqual(shrimpRowCount('10'), 10);
+      assert.strictEqual(shrimpRowCount('1'), 1);
+      assert.strictEqual(shrimpRowCount('5'), 5);
       assert.strictEqual(shrimpRowCount('12'), 12);
       assert.strictEqual(shrimpRowCount(String(SHRIMP_ROW_LIMIT)), SHRIMP_ROW_LIMIT);
       assert.strictEqual(shrimpRowCount(String(SHRIMP_ROW_LIMIT + 1)), 0);
@@ -312,16 +344,18 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(errs['sr-labTempC'], undefined);
     });
 
-    it('bobot sampel harus lebih dari 0 dan jumlah sampel 3–5 ekor', () => {
+    it('jumlah sampel tanpa batas domain; bobot tidak divalidasi di sini', () => {
       const errs = validateGroupForm('sr', {
         ...groupOk,
         labWeightBeforeG: '0',
         labWeightAfterG: '-2',
-        sampleShrimpCount: '2',
+        sampleShrimpCount: '0',
       });
       assert.strictEqual(errs['sr-labWeightBeforeG'], undefined);
       assert.strictEqual(errs['sr-labWeightAfterG'], undefined);
-      assert.strictEqual(errs['sr-sampleShrimpCount'], 'Harus 3–5 ekor.');
+      assert.strictEqual(errs['sr-sampleShrimpCount'], 'Harus bilangan bulat minimal 1 ekor.');
+      // Dulu ditolak (3–5 ekor): kini sah, tanpa galat.
+      assert.deepStrictEqual(validateGroupForm('sr', { ...groupOk, sampleShrimpCount: '9' }), {});
     });
 
     it('jumlah udang per sesi di wizard dipisah suhu ruang dan suhu dingin', () => {
@@ -329,14 +363,23 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
         validateStepC({ ...stepBOk, sampleShrimpCountRoomTemp: '4', sampleShrimpCountCold: '3' }),
         {}
       );
-      const tooFar = validateStepC({
+      const outOfGuide = validateStepC({
         ...stepBOk,
         sampleShrimpCountRoomTemp: '2',
-        sampleShrimpCountCold: '6',
+        sampleShrimpCountCold: '15',
       });
-      assert.strictEqual(tooFar.sampleShrimpCountRoomTemp, 'Harus 3–5 ekor.');
-      assert.strictEqual(tooFar.sampleShrimpCountCold, 'Harus 3–5 ekor.');
-      assert.strictEqual(tooFar.sampleShrimpCount, undefined);
+      // Acuan 1–10 hanya peringatan: tidak ada galat untuk nilai di luar itu.
+      assert.deepStrictEqual(outOfGuide, {});
+      assert.strictEqual(shrimpCountWarning('2'), null);
+      assert.match(shrimpCountWarning('15') ?? '', /Di luar acuan 1–10 ekor/);
+      const invalid = validateStepC({
+        ...stepBOk,
+        sampleShrimpCountRoomTemp: '0',
+        sampleShrimpCountCold: '11.5',
+      });
+      assert.strictEqual(invalid.sampleShrimpCountRoomTemp, 'Harus bilangan bulat minimal 1 ekor.');
+      assert.strictEqual(invalid.sampleShrimpCountCold, 'Harus bilangan bulat minimal 1 ekor.');
+      assert.strictEqual(invalid.sampleShrimpCount, undefined);
       assert.strictEqual(
         validateStepC({ ...stepBOk, sampleShrimpCountCold: '' }).sampleShrimpCountCold,
         'Wajib diisi.'
@@ -406,9 +449,12 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.deepStrictEqual(validateGroupFields(groupOk), {});
     });
 
-    it('pengelompokan hanya memvalidasi visual dan jumlah sampel, bukan pengukuran tahap', () => {
+    it('pengelompokan hanya memvalidasi visual dan kelayakan jumlah sampel', () => {
       assert.deepStrictEqual(validateGroupFields({ visualCheck: 'normal', sampleShrimpCount: '4' }), {});
-      assert.strictEqual(validateGroupFields({ ...groupOk, sampleShrimpCount: '2' }).sampleShrimpCount, 'Harus 3–5 ekor.');
+      assert.strictEqual(validateGroupFields({ ...groupOk, sampleShrimpCount: '0' }).sampleShrimpCount, 'Harus bilangan bulat minimal 1 ekor.');
+      // Nilai di luar acuan 1–10 ekor bukan galat.
+      assert.strictEqual(validateGroupFields({ ...groupOk, sampleShrimpCount: '2' }).sampleShrimpCount, undefined);
+      assert.strictEqual(validateGroupFields({ ...groupOk, sampleShrimpCount: '40' }).sampleShrimpCount, undefined);
       assert.strictEqual(validateGroupFields({ ...groupOk, visualCheck: 'unknown' }).visualCheck, 'Wajib dipilih.');
     });
 
@@ -423,6 +469,7 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
 
   describe('suhu tahap observasi — baris per ekor menjadi rata-rata', () => {
     it('jumlah baris mengikuti jumlah udang per sesi grup', () => {
+      assert.strictEqual(observationRowCount(1), 1);
       assert.strictEqual(observationRowCount(3), 3);
       assert.strictEqual(observationRowCount(4), 4);
       assert.strictEqual(observationRowCount(5), 5);
@@ -433,9 +480,9 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       for (const bad of [0, -1, 2.5, SHRIMP_ROW_LIMIT + 1, Number.NaN]) {
         assert.strictEqual(observationRowCount(bad), 0, `nilai ${bad} harus ditolak`);
       }
-      // Batas 3–5 ekor ditegakkan constraint DB pengelompokan; di sini yang
-      // dijaga hanya kelayakan render, jadi nilai lain tetap mendapat barisnya.
+      // Batas 3–5 ekor sudah dihapus; kelayakan render saja yang dijaga.
       assert.strictEqual(observationRowCount(6), 6);
+      assert.strictEqual(observationRowCount(40), 40);
     });
 
     it('rata-rata dari seluruh baris, dibulatkan 2 desimal', () => {
@@ -455,10 +502,12 @@ describe('lib/batch-wizard: validator per langkah wizard batch (butir 12)', () =
       assert.strictEqual(observationTempMean(['5', '5'], Number.NaN), null);
     });
 
-    it('nilai di luar rentang suhu tahap ditolak, batasnya inklusif', () => {
-      assert.strictEqual(observationTempMean(['-2.1'], 1), null);
-      assert.strictEqual(observationTempMean(['30.1'], 1), null);
-      assert.strictEqual(observationTempMean(['5', '99'], 2), null);
+    it('suhu tahap bebas rentang: nilai ekstrem tetap dirata-ratakan', () => {
+      assert.strictEqual(observationTempMean(['-2.1'], 1), -2.1);
+      assert.strictEqual(observationTempMean(['30.1'], 1), 30.1);
+      assert.strictEqual(observationTempMean(['5', '99'], 2), 52);
+      assert.strictEqual(observationTempMean(['-40', '85'], 2), 22.5);
+      assert.strictEqual(observationTempMean(['2.755'], 1), 2.76);
     });
 
     it('baris di luar jumlah ekor diabaikan, bukan menggeser rata-rata', () => {

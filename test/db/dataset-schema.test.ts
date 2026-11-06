@@ -231,9 +231,18 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
     );
   });
 
-  it('CHECK: shrimp_count < 10 ditolak', async () => {
+  it('CHECK: jumlah udang harus positif; minimum lama 10 sudah dihapus', async () => {
+    // Revisi validasi: 5 ekor dulu ditolak, kini tersimpan apa adanya.
+    const small = await prisma.collectionBatch.create({
+      data: batchData({ batchId: 'BT-20990101-03', shrimpCount: 5 }),
+    });
+    assert.strictEqual(small.shrimpCount, 5);
+    await prisma.collectionBatch.delete({ where: { id: small.id } });
+
     await assert.rejects(
-      prisma.collectionBatch.create({ data: batchData({ batchId: 'BT-20990101-03', shrimpCount: 5 }) })
+      prisma.collectionBatch.create({ data: batchData({ batchId: 'BT-20990101-11', shrimpCount: 0 }) }),
+      (err: unknown) => String(err).includes('collection_batches_shrimp_count_positive'),
+      'Jumlah 0 harus ditolak CHECK collection_batches_shrimp_count_positive'
     );
   });
 
@@ -278,38 +287,54 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
     await prisma.collectionBatch.delete({ where: { id: legacy.id } });
   });
 
-  it('CHECK: suhu cooler di luar -10..10 ditolak', async () => {
-    await assert.rejects(
-      prisma.collectionBatch.create({
-        data: batchData({ batchId: 'BT-20990101-05', coolerTempLabC: 12.0 }),
-      })
-    );
-    await assert.rejects(
-      prisma.collectionBatch.create({
-        data: batchData({ batchId: 'BT-20990101-09', coolerTempDepartureC: -10.5 }),
-      })
-    );
-    // Batas baru: nilai yang dulu ditolak (mis. -1 dan 9) kini diterima.
-    const cold = await prisma.collectionBatch.create({
+  it('CHECK: suhu cooler tidak lagi dibatasi -10..10 (hanya kapasitas kolom)', async () => {
+    // Nilai ekstrem tersimpan apa adanya: protokol 0–4 °C hanya peringatan di UI.
+    const extreme = await prisma.collectionBatch.create({
       data: batchData({
-        batchId: 'BT-20990101-10',
-        coolerTempDepartureC: -1,
-        coolerTempMarketC: -1,
-        coolerTempLabC: 9,
+        batchId: 'BT-20990101-05',
+        coolerTempDepartureC: -10.5,
+        coolerTempMarketC: 12,
+        coolerTempLabC: -45.25,
       }),
     });
-    await prisma.collectionBatch.delete({ where: { id: cold.id } });
+    assert.strictEqual(extreme.coolerTempMarketC.toNumber(), 12);
+    assert.strictEqual(extreme.coolerTempLabC.toNumber(), -45.25);
+    await prisma.collectionBatch.delete({ where: { id: extreme.id } });
+
+    // Batas yang tersisa adalah lebar kolom DECIMAL(5,2), bukan aturan domain.
+    await assert.rejects(
+      prisma.collectionBatch.create({
+        data: batchData({ batchId: 'BT-20990101-09', coolerTempLabC: 1000 }),
+      })
+    );
   });
 
   it('CHECK: format batch_id salah ditolak', async () => {
     await assert.rejects(prisma.collectionBatch.create({ data: batchData({ batchId: 'SALAH' }) }));
   });
 
-  it('CHECK: sample_shrimp_count di luar 3–5 ditolak', async () => {
+  it('CHECK: sample_shrimp_count cukup positif; domain 3–5 sudah dihapus', async () => {
+    // 9 ekor dulu ditolak, kini tersimpan (acuan 1–10 hanya peringatan UI).
+    const wide = await prisma.sampleGroup.create({
+      data: {
+        groupId: `${BATCH}-XX`,
+        batchId: BATCH,
+        storageCondition: 'COLD',
+        targetTempC: 4.0,
+        labTempC: 5.0,
+        visualCheck: 'NORMAL',
+        labWeightBeforeG: 480.0,
+        labWeightAfterG: 476.2,
+        sampleShrimpCount: 9,
+      },
+    });
+    assert.strictEqual(wide.sampleShrimpCount, 9);
+    await prisma.sampleGroup.delete({ where: { groupId: `${BATCH}-XX` } });
+
     await assert.rejects(
       prisma.sampleGroup.create({
         data: {
-          groupId: `${BATCH}-XX`,
+          groupId: `${BATCH}-XY`,
           batchId: BATCH,
           storageCondition: 'COLD',
           targetTempC: 4.0,
@@ -317,9 +342,11 @@ describe('Dataset Schema Integrity (Fase 1)', () => {
           visualCheck: 'NORMAL',
           labWeightBeforeG: 480.0,
           labWeightAfterG: 476.2,
-          sampleShrimpCount: 9,
+          sampleShrimpCount: 0,
         },
-      })
+      }),
+      (err: unknown) => String(err).includes('sample_groups_shrimp_count_positive'),
+      'Jumlah 0 harus ditolak CHECK sample_groups_shrimp_count_positive'
     );
   });
 

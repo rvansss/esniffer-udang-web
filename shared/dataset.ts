@@ -21,19 +21,23 @@ export class DatasetValidationError extends Error {
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 export const MAX_PHOTO_CAPTION_LENGTH = 140;
 
-// Rentang suhu domain (revisi): cool box dan suhu awal udang -10..10 °C.
-// Satu sumber kebenaran untuk form wizard, API, dan constraint DB.
-export const COOLER_TEMP_MIN_C = -10;
-export const COOLER_TEMP_MAX_C = 10;
-export const INITIAL_TEMP_MIN_C = -10;
-export const INITIAL_TEMP_MAX_C = 10;
+// Revisi validasi: kolom pengukuran (suhu cool box, suhu udang, panjang udang,
+// jumlah udang) TIDAK lagi punya rentang domain yang memblokir simpan. Yang
+// tersisa hanya acuan protokol di bawah ini; penyimpangan darinya ditampilkan
+// sebagai peringatan di UI (bukan galat), sehingga data lapangan tetap tercatat.
+//
+// Acuan suhu cool box 0–4 °C: nilai di luar acuan tetap tersimpan.
+export const COOLER_TEMP_TARGET_MIN_C = 0;
+export const COOLER_TEMP_TARGET_MAX_C = 4;
 
-// Suhu udang yang dicatat pada tiap tahap observasi (H0, H6, …) lebih lebar
-// daripada suhu saat pembelian: sampel bisa diukur setelah dikeluarkan dari
-// cool box, jadi batasnya -2..30 °C. Satu sumber kebenaran untuk modal tahap
-// di UI dan dua route API yang menulis kolom `shrimp_temp_c`.
-export const OBSERVATION_TEMP_MIN_C = -2;
-export const OBSERVATION_TEMP_MAX_C = 30;
+// Acuan jumlah udang per batch maupun per sesi (SR/SD): 1–10 ekor.
+export const SHRIMP_COUNT_GUIDE_MIN = 1;
+export const SHRIMP_COUNT_GUIDE_MAX = 10;
+
+// Kapasitas kolom `DECIMAL(5,2)` yang dipakai semua kolom suhu/panjang. Dipakai
+// parser API agar nilai di luar kapasitas ditolak 422, bukan meledak sebagai
+// numeric-overflow (500) di PostgreSQL. Ini batas penyimpanan, bukan batas domain.
+export const DECIMAL_5_2_MAX_ABS = 999.99;
 
 // Durasi baseline udara bersih per sesi (PRD Tahap D): 2 menit pertama.
 export const BASELINE_SECONDS = 120;

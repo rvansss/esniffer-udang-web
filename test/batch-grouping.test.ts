@@ -103,13 +103,24 @@ describe('pengelompokan batch dari wizard (jumlah per kondisi simpan)', () => {
     );
   });
 
-  it('nilai per suhu tetap dibatasi 3–5 ekor dan visual wajib sah', () => {
+  it('jumlah per suhu bebas batas domain: cukup bilangan bulat ≥ 1 dan visual sah', () => {
+    // Nilai di luar acuan 1–10 ekor tetap diterima API (peringatan hanya di UI).
+    assert.deepStrictEqual(parseBatchGrouping({ visualCheck: 'normal', sampleShrimpCount: 2 }), {
+      visualCheck: 'NORMAL',
+      roomTempCount: 2,
+      coldCount: 2,
+    });
+    assert.deepStrictEqual(parseBatchGrouping({ visualCheck: 'normal', sampleShrimpCount: 9 }), {
+      visualCheck: 'NORMAL',
+      roomTempCount: 9,
+      coldCount: 9,
+    });
     for (const invalid of [
-      { visualCheck: 'normal', sampleShrimpCount: 2 },
-      { visualCheck: 'normal', sampleShrimpCount: 6 },
-      { visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountRoomTemp: 6 },
-      { visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: 2 },
-      { visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountRoomTemp: '4' },
+      { visualCheck: 'normal', sampleShrimpCount: 0 },
+      { visualCheck: 'normal', sampleShrimpCount: -3 },
+      { visualCheck: 'normal', sampleShrimpCount: 1.5 },
+      { visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountRoomTemp: 0 },
+      { visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: '4' },
       // Tanpa satu pun jumlah udang per sesi, grouping dianggap tidak lengkap.
       { visualCheck: 'normal' },
       { visualCheck: 'busuk', sampleShrimpCount: 4 },

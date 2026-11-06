@@ -1,6 +1,5 @@
 "use client";
 
-import { OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C } from '../../shared/dataset.ts';
 import { formatMean, observationTempMean } from '../../lib/batch-wizard.ts';
 
 const rowInputCls =
@@ -40,14 +39,20 @@ export default function ObservationTempFields({ count, values, onChangeRow }: {
           {Array.from({ length: count }, (_, index) => {
             const row = index + 1;
             return (
-              <li key={row} className="grid grid-cols-[minmax(64px,auto)_1fr] items-center gap-2">
+              <li
+                key={row}
+                // Jumlah udang per sesi tidak lagi dibatasi 3–5 ekor; baris di
+                // luar viewport ditunda paint-nya agar daftar panjang tetap
+                // ringan tanpa mengubah DOM atau urutan fokus.
+                style={{ contentVisibility: 'auto', containIntrinsicSize: '44px' }}
+                className="grid grid-cols-[minmax(64px,auto)_1fr] items-center gap-2"
+              >
                 <span className="text-[12px] font-mono text-white/70">Udang {row}</span>
                 <input
                   id={`obs-temp-${row}`}
                   type="number"
-                  min={OBSERVATION_TEMP_MIN_C}
-                  max={OBSERVATION_TEMP_MAX_C}
-                  step="0.1"
+                  step="any"
+                  lang="en"
                   inputMode="decimal"
                   placeholder="°C"
                   aria-label={`Suhu udang ${row} (°C)`}
@@ -74,8 +79,8 @@ export default function ObservationTempFields({ count, values, onChangeRow }: {
         />
         <p id="pre-temp-hint" className="text-[11px] font-mono text-white/45 mt-1">
           {count > 0
-            ? `Otomatis: rata-rata dari ${count} pengukuran per ekor (${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C).`
-            : `Otomatis terisi setelah baris pengukuran per ekor tersedia (${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C).`}
+            ? `Otomatis: rata-rata dari ${count} pengukuran per ekor.`
+            : 'Otomatis terisi setelah baris pengukuran per ekor tersedia.'}
         </p>
       </div>
     </fieldset>

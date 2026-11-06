@@ -184,18 +184,61 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     await prisma.collectionBatch.delete({ where: { batchId: body.data.batchId } });
   });
 
-  it('2. POST /batches menolak shrimpCount < 10 (422)', async () => {
-    const res = await createBatch(
+  it('2. POST /batches menerima jumlah udang kecil dan menolak yang tidak masuk akal (422)', async () => {
+    // Dulu shrimpCount < 10 ditolak; kini minimal 1 ekor (tanpa batas atas).
+    for (const shrimpCount of [1, 5, 40]) {
+      const accepted = await createBatch(
+        new Request('http://localhost:3000/api/v1/batches', {
+          method: 'POST',
+          headers: postHeaders(adminCookie),
+          body: JSON.stringify(batchBody({ shrimpCount })),
+        })
+      );
+      assert.strictEqual(accepted.status, 201, `shrimpCount ${shrimpCount} harus diterima`);
+      assert.strictEqual((await accepted.json()).data.shrimpCount, shrimpCount);
+    }
+
+    for (const shrimpCount of [0, -3, 12.5, 'dua belas', 1e30]) {
+      const res = await createBatch(
+        new Request('http://localhost:3000/api/v1/batches', {
+          method: 'POST',
+          headers: postHeaders(adminCookie),
+          body: JSON.stringify(batchBody({ shrimpCount })),
+        })
+      );
+      assert.strictEqual(res.status, 422, `shrimpCount ${JSON.stringify(shrimpCount)} harus ditolak`);
+    }
+  });
+
+  it('2a. POST /batches menerima suhu cool box di luar 0–4 °C (warning hanya di UI)', async () => {
+    const extreme = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
         method: 'POST',
         headers: postHeaders(adminCookie),
-        body: JSON.stringify(batchBody({ shrimpCount: 5 })),
+        body: JSON.stringify(
+          batchBody({ coolerTempDepartureC: -3.5, coolerTempMarketC: 12.75, coolerTempLabC: 0.25 })
+        ),
       })
     );
-    assert.strictEqual(res.status, 422);
+    assert.strictEqual(extreme.status, 201);
+    const body = await extreme.json();
+    assert.strictEqual(body.data.coolerTempDepartureC, -3.5);
+    assert.strictEqual(body.data.coolerTempMarketC, 12.75);
+    assert.strictEqual(body.data.coolerTempLabC, 0.25);
+    await prisma.collectionBatch.delete({ where: { batchId: body.data.batchId } });
+
+    // Kapasitas kolom DECIMAL(5,2) tetap dijaga: 422, bukan 500.
+    const overflow = await createBatch(
+      new Request('http://localhost:3000/api/v1/batches', {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify(batchBody({ coolerTempLabC: 1000 })),
+      })
+    );
+    assert.strictEqual(overflow.status, 422);
   });
 
-  it('2b. POST /batches menurunkan sizeGrade kiriman dan mewajibkan shrimpLengthCm', async () => {
+  it('2b. POST /batches menurunkan sizeGrade kiriman dan menerima panjang udang bebas rentang', async () => {
     // Nilai sizeGrade kiriman diabaikan: server selalu menghitung
     // jumlah ekor ÷ berat (gram) × 1000 lalu membulatkan.
     const ignored = await createBatch(
@@ -208,8 +251,18 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(ignored.status, 201);
     assert.strictEqual((await ignored.json()).data.sizeGrade, 25); // Math.round(12 / 485.5 * 1000)
 
-    // Panjang wajib 1–50 cm.
-    for (const shrimpLengthCm of [0, 60, '', 'dua belas']) {
+    // Panjang udang bebas rentang (desimal diterima); bukan angka/overflow ditolak.
+    for (const shrimpLengthCm of [0.5, 51, 2.75, 120]) {
+      const res = await createBatch(
+        new Request('http://localhost:3000/api/v1/batches', {
+          method: 'POST',
+          headers: postHeaders(adminCookie),
+          body: JSON.stringify(batchBody({ shrimpLengthCm })),
+        })
+      );
+      assert.strictEqual(res.status, 201, `shrimpLengthCm ${shrimpLengthCm} harus diterima`);
+    }
+    for (const shrimpLengthCm of [1000, '', 'dua belas']) {
       const res = await createBatch(
         new Request('http://localhost:3000/api/v1/batches', {
           method: 'POST',
@@ -273,8 +326,10 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(legacy.status, 201);
     assert.deepStrictEqual(await counts((await legacy.json()).data.batchId), { room_temp: 5, cold: 5 });
 
-    // Nilai per suhu tetap dibatasi 3–5 ekor.
-    const invalid = await post({ visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: 6 });
+    // Nilai per suhu tanpa batas domain; hanya bilangan bulat ≥ 1 yang wajib.
+    const outOfGuide = await post({ visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: 6 });
+    assert.strictEqual(outOfGuide.status, 201);
+    const invalid = await post({ visualCheck: 'normal', sampleShrimpCount: 4, sampleShrimpCountCold: 0 });
     assert.strictEqual(invalid.status, 422);
   });
 
@@ -462,13 +517,26 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(dup.status, 409);
   });
 
-  it('9. POST groups menolak sampleShrimpCount di luar 3–5 (422)', async () => {
-    const res = await createGroups(
+  it('9. POST groups menerima jumlah sampel bebas dan menolak yang bukan bilangan bulat ≥ 1 (422)', async () => {
+    // Dulu 3–5 ekor; kini 9 pun sah (kelompok dingin sudah ada → 409, bukan 422).
+    const accepted = await createGroups(
       new Request(`http://localhost:3000/api/v1/batches/${batchId}/groups`, {
         method: 'POST',
         headers: postHeaders(adminCookie),
         body: JSON.stringify({
           groups: [{ ...groupsBody().groups[0], storageCondition: 'cold', sampleShrimpCount: 9 }],
+        }),
+      }),
+      { params: Promise.resolve({ batchId }) }
+    );
+    assert.strictEqual(accepted.status, 409);
+
+    const res = await createGroups(
+      new Request(`http://localhost:3000/api/v1/batches/${batchId}/groups`, {
+        method: 'POST',
+        headers: postHeaders(adminCookie),
+        body: JSON.stringify({
+          groups: [{ ...groupsBody().groups[0], storageCondition: 'cold', sampleShrimpCount: 0 }],
         }),
       }),
       { params: Promise.resolve({ batchId }) }

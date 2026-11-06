@@ -11,8 +11,8 @@ import SuccessNotice, { useSuccessNotice } from '../../../components/ui/SuccessN
 import SessionResultModal from '../../../components/batches/SessionResultModal';
 import ObservationTempFields from '../../../components/batches/ObservationTempFields';
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
-import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C, wibDateTimeLocal } from '../../../shared/dataset.ts';
-import { observationRowCount, observationTempMean, parseWibInput } from '../../../lib/batch-wizard.ts';
+import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
+import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -121,6 +121,17 @@ const EM_DASH = '—';
 
 const num = (v: number | null | undefined, unit = '') =>
   v === null || v === undefined ? EM_DASH : `${numFmt.format(v)}${unit}`;
+
+/**
+ * Nilai angka dengan penanda amber bila menyimpang dari acuan protokol
+ * (suhu cool box 0–4 °C, jumlah udang 1–10 ekor). Data yang tersimpan tidak
+ * diubah — penanda ini murni informasi saat membaca/mengoreksi batch.
+ */
+const numWithWarning = (v: number | null | undefined, warning: string | null, unit = '') => {
+  const text = num(v, unit);
+  if (!warning) return text;
+  return <>{text} <span role="status" className="block text-[11px] font-normal text-amber-200">{warning}</span></>;
+};
 
 /** Tabel riwayat boleh 2 desimal (sensor suhu 0,25 langkah). */
 const tabelNumFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 });
@@ -550,11 +561,11 @@ export default function BatchDetailPage() {
     }
     if (!tempOk) {
       if (tempRowCount < 1) {
-        fail('Jumlah udang per sesi grup ini belum terbaca. Perbaiki pengelompokan batch sebelum memulai sesi.');
+        fail('Jumlah udang per sesi grup ini belum terbaca atau melebihi 1.000 baris pengukuran. Perbaiki pengelompokan batch sebelum memulai sesi.');
       } else if (mode === 'edit') {
-        fail(`Suhu udang harus ${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C.`);
+        fail('Suhu udang harus berupa angka (desimal pakai titik).');
       } else {
-        fail(`Isi suhu tiap udang pada baris per ekor, ${OBSERVATION_TEMP_MIN_C} sampai ${OBSERVATION_TEMP_MAX_C} °C.`);
+        fail('Isi suhu tiap udang pada baris per ekor dengan angka.');
       }
       return;
     }
@@ -909,6 +920,19 @@ export default function BatchDetailPage() {
 
   const isAdmin = user.role === 'ADMIN';
   const locked = !!batch.lockedAt;
+  // Peringatan acuan untuk tampilan baca: angka tetap ditampilkan apa adanya,
+  // penanda hanya memberi tahu bahwa nilainya menyimpang dari protokol.
+  const sampleCountValues = [...new Set(batch.sampleGroups.map((g) => g.sampleShrimpCount))];
+  const sampleCountWarning =
+    sampleCountValues
+      .map((count) => shrimpCountWarning(count))
+      .find((message): message is string => Boolean(message)) ?? null;
+  // Satu angka bila kedua grup sama, rincian per grup bila berbeda (perilaku lama).
+  const sampleCountText = batch.sampleGroups.length === 0
+    ? EM_DASH
+    : sampleCountValues.length === 1
+      ? num(sampleCountValues[0])
+      : batch.sampleGroups.map((g) => `${g.storageCondition === 'cold' ? 'SD' : 'SR'}: ${g.sampleShrimpCount}`).join('; ');
 
   // Modal tahap: jumlah udang per sesi milik grup menentukan panjang baris
   // suhu per ekor. Mode edit tetap satu baris karena sesi hanya menyimpan
@@ -1012,7 +1036,7 @@ export default function BatchDetailPage() {
                   label="Tanggal dan jam berangkat (WIB)"
                   value={batch.departedAtUtc ? dtFmt.format(new Date(batch.departedAtUtc)) : '—'}
                 />
-                <DataPair label="Suhu cool box saat berangkat (°C)" value={num(batch.coolerTempDepartureC)} />
+                <DataPair label="Suhu cool box saat berangkat (°C)" value={numWithWarning(batch.coolerTempDepartureC, coolerTempWarning(batch.coolerTempDepartureC))} />
                 <DataPair label="Jenis sumber" value={SOURCE_LABEL[batch.sourceType] ?? batch.sourceType} />
                 <DataPair label="Lokasi pembelian" value={batch.marketSource} />
               </dl>
@@ -1024,10 +1048,10 @@ export default function BatchDetailPage() {
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                 <DataPair label="Tanggal dan jam beli (WIB)" value={dtFmt.format(new Date(batch.procuredAtUtc))} />
-                <DataPair label="Suhu cool box saat di pasar (°C)" value={num(batch.coolerTempMarketC)} />
+                <DataPair label="Suhu cool box saat di pasar (°C)" value={numWithWarning(batch.coolerTempMarketC, coolerTempWarning(batch.coolerTempMarketC))} />
                 <DataPair label="Kondisi awal udang" value={CONDITION_LABEL[batch.initialCondition] ?? batch.initialCondition} />
                 <DataPair label="Jenis udang" value={batch.shrimpType ? batch.shrimpType === 'vaname' ? 'Vaname' : 'Windu' : 'Belum tercatat'} />
-                <DataPair label="Jumlah udang keseluruhan (ekor)" value={num(batch.shrimpCount)} />
+                <DataPair label="Jumlah udang keseluruhan (ekor)" value={numWithWarning(batch.shrimpCount, shrimpCountWarning(batch.shrimpCount))} />
                 <DataPair label="Berat total udang (gram)" value={num(batch.totalWeightG)} />
                 <DataPair label="Suhu awal udang (°C)" value={num(batch.initialTempC)} />
                 <DataPair label="Panjang udang (cm)" value={num(batch.shrimpLengthCm)} />
@@ -1043,8 +1067,12 @@ export default function BatchDetailPage() {
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                 <DataPair label="Tanggal dan jam tiba di lab (WIB)" value={dtFmt.format(new Date(batch.arrivedAtUtc))} />
-                <DataPair label="Suhu cool box saat di lab (°C)" value={num(batch.coolerTempLabC)} />
-                <DataPair label="Jumlah udang per sesi (ekor)" value={new Set(batch.sampleGroups.map((g) => g.sampleShrimpCount)).size === 1 ? num(batch.sampleGroups[0]?.sampleShrimpCount) : batch.sampleGroups.map((g) => `${g.storageCondition === 'cold' ? 'SD' : 'SR'}: ${g.sampleShrimpCount}`).join('; ') || '—'} />
+                <DataPair label="Suhu cool box saat di lab (°C)" value={numWithWarning(batch.coolerTempLabC, coolerTempWarning(batch.coolerTempLabC))} />
+                <DataPair label="Jumlah udang per sesi (ekor)" value={
+                  sampleCountWarning
+                    ? <>{sampleCountText} <span role="status" className="block text-[11px] font-normal text-amber-200">{sampleCountWarning}</span></>
+                    : sampleCountText
+                } />
                 <DataPair label="Temuan visual udang" value={new Set(batch.sampleGroups.map((g) => g.visualCheck)).size === 1 ? VISUAL_LABEL[batch.sampleGroups[0]?.visualCheck] : batch.sampleGroups.map((g) => `${g.storageCondition === 'cold' ? 'SD' : 'SR'}: ${VISUAL_LABEL[g.visualCheck]}`).join('; ') || '—'} />
                 <DataPair label="Durasi beli ke tiba" value={durationText(batch.procuredAtUtc, batch.arrivedAtUtc)} />
               </dl>
@@ -1841,10 +1869,9 @@ export default function BatchDetailPage() {
                   <input
                     id="pre-temp"
                     type="number"
-                    step="0.1"
+                    step="any"
                     lang="en"
-                    min={OBSERVATION_TEMP_MIN_C}
-                    max={OBSERVATION_TEMP_MAX_C}
+                    inputMode="decimal"
                     aria-label="Suhu udang dalam derajat Celsius, titik desimal pakai titik"
                     value={sessionModal.shrimpTemps[0] ?? ''}
                     onChange={(e) =>
@@ -1853,7 +1880,7 @@ export default function BatchDetailPage() {
                     className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/10 text-white text-sm font-mono placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                   />
                   <p className="text-[11px] font-mono text-white/45 mt-1">
-                    Angka desimal menggunakan titik, mis. 28.5. Kosongkan untuk menghapus nilai tahap ini.
+                    Angka desimal menggunakan titik, mis. 28.5 (tanpa batas rentang). Kosongkan untuk menghapus nilai tahap ini.
                   </p>
                 </div>
               )}

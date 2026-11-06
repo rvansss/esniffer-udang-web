@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { observationTempMean, parseWibInput } from '../lib/batch-wizard.ts';
-import { OBSERVATION_TEMP_MAX_C, OBSERVATION_TEMP_MIN_C } from '../shared/dataset.ts';
 
 // Jalankan handler UI asli dengan pengganti state/network, agar regresi cabang
 // create/edit terdeteksi tanpa menyalin logika handler ke dalam tes.
@@ -44,8 +43,6 @@ function setup(overrides: Record<string, unknown> = {}) {
     sessionModal: modal,
     parseWibInput,
     observationTempMean,
-    OBSERVATION_TEMP_MIN_C,
-    OBSERVATION_TEMP_MAX_C,
     MAX_PHOTO_CAPTION_LENGTH: 140,
     warmup: { 'BT-20261024-01-SR': true },
     chSel: {},
@@ -114,13 +111,21 @@ test('suhu tahap baru dikirim sebagai rata-rata baris per ekor', async () => {
 });
 
 test('baris suhu belum lengkap memblokir pembuatan sesi', async () => {
-  for (const shrimpTemps of [['5', '', '6'], ['5', 'abc', '6'], ['5', '99', '6']]) {
+  for (const shrimpTemps of [['5', '', '6'], ['5', 'abc', '6'], ['5', '5,5', '6']]) {
     const h = setup({ captureMode: 'live', shrimpTemps });
     await h.submit();
     assert.equal(h.requests.length, 0, `baris ${JSON.stringify(shrimpTemps)} tidak boleh terkirim`);
     assert.equal(h.notices.length, 0);
     assert.ok(h.modal?.err, 'pesan galat harus tampil di modal');
   }
+});
+
+test('suhu di luar acuan protokol tetap dikirim sebagai rata-rata (tanpa rentang)', async () => {
+  // Nilai ekstrem tidak lagi memblokir: yang tersimpan adalah rata-rata baris.
+  const h = setup({ captureMode: 'live', shrimpTemps: ['5', '99', '6'] });
+  await h.submit();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].payload.shrimpTempC, 36.67);
 });
 
 test('jumlah udang per sesi yang belum terbaca memblokir sesi dengan pesan pengelompokan', async () => {

@@ -46,7 +46,7 @@ after(async () => {
 });
 test('invalid grouping or shrimp type leaves no partial batch behind', async () => {
   const before = await prisma.collectionBatch.count({ where: { operatorId: userId } });
-  for (const changed of [{ shrimpType: '' }, { shrimpType: 'unknown' }, { totalWeightG: 480.123 }, { shrimpCount: 1e30 }, { grouping: { ...payload.grouping, sampleShrimpCount: 9 } }]) {
+  for (const changed of [{ shrimpType: '' }, { shrimpType: 'unknown' }, { totalWeightG: 480.123 }, { shrimpCount: 1e30 }, { grouping: { ...payload.grouping, sampleShrimpCount: 0 } }]) {
     const result = await createBatch(request('batches', { ...payload, ...changed }));
     assert.equal(result.status, 422);
   }

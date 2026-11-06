@@ -55,7 +55,7 @@ export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Nilai bawaan form — bukan tanda pengguna mengisi. */
 const PRISTINE_DEFAULTS: Record<string, string> = {
   sourceType: 'market',
-  shrimpCount: '12',
+  shrimpCount: '10',
   initialCondition: 'dead',
   visualCheck: 'normal',
   sampleShrimpCountRoomTemp: '4',

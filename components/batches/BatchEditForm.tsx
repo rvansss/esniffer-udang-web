@@ -4,7 +4,7 @@ import { useState } from 'react';
 import GroupingFields, { type GroupingDraft } from './GroupingFields';
 import { SHRIMP_TYPES } from '../../shared/shrimp.ts';
 import { wibDateTimeLocal } from '../../shared/dataset.ts';
-import { validateStepA, validateStepB, validateStepC, wibInputToUtcIso, type WizardErrors } from '../../lib/batch-wizard.ts';
+import { validateStepA, validateStepB, validateStepC, wibInputToUtcIso, coolerTempWarning, shrimpCountWarning, type WizardErrors } from '../../lib/batch-wizard.ts';
 
 interface EditableBatch {
   departedAtUtc: string | null; procuredAtUtc: string; arrivedAtUtc: string;
@@ -51,20 +51,25 @@ export default function BatchEditForm({ batch, saving, onSave, onCancel }: {
     });
   };
   const input = 'w-full p-2.5 rounded-xl bg-black/25 border border-white/20 text-white text-sm [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-emerald-400';
-  const field = (key: keyof typeof value, label: string, type = 'text') => <label htmlFor={`edit-${key}`} className="flex flex-col gap-1 text-xs text-white/85">{label} *<input id={`edit-${key}`} type={type} step={type === 'number' ? key === 'shrimpCount' ? '1' : '0.1' : undefined} value={String(value[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} className={input} />{errors[key] && <span role="alert" className="text-rose-300">{errors[key]}</span>}</label>;
+  /**
+   * Kolom angka desimal bebas rentang: `step="any"` + `lang="en"` agar titik
+   * desimal diterima apa pun locale perangkatnya. `warning` hanya peringatan
+   * acuan protokol — tidak pernah memblokir simpan.
+   */
+  const field = (key: keyof typeof value, label: string, type = 'text', warning?: string | null) => <label htmlFor={`edit-${key}`} className="flex flex-col gap-1 text-xs text-white/85">{label} *<input id={`edit-${key}`} type={type} step={type === 'number' ? (key === 'shrimpCount' ? '1' : 'any') : undefined} inputMode={type === 'number' ? (key === 'shrimpCount' ? 'numeric' : 'decimal') : undefined} lang={type === 'number' ? 'en' : undefined} value={String(value[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} aria-describedby={[errors[key] ? `edit-${key}-error` : '', warning ? `edit-${key}-warning` : ''].filter(Boolean).join(' ') || undefined} className={input} />{errors[key] && <span id={`edit-${key}-error`} role="alert" className="text-rose-300">{errors[key]}</span>}{warning && <span id={`edit-${key}-warning`} role="status" className="text-amber-200">{warning}</span>}</label>;
   const select = (key: keyof typeof value, label: string, options: readonly (readonly [string, string])[]) => <label htmlFor={`edit-${key}`} className="flex flex-col gap-1 text-xs text-white/85">{label} *<select id={`edit-${key}`} value={String(value[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} className={input}>{options.map(([v, text]) => <option key={v} value={v} className="bg-slate-900">{text}</option>)}</select>{errors[key] && <span role="alert" className="text-rose-300">{errors[key]}</span>}</label>;
   return <form noValidate onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-5">
     <fieldset disabled={saving} className="space-y-5">
       <legend className="text-sm font-mono text-emerald-200">Pengadaan</legend>
       <div className="grid sm:grid-cols-2 gap-3">
-        {field('departedAt', 'Tanggal dan jam berangkat (WIB)', 'datetime-local')}{field('coolerDeparture', 'Suhu cool box saat berangkat (°C)', 'number')}
+        {field('departedAt', 'Tanggal dan jam berangkat (WIB)', 'datetime-local')}{field('coolerDeparture', 'Suhu cool box saat berangkat (°C)', 'number', coolerTempWarning(value.coolerDeparture))}
         {select('sourceType', 'Jenis sumber', [['market', 'Pasar'], ['supermarket', 'Supermarket'], ['farm', 'Tambak']])}{field('marketSource', 'Lokasi pembelian')}
       </div>
       <h4 className="text-sm font-mono text-emerald-200">Kondisi & Dokumentasi</h4>
       <div className="grid sm:grid-cols-2 gap-3">
-        {field('procuredAt', 'Tanggal dan jam beli (WIB)', 'datetime-local')}{field('coolerMarket', 'Suhu cool box saat di pasar (°C)', 'number')}
+        {field('procuredAt', 'Tanggal dan jam beli (WIB)', 'datetime-local')}{field('coolerMarket', 'Suhu cool box saat di pasar (°C)', 'number', coolerTempWarning(value.coolerMarket))}
         {select('initialCondition', 'Kondisi awal', [['dead', 'Mati saat dibeli'], ['alive', 'Hidup saat dibeli']])}{select('shrimpType', 'Jenis Udang', [['', 'Pilih jenis udang'], ...SHRIMP_TYPES.map((s) => [s.value, s.label] as const)])}
-        {field('shrimpCount', 'Jumlah total udang (ekor)', 'number')}{field('totalWeightG', 'Berat total saat pembelian (g)', 'number')}
+        {field('shrimpCount', 'Jumlah total udang (ekor)', 'number', shrimpCountWarning(value.shrimpCount))}{field('totalWeightG', 'Berat total saat pembelian (g)', 'number')}
         {field('initialTempC', 'Suhu awal saat pembelian (°C)', 'number')}{field('shrimpLengthCm', 'Panjang udang (cm)', 'number')}
       </div>
       <h4 className="text-sm font-mono text-emerald-200">Pengelompokan</h4>

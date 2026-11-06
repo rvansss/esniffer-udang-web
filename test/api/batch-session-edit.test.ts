@@ -171,16 +171,18 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     await closeDb();
   });
 
-  it('1. POST sesi menolak suhu di luar -2..30 (422)', async () => {
-    const res = await createSession(
-      new Request(`http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
-        method: 'POST',
-        headers: jsonHeaders(adminCookie),
-        body: JSON.stringify({ timepointCode: 'H6', warmupDone: true, shrimpTempC: 99 }),
-      }),
-      { params: Promise.resolve({ groupId: groupSr }) }
-    );
-    assert.strictEqual(res.status, 422);
+  it('1. POST sesi menolak suhu bukan angka atau di luar kapasitas kolom (422)', async () => {
+    for (const shrimpTempC of [1000, 'abc']) {
+      const res = await createSession(
+        new Request(`http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {
+          method: 'POST',
+          headers: jsonHeaders(adminCookie),
+          body: JSON.stringify({ timepointCode: 'H6', warmupDone: true, shrimpTempC }),
+        }),
+        { params: Promise.resolve({ groupId: groupSr }) }
+      );
+      assert.strictEqual(res.status, 422, `shrimpTempC ${JSON.stringify(shrimpTempC)} harus ditolak`);
+    }
   });
 
   it('1b. POST sesi dengan rentang waktu masa lalu (autoBackfill) otomatis selesai dan mengembalikan data', async () => {
@@ -248,6 +250,29 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
 
     const dbRow = await prisma.measurementSession.findUnique({ where: { sessionId: sessionH0 } });
     assert.strictEqual(dbRow?.shrimpWeightG, null);
+
+    // Suhu udang tidak lagi berrentang: nilai ekstrem pun tersimpan apa adanya.
+    const extreme = await patchSession(
+      new Request(`http://localhost:3000/api/v1/sessions/${sessionH0}`, {
+        method: 'PATCH',
+        headers: jsonHeaders(adminCookie),
+        body: JSON.stringify({ shrimpTempC: 99.5 }),
+      }),
+      { params: Promise.resolve({ sessionId: sessionH0 }) }
+    );
+    assert.strictEqual(extreme.status, 200);
+    assert.strictEqual((await extreme.json()).data.shrimpTempC, 99.5);
+
+    // Kembalikan nilai awal agar tes berikutnya membaca data yang sama.
+    const restored = await patchSession(
+      new Request(`http://localhost:3000/api/v1/sessions/${sessionH0}`, {
+        method: 'PATCH',
+        headers: jsonHeaders(adminCookie),
+        body: JSON.stringify({ shrimpTempC: 7.25 }),
+      }),
+      { params: Promise.resolve({ sessionId: sessionH0 }) }
+    );
+    assert.strictEqual(restored.status, 200);
   });
 
   it('3. PATCH /sessions/:id menolak berat nonpositif (422) dan body kosong (422)', async () => {

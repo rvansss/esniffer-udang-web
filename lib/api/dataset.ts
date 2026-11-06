@@ -10,10 +10,7 @@ import {
   isProcurementWindow,
   transportDurationMs,
   MAX_PHOTO_CAPTION_LENGTH,
-  COOLER_TEMP_MIN_C,
-  COOLER_TEMP_MAX_C,
-  INITIAL_TEMP_MIN_C,
-  INITIAL_TEMP_MAX_C,
+  DECIMAL_5_2_MAX_ABS,
   type StorageConditionCode,
 } from '../../shared/dataset.ts';
 
@@ -136,6 +133,26 @@ export function parseFiniteNumber(val: unknown, fieldName: string): number {
 export function parseBoundedNumber(val: unknown, fieldName: string, min: number, max: number): number {
   if (typeof val !== 'number' || !Number.isFinite(val) || val < min || val > max) {
     throw validationError(`Field "${fieldName}" harus ${min} sampai ${max}`);
+  }
+  assertMeasurementPrecision(val, fieldName);
+  return val;
+}
+
+/**
+ * Angka pengukuran yang bebas rentang domain: suhu cool box, suhu udang, dan
+ * panjang udang menerima nilai apa pun (termasuk desimal). Satu-satunya batas
+ * adalah kapasitas kolom `DECIMAL(5,2)` — kalau tidak diperiksa di sini,
+ * PostgreSQL melempar numeric-overflow dan klien menerima 500, bukan 422.
+ * Presisi tetap maksimal 2 desimal agar cocok dengan skala kolom.
+ */
+export function parseDecimalNumber(val: unknown, fieldName: string): number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) {
+    throw validationError(`Field "${fieldName}" harus angka`);
+  }
+  if (Math.abs(val) > DECIMAL_5_2_MAX_ABS) {
+    throw validationError(
+      `Field "${fieldName}" di luar kapasitas kolom (−${DECIMAL_5_2_MAX_ABS} sampai ${DECIMAL_5_2_MAX_ABS})`
+    );
   }
   assertMeasurementPrecision(val, fieldName);
   return val;
@@ -417,39 +434,36 @@ export function parseBatchFields(body: Record<string, unknown> | undefined, requ
   const marketSource = parseRequiredString(b?.marketSource, 'marketSource', 1, 100);
   const sourceType = parseSourceType(b?.sourceType);
   const shrimpType = b.shrimpType == null && !requireShrimpType ? null : parseShrimpType(b.shrimpType);
-  const shrimpCount = parseIntMinimum(b?.shrimpCount, 'shrimpCount', 10);
+  // Jumlah udang tidak lagi dibatasi 10–100: bilangan bulat ≥ 1, batas atas
+  // hanya lebar kolom INTEGER.
+  const shrimpCount = parseIntMinimum(b?.shrimpCount, 'shrimpCount', 1);
   // Ukuran ekor/kg terhitung otomatis (tidak dibaca dari input):
   // jumlah ekor ÷ berat total (gram) × 1000, dibulatkan ke bilangan bulat.
   const totalWeightG = parsePositiveNumber(b?.totalWeightG, 'totalWeightG', 2000);
-  const sizeGrade = parseIntMinimum(Math.round((shrimpCount / totalWeightG) * 1000), 'sizeGrade', 1);
-  const shrimpLengthCm = parseBoundedNumber(b?.shrimpLengthCm, 'shrimpLengthCm', 1, 50);
+  const derivedSizeGrade = Math.round((shrimpCount / totalWeightG) * 1000);
+  if (derivedSizeGrade > 2147483647) {
+    // Jumlah ekor boleh besar, tetapi kolom size_grade tetap INTEGER: tolak
+    // dengan pesan yang menyebut penyebabnya, bukan galat sizeGrade yang ambigu.
+    throw validationError('Field "shrimpCount" terlalu besar dibanding "totalWeightG" (sizeGrade melebihi batas penyimpanan)');
+  }
+  const sizeGrade = parseIntMinimum(derivedSizeGrade, 'sizeGrade', 1);
+  // Panjang & suhu udang bebas rentang (desimal diterima); yang dijaga hanya
+  // kapasitas kolom DECIMAL(5,2) dan presisi 2 desimal.
+  const shrimpLengthCm = parseDecimalNumber(b?.shrimpLengthCm, 'shrimpLengthCm');
   const initialCondition = parseInitialCondition(b?.initialCondition);
-  const initialTempC = parseBoundedNumber(
-    b?.initialTempC,
-    'initialTempC',
-    INITIAL_TEMP_MIN_C,
-    INITIAL_TEMP_MAX_C
-  );
+  const initialTempC = parseDecimalNumber(b?.initialTempC, 'initialTempC');
   const arrivedAtUtc = parseIsoDate(asStr(b?.arrivedAtUtc), 'arrivedAtUtc', true)!;
-  // Tiga titik pengukuran cool box (berangkat, pasar, lab), batas -10..10 °C.
+  // Tiga titik pengukuran cool box (berangkat, pasar, lab) bebas rentang:
+  // penyimpangan dari acuan 0–4 °C hanya peringatan di UI, data tetap disimpan.
   // Nama lama (min/max) tetap diterima sebagai alias deprecated.
-  const coolerTempDepartureC = parseBoundedNumber(
-    b?.coolerTempDepartureC,
-    'coolerTempDepartureC',
-    COOLER_TEMP_MIN_C,
-    COOLER_TEMP_MAX_C
-  );
-  const coolerTempMarketC = parseBoundedNumber(
+  const coolerTempDepartureC = parseDecimalNumber(b?.coolerTempDepartureC, 'coolerTempDepartureC');
+  const coolerTempMarketC = parseDecimalNumber(
     b?.coolerTempMarketC ?? b?.coolerTempMinC,
-    'coolerTempMarketC',
-    COOLER_TEMP_MIN_C,
-    COOLER_TEMP_MAX_C
+    'coolerTempMarketC'
   );
-  const coolerTempLabC = parseBoundedNumber(
+  const coolerTempLabC = parseDecimalNumber(
     b?.coolerTempLabC ?? b?.coolerTempMaxC,
-    'coolerTempLabC',
-    COOLER_TEMP_MIN_C,
-    COOLER_TEMP_MAX_C
+    'coolerTempLabC'
   );
   const iceToShrimpRatio = b?.iceToShrimpRatio === undefined || b?.iceToShrimpRatio === ''
     ? '2:1'

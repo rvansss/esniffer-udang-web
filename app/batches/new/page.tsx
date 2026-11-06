@@ -8,14 +8,15 @@ import ShrimpMeasurementFields from '../../../components/batches/ShrimpMeasureme
 import BatchPhotoPicker, { type PhotoGroup } from '../../../components/batches/BatchPhotoPicker';
 import { loadBatchDraft, saveBatchDraft, removeBatchDraft } from '../../../lib/batch-draft.ts';
 import {
+  coolerTempWarning,
   meanFormNumber,
+  shrimpCountWarning,
   shrimpRowCount,
   stepOfField,
   validateStepA,
   validateStepB,
   validateStepC,
   wibInputToUtcIso,
-  SHRIMP_ROW_LIMIT,
   type WizardErrors,
 } from '../../../lib/batch-wizard.ts';
 import { wibDateTimeLocal, MAX_PHOTO_CAPTION_LENGTH } from '../../../shared/dataset.ts';
@@ -38,7 +39,7 @@ interface FormValues {
 const defaults = (): FormValues => ({
   departedAt: wibDateTimeLocal(new Date()), procuredAt: wibDateTimeLocal(new Date()), arrivedAt: wibDateTimeLocal(new Date()),
   coolerDeparture: '', marketSource: '', sourceType: 'market', shrimpType: '',
-  shrimpCount: '12', totalWeightG: '',
+  shrimpCount: '10', totalWeightG: '',
   initialCondition: 'dead', visualCheck: 'normal', coolerMarket: '', coolerLab: '', deviationAck: false,
   sampleShrimpCountRoomTemp: '4', sampleShrimpCountCold: '4',
   shrimpTemperatures: [], shrimpLengths: [],
@@ -199,11 +200,19 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
     finally { setSubmitting(false); }
   };
   const fieldError = (key: string) => errors[key] && <span role="alert" id={`${key}-error`} className="text-xs text-rose-300">{errors[key]}</span>;
-  const field = (key: keyof FormValues, label: string, type = 'text', min?: number, max?: number) => <label className="flex flex-col gap-1.5 text-[13px] font-mono text-white/85" htmlFor={key}>
-    {label} *<input id={key} required type={type} min={min} max={max} step={type === 'number' ? '0.1' : undefined} value={String(values[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${key}-error` : undefined} className={input} />{fieldError(key)}
+  /** Peringatan acuan protokol — tidak pernah memblokir navigasi atau simpan. */
+  const fieldWarning = (key: string, message: string | null) => message && <span role="status" id={`${key}-warning`} className="text-xs text-amber-200">{message}</span>;
+  const describedBy = (key: string, warning: string | null) => [errors[key] ? `${key}-error` : '', warning ? `${key}-warning` : ''].filter(Boolean).join(' ') || undefined;
+  /**
+   * Isian angka. `min`/`max` hanya dipakai kolom yang memang punya batas
+   * domain (berat total); suhu dan panjang bebas rentang sehingga memakai
+   * `step="any"` + `lang="en"` agar desimal bertitik selalu diterima.
+   */
+  const field = (key: keyof FormValues, label: string, type = 'text', warning: string | null = null, min?: number, max?: number) => <label className="flex flex-col gap-1.5 text-[13px] font-mono text-white/85" htmlFor={key}>
+    {label} *<input id={key} required type={type} min={min} max={max} step={type === 'number' ? 'any' : undefined} inputMode={type === 'number' ? 'decimal' : undefined} lang={type === 'number' ? 'en' : undefined} value={String(values[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} aria-describedby={describedBy(key, warning)} className={input} />{fieldError(key)}{fieldWarning(key, warning)}
   </label>;
-  const countField = (key: keyof FormValues, label: string, min: number, max: number, onChange: (value: string) => void) => <label className="flex flex-col gap-1.5 text-[13px] font-mono text-white/85" htmlFor={key}>
-    {label} *<input id={key} required type="number" min={min} max={max} step="1" inputMode="numeric" value={String(values[key])} onChange={(e) => onChange(e.target.value)} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${key}-error` : undefined} className={input} />{fieldError(key)}
+  const countField = (key: keyof FormValues, label: string, warning: string | null, onChange: (value: string) => void) => <label className="flex flex-col gap-1.5 text-[13px] font-mono text-white/85" htmlFor={key}>
+    {label} *<input id={key} required type="number" step="1" inputMode="numeric" value={String(values[key])} onChange={(e) => onChange(e.target.value)} aria-invalid={!!errors[key]} aria-describedby={describedBy(key, warning)} className={input} />{fieldError(key)}{fieldWarning(key, warning)}
   </label>;
   const select = (key: keyof FormValues, label: string, options: readonly (readonly [string, string])[]) => <label htmlFor={key} className="flex flex-col gap-1.5 text-[13px] font-mono text-white/85">{label} *<select id={key} required value={String(values[key])} onChange={(e) => change({ [key]: e.target.value })} aria-invalid={!!errors[key]} className={input}>{options.map(([value, text]) => <option key={value} value={value} className="bg-slate-900">{text}</option>)}</select>{fieldError(key)}</label>;
   const radio = (key: 'initialCondition', label: string, options: readonly (readonly [string, string])[]) => <fieldset id={key} tabIndex={-1} className="rounded-xl" aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${key}-error` : undefined}>
@@ -226,27 +235,27 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
     <nav aria-label="Langkah pencatatan" className="flex gap-2">{steps.map((label, i) => <button type="button" key={label} disabled={submitting || Boolean(createdBatchId)} aria-current={step === i ? 'step' : undefined} className={`${button} flex-1 text-xs`} onClick={() => navigate(i)}>{label}</button>)}</nav>
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
     {createdBatchId && <p role="status" className="text-sm text-amber-200">Batch {createdBatchId} sudah tersimpan. Coba simpan lagi untuk melanjutkan unggah foto, atau buka <a className="underline" href={`/batches/${createdBatchId}`}>detail batch</a>.</p>}
-    {!createdBatchId && <button type="button" className="text-xs text-white/60 min-h-11" onClick={() => { const day = wibDateTimeLocal(new Date()).slice(0, 10); change({ ...defaults(), departedAt: `${day}T07:00`, procuredAt: `${day}T07:20`, arrivedAt: `${day}T07:55`, marketSource: 'Pasar Ciroyom', shrimpType: 'vaname', coolerDeparture: '1', coolerMarket: '2', coolerLab: '3', shrimpCount: '12', totalWeightG: '480', shrimpTemperatures: Array(12).fill('2.5'), shrimpLengths: Array(12).fill('12.5') }); }}>Isi otomatis (data tes)</button>}
+    {!createdBatchId && <button type="button" className="text-xs text-white/60 min-h-11" onClick={() => { const day = wibDateTimeLocal(new Date()).slice(0, 10); change({ ...defaults(), departedAt: `${day}T07:00`, procuredAt: `${day}T07:20`, arrivedAt: `${day}T07:55`, marketSource: 'Pasar Ciroyom', shrimpType: 'vaname', coolerDeparture: '1', coolerMarket: '2', coolerLab: '3', shrimpCount: '10', totalWeightG: '480', shrimpTemperatures: Array(10).fill('2.5'), shrimpLengths: Array(10).fill('12.5') }); }}>Isi otomatis (data tes)</button>}
     <form noValidate onSubmit={(e) => { e.preventDefault(); if (step < 2) navigate(step + 1); else void submit(); }}>
       <fieldset disabled={submitting || Boolean(createdBatchId)} className={card}>
         <legend className="sr-only">{steps[step]}</legend>
         <div hidden={step !== 0} className="grid sm:grid-cols-2 gap-4">
           {field('departedAt', 'Tanggal dan jam berangkat (WIB)', 'datetime-local')}
-          {field('coolerDeparture', 'Suhu cool box saat berangkat (°C)', 'number', -10, 10)}
+          {field('coolerDeparture', 'Suhu cool box saat berangkat (°C)', 'number', coolerTempWarning(values.coolerDeparture))}
           {select('sourceType', 'Jenis sumber', [['market', 'Pasar'], ['supermarket', 'Supermarket'], ['farm', 'Tambak']])}
           {field('marketSource', 'Lokasi pembelian')}
         </div>
         <div hidden={step !== 1} className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             {field('procuredAt', 'Tanggal dan jam beli (WIB)', 'datetime-local')}
-            {field('coolerMarket', 'Suhu cool box saat di pasar (°C)', 'number', -10, 10)}
+            {field('coolerMarket', 'Suhu cool box saat di pasar (°C)', 'number', coolerTempWarning(values.coolerMarket))}
           </div>
           {radio('initialCondition', 'Kondisi awal udang', [['dead', 'Mati saat dibeli'], ['alive', 'Hidup saat dibeli']])}
           <div className="grid sm:grid-cols-2 gap-4">
             {select('shrimpType', 'Jenis Udang', [['', 'Pilih jenis udang'], ...SHRIMP_TYPES.map((t) => [t.value, t.label] as const)])}
-            {countField('shrimpCount', 'Jumlah total udang (ekor)', 10, SHRIMP_ROW_LIMIT, setCount)}
+            {countField('shrimpCount', 'Jumlah total udang (ekor)', shrimpCountWarning(values.shrimpCount), setCount)}
             {select('visualCheck', 'Temuan visual udang', [['normal', 'Normal'], ['melanosis', 'Melanosis (bintik hitam)'], ['damaged', 'Rusak fisik'], ['mixed_species', 'Campur spesies lain']])}
-            {field('totalWeightG', 'Berat total udang saat pembelian (g)', 'number', 0, 2000)}
+            {field('totalWeightG', 'Berat total udang saat pembelian (g)', 'number', null, 0, 2000)}
           </div>
           <ShrimpMeasurementFields count={rows} temperatures={values.shrimpTemperatures} lengths={values.shrimpLengths} errors={errors} onChangeRow={setRow} />
           <BatchPhotoPicker key={`batch-${photoKey}`} prefix="photos" title="Foto kondisi awal udang" hint="Dokumentasi saat pembelian." error={errors.photos} onChange={(p) => { dirty.current = true; setBatchPhotos(p); }} />
@@ -254,8 +263,8 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
         <div hidden={step !== 2} className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <ArrivalFields value={values} errors={errors} onChange={change} />
-            {countField('sampleShrimpCountRoomTemp', 'Jumlah udang per sesi suhu ruang (SR) (ekor)', 3, 5, (value) => change({ sampleShrimpCountRoomTemp: value }))}
-            {countField('sampleShrimpCountCold', 'Jumlah udang per sesi suhu dingin (SD) (ekor)', 3, 5, (value) => change({ sampleShrimpCountCold: value }))}
+            {countField('sampleShrimpCountRoomTemp', 'Jumlah udang per sesi suhu ruang (SR) (ekor)', shrimpCountWarning(values.sampleShrimpCountRoomTemp), (value) => change({ sampleShrimpCountRoomTemp: value }))}
+            {countField('sampleShrimpCountCold', 'Jumlah udang per sesi suhu dingin (SD) (ekor)', shrimpCountWarning(values.sampleShrimpCountCold), (value) => change({ sampleShrimpCountCold: value }))}
           </div>
           <TransportDurationNote value={values} procuredAt={values.procuredAt} onChange={change} />
           <p className="text-xs font-mono text-white/60">Berat dan suhu udang dicatat pada setiap tahap pengujian. Temuan visual (langkah Kondisi Udang) berlaku untuk kedua grup.</p>
