@@ -14,6 +14,22 @@ import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons
 import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from '../../../components/batches/PhotoUploadControls';
 import { TIMEPOINT_SEQUENCES, MAX_PHOTO_BYTES, MAX_PHOTO_CAPTION_LENGTH, wibDateTimeLocal } from '../../../shared/dataset.ts';
 import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
+import {
+  CALIBRATION_DEFAULT_MINS,
+  CALIBRATION_MAX_MINS,
+  CALIBRATION_MIN_MINS,
+  calibrationDone,
+  calibrationRemainingMs,
+  calibrationRunKey,
+  clearCalibrationRun,
+  formatCalibrationCountdown,
+  normalizeCalibrationMins,
+  readCalibrationHistory,
+  readCalibrationRun,
+  rememberCalibrationMins,
+  writeCalibrationRun,
+  type CalibrationRun,
+} from '../../../lib/calibration.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -176,7 +192,12 @@ export default function BatchDetailPage() {
 
   // form sesi per grup
   const [tpSel, setTpSel] = useState<Record<string, string>>({});
-  const [warmup, setWarmup] = useState<Record<string, boolean>>({});
+  // Kalibrasi sensor per grup (lib/calibration.ts). Menggantikan checkbox
+  // "warmup 30 menit": durasi diisi operator, hitungan mundur mengunci tombol
+  // Start Tahap sampai habis. Riwayat durasi dipakai sebagai pilihan cepat.
+  const [calibRun, setCalibRun] = useState<Record<string, CalibrationRun | null>>({});
+  const [calibMins, setCalibMins] = useState<Record<string, string>>({});
+  const [calibHistory, setCalibHistory] = useState<number[]>([]);
   const [cleaning, setCleaning] = useState<Record<string, boolean>>({});
   const [chSel, setChSel] = useState<Record<string, string>>({});
   const [coldChamberDraft, setColdChamberDraft] = useState<Record<string, string>>({});
@@ -218,6 +239,22 @@ export default function BatchDetailPage() {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Riwayat durasi kalibrasi: pilihan cepat agar angka yang sama tidak diketik ulang.
+  useEffect(() => {
+    setCalibHistory(readCalibrationHistory());
+  }, []);
+
+  // Pulihkan kalibrasi yang sedang berjalan setelah muat ulang halaman, supaya
+  // hitungan mundur tidak tereset dan operator bisa lanjut memantau.
+  useEffect(() => {
+    if (!batch) return;
+    const restored: Record<string, CalibrationRun | null> = {};
+    for (const g of batch.sampleGroups) {
+      restored[g.groupId] = readCalibrationRun(calibrationRunKey(batchId, g.groupId));
+    }
+    setCalibRun(restored);
+  }, [batch, batchId]);
 
   // Modal form pra-sesi: input suhu berat foto sebelum start sesi atau ambil data waktu.
   // Suhu disimpan sebagai baris per ekor (`shrimpTemps`), bukan satu angka:
@@ -433,6 +470,32 @@ export default function BatchDetailPage() {
     return `H${sorted[0].elapsedHours + 6}`;
   };
 
+  /** Durasi kalibrasi yang sedang diisi: isian operator, riwayat terakhir, bawaan. */
+  const calibMinsFor = (g: GroupItem): string =>
+    calibMins[g.groupId] ?? String(calibHistory[0] ?? CALIBRATION_DEFAULT_MINS);
+
+  /** Tombol Start Tahap terbuka hanya setelah hitungan kalibrasi habis. */
+  const isCalibrated = (groupId: string): boolean =>
+    calibrationDone(calibRun[groupId] ?? null, nowMs);
+
+  const handleStartCalibration = (g: GroupItem) => {
+    const mins = normalizeCalibrationMins(calibMinsFor(g));
+    if (mins === null) {
+      setError(`Durasi kalibrasi harus bilangan bulat ${CALIBRATION_MIN_MINS}–${CALIBRATION_MAX_MINS} menit.`);
+      return;
+    }
+    const run: CalibrationRun = { mins, startedAtMs: Date.now() };
+    writeCalibrationRun(calibrationRunKey(batchId, g.groupId), run);
+    setCalibRun((prev) => ({ ...prev, [g.groupId]: run }));
+    setCalibHistory(rememberCalibrationMins(mins));
+  };
+
+  /** Batalkan / ulangi kalibrasi: hitungan kembali ke nol, Start Tahap terkunci lagi. */
+  const resetCalibration = (groupId: string) => {
+    clearCalibrationRun(calibrationRunKey(batchId, groupId));
+    setCalibRun((prev) => ({ ...prev, [groupId]: null }));
+  };
+
   const handleCreateSession = async (g: GroupItem, captureMode: 'live' | 'time_range' = 'live') => {
     let timepointCode = tpSel[g.groupId] || suggestNext(g);
     if (timepointCode === 'CUSTOM') {
@@ -447,8 +510,8 @@ export default function BatchDetailPage() {
       setError(`Timepoint ${timepointCode} sudah digunakan dalam grup ini. Gunakan kode timepoint yang lain.`);
       return;
     }
-    if (captureMode === 'live' && !warmup[g.groupId]) {
-      setError('Nyalakan sensor 30 menit dulu (centang warmup) sebelum Start sesi');
+    if (captureMode === 'live' && !isCalibrated(g.groupId)) {
+      setError('Selesaikan kalibrasi sensor dulu: tunggu hitungan mundur kalibrasi habis sebelum Start Tahap.');
       return;
     }
     const defaultMins = durationMins[g.groupId] ?? 15;
@@ -593,8 +656,8 @@ export default function BatchDetailPage() {
         fail('Rentang waktu yang dipilih belum selesai (waktu selesai masih di masa depan). Untuk pengujian saat ini, silakan gunakan mode "Rekam Langsung (Live)".');
         return;
       }
-    } else if (mode === 'create' && captureMode !== 'time_range' && !warmup[groupId]) {
-      fail('Nyalakan sensor 30 menit dulu (centang warmup) sebelum mulai rekam langsung.');
+    } else if (mode === 'create' && captureMode !== 'time_range' && !calibrationDone(calibRun[groupId] ?? null, nowMs)) {
+      fail('Selesaikan kalibrasi sensor dulu (tunggu hitungan mundur habis) sebelum mulai rekam langsung.');
       return;
     }
 
@@ -688,6 +751,9 @@ export default function BatchDetailPage() {
         }
       } else {
         notify(`Sesi ${timepointCode} berhasil dimulai (${durationMinutes} menit).`);
+        // Kalibrasi terpakai: tahap berikutnya wajib kalibrasi ulang, bukan
+        // mewarisi hitungan yang sudah selesai dari tahap sebelumnya.
+        resetCalibration(groupId);
       }
       refresh();
     } catch (err) {
@@ -1204,6 +1270,15 @@ export default function BatchDetailPage() {
         const seq = g.storageCondition === 'cold' ? SD_TIMEPOINTS : SR_TIMEPOINTS;
         const taken = usedCodes(g);
         const available = seq.filter((t) => !taken.has(t));
+        // Kalibrasi grup ini: durasi terisi, hitungan berjalan, sudah selesai.
+        const calibRunOf = calibRun[g.groupId] ?? null;
+        const calibDoneNow = calibrationDone(calibRunOf, nowMs);
+        const calibRemaining = calibrationRemainingMs(calibRunOf, nowMs);
+        const calibValue = calibMinsFor(g);
+        const nextTahapCode =
+          tpSel[g.groupId] === 'CUSTOM'
+            ? customTp[g.groupId] ?? ''
+            : tpSel[g.groupId] || suggestNext(g);
         return (
           <div key={g.groupId} className={cardCls}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1518,7 +1593,7 @@ export default function BatchDetailPage() {
                 )}
                 <div className="flex items-center gap-1.5">
                   <label htmlFor={`dur-${g.groupId}`} className="text-[11px] font-mono text-white/60">
-                    Durasi:
+                    Durasi pengujian:
                   </label>
                   <div className="flex items-center">
                     <input
@@ -1538,23 +1613,109 @@ export default function BatchDetailPage() {
                     </span>
                   </div>
                 </div>
-                <label className="flex items-center gap-1.5 text-[11px] font-mono text-white/70 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!warmup[g.groupId]}
-                    onChange={(e) => setWarmup({ ...warmup, [g.groupId]: e.target.checked })}
-                    className="accent-emerald-500"
-                  />
-                  Warmup 30 mnt
-                </label>
+                {/* Kalibrasi sensor: durasi diisi operator. Dulu di sini ada
+                    checkbox "warmup 30 menit" — durasinya tetap dan tidak ada
+                    bukti waktunya. Chip di bawah = durasi yang pernah dipakai
+                    (riwayat), supaya angka yang sama tidak diketik ulang. */}
+                <div className="flex w-full flex-wrap items-center gap-2 pt-1">
+                  <label htmlFor={`calib-mins-${g.groupId}`} className="text-[11px] font-mono text-white/60">
+                    Durasi kalibrasi:
+                  </label>
+                  <div className="flex items-center">
+                    <input
+                      id={`calib-mins-${g.groupId}`}
+                      type="number"
+                      min={CALIBRATION_MIN_MINS}
+                      max={CALIBRATION_MAX_MINS}
+                      step={1}
+                      inputMode="numeric"
+                      disabled={calibRunOf !== null}
+                      aria-describedby={`calib-hint-${g.groupId}`}
+                      value={calibValue}
+                      onChange={(e) => setCalibMins({ ...calibMins, [g.groupId]: e.target.value })}
+                      // Angka lama langsung terpilih saat fokus: mengetik angka
+                      // baru menimpanya, tidak menempel jadi "3015".
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="w-16 px-2 py-1.5 rounded-l-xl bg-black/25 border border-white/10 text-xs font-mono text-white text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300 disabled:opacity-60"
+                    />
+                    <span className="px-2 py-1.5 rounded-r-xl bg-white/10 border-y border-r border-white/10 text-[11px] font-mono text-white/60">
+                      mnt
+                    </span>
+                  </div>
+                  {calibHistory.map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      disabled={calibRunOf !== null}
+                      aria-pressed={calibValue === String(mins)}
+                      onClick={() => setCalibMins({ ...calibMins, [g.groupId]: String(mins) })}
+                      title={`Pakai durasi kalibrasi ${mins} menit (riwayat)`}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-mono transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${
+                        calibValue === String(mins)
+                          ? 'bg-emerald-500/25 border-emerald-400/50 text-emerald-100'
+                          : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
+                      }`}
+                    >
+                      {mins} mnt
+                    </button>
+                  ))}
+                </div>
+                <div className="flex w-full flex-wrap items-center gap-2">
+                  {calibRunOf === null ? (
+                    <button
+                      type="button"
+                      onClick={() => handleStartCalibration(g)}
+                      disabled={busy}
+                      className="px-3 py-1.5 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-xs font-mono font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                      title={`Mulai hitungan mundur kalibrasi ${calibValue} menit`}
+                    >
+                      Mulai Kalibrasi
+                    </button>
+                  ) : (
+                    <>
+                      <span
+                        role={calibDoneNow ? 'status' : 'timer'}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-mono font-bold ${
+                          calibDoneNow
+                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200'
+                            : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`w-1.5 h-1.5 rounded-full ${calibDoneNow ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}
+                        />
+                        {calibDoneNow
+                          ? 'Kalibrasi selesai'
+                          : `Kalibrasi ${formatCalibrationCountdown(calibRemaining)}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => resetCalibration(g.groupId)}
+                        disabled={busy}
+                        className="px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-white/70 text-[11px] font-mono transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                        title={calibDoneNow ? 'Ulangi kalibrasi dari nol' : 'Batalkan hitungan kalibrasi'}
+                      >
+                        {calibDoneNow ? 'Ulangi' : 'Batalkan'}
+                      </button>
+                    </>
+                  )}
+                  <p id={`calib-hint-${g.groupId}`} className="w-full text-[11px] font-mono text-white/45">
+                    {calibDoneNow
+                      ? 'Kalibrasi selesai — Start Tahap terbuka. Hitungan diulang untuk tahap berikutnya.'
+                      : calibRunOf
+                        ? 'Tunggu hitungan mundur habis. Start Tahap terkunci sampai kalibrasi selesai.'
+                        : 'Isi durasi kalibrasi lalu mulai. Start Tahap terkunci sampai hitungan mundur habis.'}
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => void handleCreateSession(g, 'live')}
-                    disabled={busy || !warmup[g.groupId]}
+                    disabled={busy || !calibDoneNow}
                     className={btnGhost}
-                    title={!warmup[g.groupId] ? 'Centang warmup 30 menit dulu untuk rekam langsung' : 'Mulai rekam langsung (live countdown)'}
+                    title={!calibDoneNow ? 'Selesaikan kalibrasi dulu (tunggu hitungan mundur habis) untuk rekam langsung' : 'Mulai rekam langsung (live countdown)'}
                   >
-                    Start Sesi (Live)
+                    Start Tahap {tahapOf(g, nextTahapCode)}
                   </button>
                   <button
                     onClick={() => void handleCreateSession(g, 'time_range')}

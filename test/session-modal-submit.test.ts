@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { observationTempMean, parseWibInput } from '../lib/batch-wizard.ts';
+import { calibrationDone } from '../lib/calibration.ts';
 
 // Jalankan handler UI asli dengan pengganti state/network, agar regresi cabang
 // create/edit terdeteksi tanpa menyalin logika handler ke dalam tes.
@@ -30,6 +31,7 @@ const compiled = ts.transpileModule(handlerSource, {
 function setup(overrides: Record<string, unknown> = {}) {
   const requests: Array<{ url: string; payload: Record<string, unknown>; method: string }> = [];
   const notices: string[] = [];
+  const resetGroups: string[] = [];
   let resultSession: string | undefined;
   let refreshes = 0;
   let modal: Record<string, unknown> | null = {
@@ -39,12 +41,19 @@ function setup(overrides: Record<string, unknown> = {}) {
     shrimpTemps: ['5', '5.5', '6'], shrimpWeightG: '480', photos: [], photoCaptions: [],
     ...overrides,
   };
+  // Kalibrasi grup ini sudah selesai 2 menit lalu (durasi 1 menit).
+  const calibRun: Record<string, { mins: number; startedAtMs: number } | null> = {
+    'BT-20261024-01-SR': { mins: 1, startedAtMs: Date.now() - 120_000 },
+  };
   const context = {
     sessionModal: modal,
     parseWibInput,
     observationTempMean,
     MAX_PHOTO_CAPTION_LENGTH: 140,
-    warmup: { 'BT-20261024-01-SR': true },
+    calibRun,
+    nowMs: Date.now(),
+    calibrationDone,
+    resetCalibration: (groupId: string) => resetGroups.push(groupId),
     chSel: {},
     batch: { sampleGroups: [{ groupId: 'BT-20261024-01-SR', coldStorageMode: 'chamber', chamberId: null as string | null }] },
     setSessionModal: (update: unknown) => {
@@ -63,7 +72,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     refresh: () => { refreshes++; },
   };
   return {
-    context, requests, notices,
+    context, requests, notices, resetGroups,
     submit: () => (runInNewContext(compiled, context) as () => Promise<void>)(),
     get modal() { return modal; },
     get resultSession() { return resultSession; },
@@ -143,6 +152,26 @@ test('rekam langsung membuat sesi tanpa rentang historis', async () => {
   assert.equal(h.requests[0].payload.autoBackfill, undefined);
   assert.equal(h.requests[0].payload.startedAtUtc, undefined);
   assert.match(h.notices[0], /berhasil dimulai/);
+  // Kalibrasi terpakai: tahap berikutnya harus kalibrasi ulang.
+  assert.deepEqual(h.resetGroups, ['BT-20261024-01-SR']);
+});
+
+test('rekam langsung ditolak bila hitungan kalibrasi belum habis', async () => {
+  const h = setup({ captureMode: 'live' });
+  // Baru mulai 30 detik dari durasi 5 menit: belum selesai.
+  h.context.calibRun = { 'BT-20261024-01-SR': { mins: 5, startedAtMs: Date.now() - 30_000 } };
+  await h.submit();
+  assert.equal(h.requests.length, 0);
+  assert.match(String(h.modal?.err), /kalibrasi/i);
+  assert.deepEqual(h.resetGroups, []);
+});
+
+test('rekam langsung ditolak bila kalibrasi belum pernah dimulai', async () => {
+  const h = setup({ captureMode: 'live' });
+  h.context.calibRun = {};
+  await h.submit();
+  assert.equal(h.requests.length, 0);
+  assert.match(String(h.modal?.err), /kalibrasi/i);
 });
 
 test('chamber grup yang tersimpan dipakai ketika pilihan sesi belum diubah', async () => {
