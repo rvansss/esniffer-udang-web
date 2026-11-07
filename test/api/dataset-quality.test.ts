@@ -10,6 +10,7 @@ import { GET as exportBatch } from '../../app/api/v1/batches/[batchId]/export/ro
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { backfillSessionReadings } from '../../lib/dataset/backfill.ts';
 import { ML_CSV_HEADERS } from '../../lib/dataset/quality.ts';
+import { seedCalibration } from '../helpers/calibration.ts';
 
 const tag = randomUUID().slice(0, 8);
 let assignmentId = ''; let referenceId = '';
@@ -55,6 +56,9 @@ test('invalid grouping or shrimp type leaves no partial batch behind', async () 
 test('one save creates typed batch and both neutral-input groups with no manufactured measurements', async () => {
   const result = await createBatch(request('batches', payload)); assert.equal(result.status, 201);
   batchId = (await result.json()).data.batchId;
+  // Kedua grup butuh kalibrasi selesai di server sebelum sesi live (Fase 0).
+  await seedCalibration(batchId, `${batchId}-SR`);
+  await seedCalibration(batchId, `${batchId}-SD`);
   const detail = await batchDetail(request(`batches/${batchId}`, undefined, 'GET'), ctx());
   const data = (await detail.json()).data;
   assert.equal(data.shrimpType, 'vaname'); assert.equal(data.sampleGroups.length, 2);

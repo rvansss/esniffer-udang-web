@@ -1,27 +1,25 @@
 /**
- * Kalibrasi sensor dua tahap sebelum rekam langsung di detail batch.
+ * Kalibrasi sensor dua tahap — modul murni (tanpa localStorage, tanpa I/O).
  *
  * Protokolnya: chamber ditutup ±30 menit (sensor stabil), lalu chamber dibuka
  * ±5 menit sambil mengukur suhu udang dan menimbang beratnya. Dua langkah
  * berurutan itu dihitung mundur satu per satu; operator menekan tombol di awal
  * tiap langkah, karena hanya operator yang tahu kapan chamber benar-benar
- * dibuka/ditutup. Hitungan yang jalan otomatis akan mengklaim waktu yang tidak
- * pernah terjadi — persis kelemahan checkbox "warmup 30 menit" yang digantikan
- * modul ini.
+ * dibuka/ditutup.
  *
- * Waktu tunggu setelah udang masuk kembali ke chamber TIDAK dihitung di sini:
- * durasinya diisi operator di form tahap sebagai "Durasi pengujian".
+ * Sejak Fase 0 state kalibrasi disimpan di server (`group_calibrations`): yang
+ * disimpan adalah WAKTU MULAI ABSOLUT tiap langkah, bukan sisa detik. Dengan
+ * begitu kalibrasi yang dimulai di ponsel langsung terlihat dan berlanjut di
+ * laptop — sisa waktu dihitung ulang dari jam server di perangkat mana pun.
  *
- * Start Tahap tetap terkunci sampai kedua langkah selesai. Dua hal disimpan di
- * localStorage (bukan server):
- * - durasi terakhir yang dipakai, supaya angka yang sama tidak diketik ulang;
- * - kalibrasi yang sedang berjalan, supaya muat ulang halaman tidak mereset
- *   hitungan.
+ * Fungsi di berkas ini dipakai dua sisi sekaligus:
+ * - server (`lib/dataset/calibration.ts`) untuk memvalidasi aksi dan memutuskan
+ *   kapan kalibrasi selesai — klien tidak boleh mengklaim waktu;
+ * - klien (`app/batches/[batchId]/page.tsx`) untuk menggambar hitungan mundur.
  *
  * Durasi kalibrasi tidak masuk dataset: kontrak API tetap hanya menerima
- * `warmupDone` (lihat POST /api/v1/groups/:groupId/sessions). Kalau nanti
- * angkanya perlu ikut terekam, itu perubahan skema DB + ekspor CSV, bukan
- * sekadar UI.
+ * `warmupDone` (lihat POST /api/v1/groups/:groupId/sessions). Yang ikut
+ * terekam adalah `calibrationCompletedAtUtc` sebagai bukti prasyarat.
  */
 
 export type CalibrationStepKey = 'closed' | 'measure';
@@ -64,13 +62,14 @@ export const CALIBRATION_STEPS: readonly CalibrationStep[] = [
 export const CALIBRATION_MIN_MINS = 1;
 export const CALIBRATION_MAX_MINS = 120;
 
-const DURATIONS_KEY = 'esniffer:calibration:durations-v2';
-// Skema v2: satu `mins` dan satu `startedAtMs` per langkah. Kunci v1 sengaja
-// tidak dibaca lagi — kalibrasi lama tidak punya jejak tahap 2, jadi lebih jujur
-// meminta operator mengulang daripada menganggapnya selesai.
-const RUN_KEY_PREFIX = 'esniffer:calibration:run-v2:';
+/** Jumlah langkah; dipakai untuk memvalidasi bentuk data dari server. */
+export const CALIBRATION_STEP_COUNT = CALIBRATION_STEPS.length;
 
-/** Kalibrasi yang sedang berjalan (atau baru selesai) untuk satu grup. */
+/**
+ * Kalibrasi satu grup dalam bentuk yang dipakai UI: durasi & waktu mulai tiap
+ * langkah (epoch ms, `null` = belum dimulai). Bentuk ini sengaja tetap primitif
+ * supaya semua hitungan di bawahnya berupa fungsi murni.
+ */
 export interface CalibrationRun {
   /** Durasi tiap langkah (menit) — sejajar `CALIBRATION_STEPS`. */
   mins: number[];
@@ -78,19 +77,28 @@ export interface CalibrationRun {
   starts: Array<number | null>;
 }
 
+/** Satu langkah dalam bentuk yang disimpan server (ISO, bukan epoch ms). */
+export interface CalibrationStepWire {
+  key: CalibrationStepKey;
+  durationMins: number;
+  startedAtUtc: string | null;
+}
+
+/**
+ * Kalibrasi seperti yang dikirim API. `completedAtUtc` diisi server saat kedua
+ * langkah benar-benar habis; `version` naik setiap perubahan sebagai penanda
+ * urutan perubahan antar perangkat.
+ */
+export interface CalibrationWire {
+  steps: CalibrationStepWire[];
+  completedAtUtc: string | null;
+  version: number;
+  updatedAt: string;
+  updatedByOperator: string | null;
+  updatedByDevice: string | null;
+}
+
 export type CalibrationStepState = 'idle' | 'running' | 'done';
-
-const storage = (): Storage | null => {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    // Penjelajah mode privat/kuota penuh boleh melempar; fitur lalu jalan
-    // tanpa ingatan, bukan gagal.
-    return null;
-  }
-};
-
-const stepCount = CALIBRATION_STEPS.length;
 
 /** Durasi bawaan protokol: 30 menit tertutup, 5 menit dibuka. */
 export function defaultCalibrationDurations(): number[] {
@@ -105,85 +113,6 @@ export function normalizeCalibrationMins(value: unknown): number | null {
   const mins = typeof value === 'string' ? Number(value.trim()) : value;
   if (typeof mins !== 'number' || !Number.isInteger(mins)) return null;
   return mins >= CALIBRATION_MIN_MINS && mins <= CALIBRATION_MAX_MINS ? mins : null;
-}
-
-/** Durasi terakhir yang dipakai operator; nilai rusak jatuh ke bawaan. */
-export function readCalibrationDurations(): number[] {
-  try {
-    const raw = storage()?.getItem(DURATIONS_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return CALIBRATION_STEPS.map(
-      (step, i) => normalizeCalibrationMins(Array.isArray(parsed) ? parsed[i] : null) ?? step.defaultMins
-    );
-  } catch {
-    return defaultCalibrationDurations();
-  }
-}
-
-/** Simpan durasi yang baru dipakai sebagai nilai awal tahap berikutnya. */
-export function saveCalibrationDurations(mins: readonly unknown[]): number[] {
-  const normalized = CALIBRATION_STEPS.map(
-    (step, i) => normalizeCalibrationMins(mins[i]) ?? step.defaultMins
-  );
-  try {
-    storage()?.setItem(DURATIONS_KEY, JSON.stringify(normalized));
-  } catch {
-    // Tanpa localStorage: durasi tetap terpakai di sesi ini, hanya tidak diingat.
-  }
-  return normalized;
-}
-
-/** Kunci penyimpanan kalibrasi berjalan; satu kunci per batch + grup. */
-export function calibrationRunKey(batchId: string, groupId: string): string {
-  return `${RUN_KEY_PREFIX}${batchId}:${groupId}`;
-}
-
-/** Kalibrasi berjalan yang tersimpan, atau `null` bila tidak ada/rusak. */
-export function readCalibrationRun(key: string): CalibrationRun | null {
-  try {
-    const raw = storage()?.getItem(key);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const run = parsed as Partial<CalibrationRun>;
-    if (!Array.isArray(run.mins) || !Array.isArray(run.starts)) return null;
-    if (run.mins.length !== stepCount || run.starts.length !== stepCount) return null;
-    const mins: number[] = [];
-    for (const value of run.mins) {
-      const minsValue = normalizeCalibrationMins(value);
-      if (minsValue === null) return null;
-      mins.push(minsValue);
-    }
-    const starts: Array<number | null> = [];
-    for (const value of run.starts) {
-      if (value === null) {
-        starts.push(null);
-      } else if (typeof value === 'number' && Number.isFinite(value)) {
-        starts.push(value);
-      } else {
-        return null;
-      }
-    }
-    return { mins, starts };
-  } catch {
-    return null;
-  }
-}
-
-export function writeCalibrationRun(key: string, run: CalibrationRun): void {
-  try {
-    storage()?.setItem(key, JSON.stringify(run));
-  } catch {
-    // Tanpa localStorage: hitungan tetap jalan di memori.
-  }
-}
-
-export function clearCalibrationRun(key: string): void {
-  try {
-    storage()?.removeItem(key);
-  } catch {
-    // Abaikan.
-  }
 }
 
 /**
@@ -216,7 +145,7 @@ export function calibrationStepRemainingMs(
 export function nextCalibrationStep(run: CalibrationRun | null): number {
   if (!run) return 0;
   const index = run.starts.findIndex((start) => start === null);
-  return index === -1 ? stepCount : index;
+  return index === -1 ? CALIBRATION_STEP_COUNT : index;
 }
 
 /**
@@ -230,7 +159,7 @@ export function startCalibrationStep(
   mins: unknown,
   nowMs: number
 ): CalibrationRun | null {
-  if (index < 0 || index >= stepCount) return null;
+  if (!Number.isInteger(index) || index < 0 || index >= CALIBRATION_STEP_COUNT) return null;
   const normalized = normalizeCalibrationMins(mins);
   if (normalized === null) return null;
   if (index !== nextCalibrationStep(run)) return null;
@@ -268,7 +197,7 @@ export function pendingCalibrationStep(run: CalibrationRun | null, nowMs: number
   const index = CALIBRATION_STEPS.findIndex(
     (_, i) => calibrationStepState(run, i, nowMs) !== 'done'
   );
-  return index === -1 ? stepCount : index;
+  return index === -1 ? CALIBRATION_STEP_COUNT : index;
 }
 
 /** Hitungan mundur `mm:ss`; jam ikut tampil bila durasi ≥ 60 menit. */
@@ -280,4 +209,80 @@ export function formatCalibrationCountdown(ms: number): string {
   const mm = String(minutes).padStart(2, '0');
   const ss = String(seconds).padStart(2, '0');
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function parseIsoMs(value: unknown): number | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Bentuk wire dari server → bentuk hitungan UI. `null` bila data tidak sesuai
+ * skema (mis. jumlah langkah berubah setelah deploy): UI lalu menampilkan
+ * "belum ada kalibrasi" alih-alih menghitung dari data yang tidak bisa dipercaya.
+ */
+export function runFromWire(wire: CalibrationWire | null | undefined): CalibrationRun | null {
+  if (!wire || !Array.isArray(wire.steps) || wire.steps.length !== CALIBRATION_STEP_COUNT) {
+    return null;
+  }
+  const mins: number[] = [];
+  const starts: Array<number | null> = [];
+  for (let i = 0; i < CALIBRATION_STEP_COUNT; i += 1) {
+    const step = wire.steps[i];
+    const expectedKey = CALIBRATION_STEPS[i].key;
+    if (!step || step.key !== expectedKey) return null;
+    const normalized = normalizeCalibrationMins(step.durationMins);
+    if (normalized === null) return null;
+    const startMs = parseIsoMs(step.startedAtUtc);
+    if (startMs === undefined) return null;
+    mins.push(normalized);
+    starts.push(startMs);
+  }
+  return { mins, starts };
+}
+
+/** Bentuk hitungan UI → bentuk yang disimpan server. */
+export function runToWireSteps(run: CalibrationRun): CalibrationStepWire[] {
+  return CALIBRATION_STEPS.map((step, i) => {
+    const start = run.starts[i] ?? null;
+    return {
+      key: step.key,
+      durationMins: run.mins[i] ?? step.defaultMins,
+      startedAtUtc: start === null ? null : new Date(start).toISOString(),
+    };
+  });
+}
+
+/**
+ * Validasi `steps` yang tersimpan di DB (JSONB) sebelum dipakai menghitung.
+ * Baris rusak dianggap "tidak ada kalibrasi" — lebih aman meminta operator
+ * mengulang daripada membuka Start Tahap dari data yang tidak bisa dipercaya.
+ */
+export function runFromStoredSteps(value: unknown): CalibrationRun | null {
+  if (!Array.isArray(value) || value.length !== CALIBRATION_STEP_COUNT) return null;
+  const mins: number[] = [];
+  const starts: Array<number | null> = [];
+  for (let i = 0; i < CALIBRATION_STEP_COUNT; i += 1) {
+    const step = value[i] as Partial<CalibrationStepWire> | null;
+    if (!step || typeof step !== 'object') return null;
+    if (step.key !== CALIBRATION_STEPS[i].key) return null;
+    const normalized = normalizeCalibrationMins(step.durationMins);
+    if (normalized === null) return null;
+    const startMs = parseIsoMs(step.startedAtUtc);
+    if (startMs === undefined) return null;
+    mins.push(normalized);
+    starts.push(startMs);
+  }
+  return { mins, starts };
+}
+
+/** Ringkasan satu baris untuk UI/banner: "chamber tertutup 30 mnt · chamber dibuka 5 mnt". */
+export function describeCalibrationRun(run: CalibrationRun | null): string {
+  if (!run) return 'Belum dimulai';
+  return CALIBRATION_STEPS.map((step, i) => {
+    const short = step.label.split('·')[1]?.trim() ?? step.key;
+    return `${short} ${run.mins[i]} mnt`;
+  }).join(' · ');
 }

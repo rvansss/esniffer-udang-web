@@ -63,26 +63,119 @@ export interface SessionWithUser {
 }
 
 /**
+ * Info perangkat saat sesi dibuat. Akun dipakai bersama beberapa perangkat,
+ * jadi tiap sesi perlu bisa dibedakan: tanpa ini "keluar dari perangkat lain"
+ * tidak mungkin dan daftar perangkat aktif tidak bisa ditampilkan.
+ */
+export interface SessionDeviceInfo {
+  deviceId: string | null;
+  deviceLabel: string;
+  userAgent: string | null;
+  ip: string | null;
+  operatorName: string;
+}
+
+/**
+ * Batas sesi aktif per akun. Satu akun dipakai beberapa operator di beberapa
+ * perangkat, jadi batasnya bukan 1: nilai ini hanya menahan pertumbuhan sesi
+ * menggantung (tab lama, login berulang) tanpa menghalangi kerja bergantian.
+ */
+export function maxActiveSessions(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.MAX_SESSIONS_PER_USER ?? 10);
+  if (!Number.isFinite(raw) || raw < 1) return 10;
+  return Math.min(Math.floor(raw), 100);
+}
+
+/**
  * Creates a new opaque session for a user.
  * Returns the raw token (sent only to client via HttpOnly cookie) and session details.
  */
 export async function createSession(
   userId: string,
-  ttlMs: number = SESSION_TTL_MS
+  ttlMs: number = SESSION_TTL_MS,
+  device?: SessionDeviceInfo
 ): Promise<{ rawToken: string; expiresAt: Date; session: AuthSession }> {
   const rawToken = randomBytes(32).toString('hex');
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + ttlMs);
+
+  // Login ulang di perangkat yang sama tidak boleh menumpuk sesi: sesi lama
+  // perangkat itu dicabut lebih dulu supaya daftar perangkat tetap jujur.
+  if (device?.deviceId) {
+    await revokeDeviceSessions(userId, device.deviceId);
+  }
 
   const session = await prisma.authSession.create({
     data: {
       userId,
       tokenHash,
       expiresAt,
+      ...(device
+        ? {
+            deviceId: device.deviceId,
+            deviceLabel: device.deviceLabel,
+            userAgent: device.userAgent,
+            lastIp: device.ip,
+            operatorName: device.operatorName,
+          }
+        : {}),
     },
   });
 
+  await enforceSessionCap(userId);
+
   return { rawToken, expiresAt, session };
+}
+
+/** Mencabut semua sesi aktif satu perangkat milik user (dipakai saat login ulang). */
+export async function revokeDeviceSessions(userId: string, deviceId: string): Promise<number> {
+  if (!deviceId) return 0;
+  const result = await prisma.authSession.updateMany({
+    where: { userId, deviceId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  return result.count;
+}
+
+/**
+ * Mencabut sesi tertua bila jumlah sesi aktif melebihi batas. Dipanggil setelah
+ * sesi baru dibuat, jadi perangkat yang baru dipakai selalu menang.
+ */
+export async function enforceSessionCap(userId: string): Promise<string[]> {
+  const cap = maxActiveSessions();
+  const active = await prisma.authSession.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { lastUsedAt: 'desc' },
+    select: { id: true },
+  });
+  if (active.length <= cap) return [];
+  const surplus = active.slice(cap).map((row) => row.id);
+  await prisma.authSession.updateMany({
+    where: { id: { in: surplus } },
+    data: { revokedAt: new Date() },
+  });
+  return surplus;
+}
+
+/**
+ * Mencatat operator yang terakhir memakai suatu sesi. Dipanggil dari
+ * `requireAuth` hanya ketika header operator berbeda dari yang tersimpan,
+ * jadi tidak ada UPDATE di setiap permintaan.
+ */
+export async function touchSessionOperator(sessionId: string, operatorName: string): Promise<void> {
+  try {
+    await prisma.authSession.update({
+      where: { id: sessionId },
+      data: { operatorName, lastUsedAt: new Date() },
+    });
+  } catch (err) {
+    logger.warn({
+      service: 'web',
+      operation: 'touch_session_operator',
+      outcome: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**

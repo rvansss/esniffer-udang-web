@@ -13,6 +13,8 @@ import {
 } from '../../../../../../shared/dataset.ts';
 import { serializeSession, parseDecimalNumber, parsePositiveNumber } from '../../../../../../lib/api/dataset.ts';
 import { backfillSessionReadings } from '../../../../../../lib/dataset/backfill.ts';
+import { requireCompletedCalibration } from '../../../../../../lib/dataset/calibration.ts';
+import { resolveAttribution } from '../../../../../../lib/auth/attribution.ts';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,6 +28,9 @@ export async function POST(
     verifyCsrfAndOrigin(request);
     await requireAuth(request, ['ADMIN']);
     const { groupId } = await context.params;
+    // Dicatat per baris sesi: akun dipakai bergantian, label ini yang
+    // membedakan operator di dataset.
+    const attribution = resolveAttribution(request);
 
     const group = await prisma.sampleGroup.findUnique({
       where: { groupId },
@@ -82,9 +87,11 @@ export async function POST(
       endedAtUtc = new Date(startedAtUtc.getTime() + durationSeconds * 1000);
     }
 
-    if (!autoBackfill && body?.warmupDone !== true) {
-      throw validationError('Nyalakan sensor 30 menit dulu (warmupDone harus true) sebelum Start');
-    }
+    // Gerbang kalibrasi dua tahap: server yang memutuskan, bukan lagi klaim
+    // `warmupDone: true` dari klien (dulu nilainya di-hardcode UI). Sesi rentang
+    // waktu bersifat retrospektif — chamber sudah dipakai pada jam itu — jadi
+    // tidak menuntut kalibrasi baru.
+    const calibration = autoBackfill ? null : await requireCompletedCalibration(groupId);
 
     let chamberId: string | null = null;
     if (body?.chamberId !== undefined && body?.chamberId !== null) {
@@ -169,7 +176,13 @@ export async function POST(
         startedAtUtc,
         endedAtUtc: autoBackfill ? endedAtUtc : null,
         durationSeconds,
-        warmupDone: body?.warmupDone === true,
+        // Bukti prasyarat: kalibrasi yang dinyatakan selesai oleh server ikut
+        // tercatat per sesi, jadi ekspor/audit bisa memeriksanya per tahap.
+        warmupDone: Boolean(calibration),
+        calibrationCompletedAtUtc: calibration?.completedAtUtc ?? null,
+        calibrationVersion: calibration?.version ?? null,
+        createdByOperator: attribution.operator,
+        createdByDevice: attribution.deviceLabel,
         cleaningDone: body?.cleaningDone === true,
         status: 'OPEN',
         shrimpTempC,

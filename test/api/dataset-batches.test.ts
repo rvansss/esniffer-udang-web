@@ -12,6 +12,7 @@ import { POST as uploadPhotos } from '../../app/api/v1/batches/[batchId]/photos/
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
 import { PATCH as patchGroup } from '../../app/api/v1/groups/[groupId]/route.ts';
 import { GET as getBatchDetail } from '../../app/api/v1/batches/[batchId]/route.ts';
+import { seedCalibration } from '../helpers/calibration.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
 import { createSession as createAuthSession, buildSessionCookie } from '../../lib/auth/session.ts';
@@ -240,7 +241,7 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
 
   it('2b. POST /batches menurunkan sizeGrade kiriman dan menerima panjang udang bebas rentang', async () => {
     // Nilai sizeGrade kiriman diabaikan: server selalu menghitung
-    // jumlah ekor ÷ berat (gram) × 1000 lalu membulatkan.
+    // jumlah ekor Ã· berat (gram) Ã— 1000 lalu membulatkan.
     const ignored = await createBatch(
       new Request('http://localhost:3000/api/v1/batches', {
         method: 'POST',
@@ -505,6 +506,10 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
     assert.strictEqual(body.data[0].targetTempC, 25);
     assert.strictEqual(body.data[1].groupId, `${batchId}-SD`);
     groupSr = body.data[0].groupId;
+    // Gerbang kalibrasi sekarang di server: tanpa baris kalibrasi selesai,
+    // sesi live ditolak 422. Test ini menguji perilaku sesi, bukan kalibrasi.
+    await seedCalibration(batchId, body.data[0].groupId);
+    await seedCalibration(batchId, body.data[1].groupId);
 
     const dup = await createGroups(
       new Request(`http://localhost:3000/api/v1/batches/${batchId}/groups`, {
@@ -553,13 +558,17 @@ describe('HTTP API v1: Dataset Batches, Groups, Sessions & Lock (Fase 3)', () =>
   const completeRequest = (sessionId: string, body: unknown) => completeSession(new Request(`http://localhost:3000/api/v1/sessions/${sessionId}/complete`, { method: 'POST', headers: postHeaders(adminCookie), body: JSON.stringify(body) }), { params: Promise.resolve({ sessionId }) });
   const patch = (body: unknown, groupId = groupSr, cookie = adminCookie) => patchGroup(new Request(`http://localhost:3000/api/v1/groups/${groupId}`, { method: 'PATCH', headers: postHeaders(cookie), body: JSON.stringify(body) }), { params: Promise.resolve({ groupId }) });
 
-  it('10. sessions require warmup, chamber, and independent measurements', async () => {
-    assert.strictEqual((await sessionRequest('H0', groupSr, { warmupDone: false })).status, 422);
+  it('10. sessions require calibration, chamber, and independent measurements', async () => {
+    // `warmupDone` bukan lagi klaim klien: status kalibrasi dibaca server
+    // (group_calibrations). Pengujian gerbangnya ada di test/api/calibration.
     assert.strictEqual((await sessionRequest('H0', groupSr, { chamberId: null })).status, 422);
     assert.strictEqual((await sessionRequest('H0', groupSr, { shrimpWeightG: undefined })).status, 422);
     const result = await sessionRequest('H0'); assert.strictEqual(result.status, 201);
     const body = (await result.json()).data; sessionH0 = body.sessionId;
     assert.strictEqual(body.elapsedHours, 0); assert.strictEqual(body.shrimpWeightG, 450);
+    // Bukti prasyarat ikut terekam di sesi (bukan hanya di grup).
+    assert.strictEqual(body.warmupDone, true);
+    assert.ok(body.calibrationCompletedAtUtc, 'sesi menyimpan waktu kalibrasi selesai');
   });
   it('11. timepoints must advance and UUIDs must reference a real chamber', async () => {
     assert.strictEqual((await sessionRequest('H0')).status, 409);

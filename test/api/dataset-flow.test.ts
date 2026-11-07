@@ -16,6 +16,7 @@ import { prisma, closeDb, allocateHistorySequence } from '../../lib/db/client.ts
 import { POST as createBatch } from '../../app/api/v1/batches/route.ts';
 import { POST as createGroups } from '../../app/api/v1/batches/[batchId]/groups/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
+import { seedCalibration } from '../helpers/calibration.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route.ts';
 import { GET as exportBatch } from '../../app/api/v1/batches/[batchId]/export/route.ts';
@@ -176,6 +177,8 @@ describe('Dataset Feature End-to-End Flow (Fase 8)', () => {
     );
     assert.strictEqual(groupRes.status, 201);
     groupSr = `${batchId}-SR`;
+    // Sesi live butuh kalibrasi selesai di server (Fase 0).
+    await seedCalibration(batchId, groupSr);
 
     const sessionRes = await createSession(
       post(adminCookie, `http://localhost:3000/api/v1/groups/${groupSr}/sessions`, {

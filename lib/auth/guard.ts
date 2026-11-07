@@ -3,8 +3,10 @@ import {
   validateSession,
   verifyCsrfToken,
   hashToken,
+  touchSessionOperator,
   type SessionWithUser,
 } from './session.ts';
+import { OPERATOR_FALLBACK, operatorOf } from './attribution.ts';
 import { unauthorized, forbidden } from '../api/errors.ts';
 import type { UserRole } from '@prisma/client';
 
@@ -70,6 +72,12 @@ export async function getAuthenticatedUser(request: Request): Promise<SessionWit
 /**
  * Enforces authentication and role-based access control.
  * Throws 401 if unauthenticated, 403 if user lacks required role.
+ *
+ * Sekaligus mencatat operator yang sedang memakai perangkat ini (header
+ * X-Operator) bila berbeda dari yang tersimpan. Satu akun dipakai bergantian
+ * oleh beberapa operator, jadi kolom itu yang membuat daftar perangkat aktif
+ * bisa dibaca manusia. Ditulis hanya saat berubah supaya tidak ada UPDATE di
+ * setiap permintaan.
  */
 export async function requireAuth(
   request: Request,
@@ -82,6 +90,12 @@ export async function requireAuth(
 
   if (!allowedRoles.includes(auth.user.role)) {
     throw forbidden(`Role ${auth.user.role} is not permitted to perform this action`);
+  }
+
+  const operator = operatorOf(request);
+  if (operator !== OPERATOR_FALLBACK && operator !== auth.session.operatorName) {
+    await touchSessionOperator(auth.session.id, operator);
+    auth.session.operatorName = operator;
   }
 
   return auth;

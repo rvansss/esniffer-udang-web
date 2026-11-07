@@ -207,6 +207,8 @@ type DbBatch = {
   rejectionNotes: string | null;
   lockedAt: Date | null;
   createdAt: Date;
+  /** Label operator perangkat pencatat (akun dipakai bersama). */
+  operatorLabel?: string | null;
 };
 
 export function serializeBatch(b: DbBatch) {
@@ -235,6 +237,8 @@ export function serializeBatch(b: DbBatch) {
     coolerTempMaxC: dec(b.coolerTempLabC),
     iceToShrimpRatio: b.iceToShrimpRatio,
     rejectionNotes: b.rejectionNotes,
+    // Nama operator yang mencatat; null pada baris lama sebelum Fase 0.
+    operatorLabel: b.operatorLabel ?? null,
     lockedAt: iso(b.lockedAt),
     createdAt: b.createdAt.toISOString(),
   };
@@ -333,6 +337,13 @@ type DbSession = {
   status: string;
   lockedAt: Date | null;
   createdAt: Date;
+  /** Jejak kalibrasi & operator (Fase 0); null pada baris sebelum migrasi. */
+  calibrationCompletedAtUtc?: Date | null;
+  calibrationVersion?: number | null;
+  createdByOperator?: string | null;
+  createdByDevice?: string | null;
+  completedByOperator?: string | null;
+  completedByDevice?: string | null;
 };
 
 export function serializeSession(s: DbSession) {
@@ -356,6 +367,13 @@ export function serializeSession(s: DbSession) {
     baselineMq4: dec(s.baselineMq4),
     warmupDone: s.warmupDone,
     cleaningDone: s.cleaningDone,
+    // Bukti prasyarat kalibrasi + siapa yang mencatat/menyelesaikan tahap.
+    calibrationCompletedAtUtc: iso(s.calibrationCompletedAtUtc ?? null),
+    calibrationVersion: s.calibrationVersion ?? null,
+    createdByOperator: s.createdByOperator ?? null,
+    createdByDevice: s.createdByDevice ?? null,
+    completedByOperator: s.completedByOperator ?? null,
+    completedByDevice: s.completedByDevice ?? null,
     status: toApiSessionStatus(s.status),
     lockedAt: iso(s.lockedAt),
     createdAt: s.createdAt.toISOString(),

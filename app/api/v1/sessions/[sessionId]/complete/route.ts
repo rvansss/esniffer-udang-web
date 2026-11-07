@@ -7,6 +7,7 @@ import { parseIsoDate } from '../../../../../../lib/api/validation.ts';
 import { conflict, notFound, validationError } from '../../../../../../lib/api/errors.ts';
 import { serializeSession, parseFiniteNumber } from '../../../../../../lib/api/dataset.ts';
 import { backfillSessionReadings } from '../../../../../../lib/dataset/backfill.ts';
+import { resolveAttribution } from '../../../../../../lib/auth/attribution.ts';
 
 /**
  * Menyelesaikan sesi: validasi gerbang ringan (cleaning + urutan waktu).
@@ -23,6 +24,7 @@ export async function POST(
     verifyCsrfAndOrigin(request);
     await requireAuth(request, ['ADMIN']);
     const { sessionId } = await context.params;
+    const attribution = resolveAttribution(request);
 
     const session = await prisma.measurementSession.findUnique({
       where: { sessionId },
@@ -64,6 +66,9 @@ export async function POST(
       data: {
         endedAtUtc,
         cleaningDone: true,
+        // Siapa yang menyelesaikan tahap — akun dipakai bergantian per shift.
+        completedByOperator: attribution.operator,
+        completedByDevice: attribution.deviceLabel,
         ...baselines,
       },
     });

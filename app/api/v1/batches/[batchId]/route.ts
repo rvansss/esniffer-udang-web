@@ -4,6 +4,7 @@ import { requireAuth, verifyCsrfAndOrigin } from '../../../../../lib/auth/guard.
 import { jsonResponse, errorResponse, getRequestId } from '../../../../../lib/api/response.ts';
 import { conflict, notFound } from '../../../../../lib/api/errors.ts';
 import { deleteBatch } from '../../../../../lib/dataset/batches.ts';
+import { loadBatchCalibrations } from '../../../../../lib/dataset/calibration.ts';
 import {
   serializeBatch,
   serializeGroup,
@@ -42,11 +43,16 @@ export async function GET(
       select: { url: true, caption: true, groupId: true, sessionId: true },
     });
 
+    // Status kalibrasi ikut dalam satu respons: halaman detail tidak perlu
+    // menembak endpoint per grup, dan semua perangkat melihat angka yang sama.
+    const calibrations = await loadBatchCalibrations(batchId);
+
     return jsonResponse({
       ...serializeBatch(batch),
       photos: photos.map((p) => ({ url: p.url, caption: p.caption, groupId: p.groupId, sessionId: p.sessionId })),
       sampleGroups: batch.sampleGroups.map((g) => ({
         ...serializeGroup(g),
+        calibration: calibrations.get(g.groupId) ?? null,
         sessions: g.sessions.map(serializeSession),
       })),
     });

@@ -1,189 +1,154 @@
 /**
- * Draf wizard batch baru (revisi putaran 2 butir 13): isian form disimpan di
- * localStorage browser, bukan di server. Foto tidak ikut — File tidak bisa
- * diserialisasi ke JSON dan tetap harus dipilih ulang secara manual.
+ * Klien draf wizard batch baru (Fase 0: server, bukan localStorage).
  *
- * Tiga aturan agar draf tidak menyesatkan:
- * - kunci versi: perubahan skema menaikkan versi kunci sehingga draf lama
- *   dibuang, bukan dibaca bentrok;
- * - masa berlaku: draf yang terlalu lama dibuang saat dimuat;
- * - cakupan pengguna: draf milik akun lain diabaikan (perangkat bersama).
+ * Sebelumnya draf disimpan di satu kunci localStorage, sehingga isian yang
+ * dimulai di ponsel tidak bisa dilanjutkan di laptop dan dua operator di satu
+ * browser saling menimpa. Sekarang draf adalah baris `batch_drafts` dengan
+ * nomor versi: setiap penyimpanan membawa versi yang terakhir dibaca, dan
+ * server menolak (409) bila draf sudah berubah di perangkat lain.
+ *
+ * Foto tetap tidak ikut: `File` tidak bisa diserialisasi. Yang disimpan adalah
+ * caption-nya, jadi setelah melanjutkan draf di perangkat lain operator perlu
+ * memilih ulang berkas fotonya.
  */
 
-export interface BatchDraft {
-  step?: number;
-  departedAt?: string;
-  coolerDeparture?: string;
-  procuredAt?: string;
-  arrivedAt?: string;
-  marketSource?: string;
-  sourceType?: string;
-  shrimpType?: string;
-  groupingCaptions?: string[];
-  shrimpCount?: string;
-  totalWeightG?: string;
-  initialCondition?: string;
-  visualCheck?: string;
-  /** Pengukuran per ekor yang diketik di wizard (suhu dan panjang, sejajar). */
-  shrimpTemperatures?: string[];
-  shrimpLengths?: string[];
-  /** Jumlah udang per sesi terpisah untuk suhu ruang (SR) dan dingin (SD). */
-  sampleShrimpCountRoomTemp?: string;
-  sampleShrimpCountCold?: string;
-  coolerMarket?: string;
-  coolerLab?: string;
-  deviationAck?: boolean;
-  /** Cap waktu simpan terakhir (epoch ms) — dasar masa berlaku draf. */
-  savedAt?: number;
-  /** Pemilik draf; draf milik akun lain diabaikan. */
-  userId?: string;
-  /** Caption foto tersimpan (berkas foto tidak ikut, lihat butir 13). */
-  batchCaptions?: string[];
+import type { DraftPayload } from '../shared/batch-draft.ts';
+
+/** Draf seperti yang dikirim API. */
+export interface DraftRecord {
+  id: string;
+  label: string;
+  step: number;
+  payload: DraftPayload;
+  status: string;
+  version: number;
+  ownerOperator: string;
+  ownerDevice: string | null;
+  consumedBatchId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-/**
- * Kunci penyimpanan draf. Dinaikkan ke v5 karena pengukuran per ekor
- * (`shrimpTemperatures`/`shrimpLengths`) dan jumlah udang per sesi yang
- * terpisah suhu ruang/dingin menggantikan field skalar v4; draf v4 tidak lagi
- * cocok dengan form ini, jadi sengaja diabaikan dan dibiarkan kedaluwarsa.
- */
-export const BATCH_DRAFT_KEY = 'esniffer:batch-draft-v5';
+/** Draf sudah diubah perangkat lain sejak versi yang dibaca klien. */
+export class DraftConflictError extends Error {
+  readonly serverVersion?: number;
+  readonly ownerOperator?: string;
+  readonly ownerDevice?: string;
+  readonly updatedAt?: string;
 
-/** Draf dianggap kedaluwarsa setelah 7 hari. */
-export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Nilai bawaan form — bukan tanda pengguna mengisi. */
-const PRISTINE_DEFAULTS: Record<string, string> = {
-  sourceType: 'market',
-  shrimpCount: '10',
-  initialCondition: 'dead',
-  visualCheck: 'normal',
-  sampleShrimpCountRoomTemp: '4',
-  sampleShrimpCountCold: '4',
-};
-
-const storage = (): Storage | null => {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    // Penjelajah mode privat/kuota penuh boleh melempar; draf lalu diabaikan.
-    return null;
+  constructor(
+    message: string,
+    serverVersion?: number,
+    ownerOperator?: string,
+    ownerDevice?: string,
+    updatedAt?: string
+  ) {
+    super(message);
+    this.name = 'DraftConflictError';
+    this.serverVersion = serverVersion;
+    this.ownerOperator = ownerOperator;
+    this.ownerDevice = ownerDevice;
+    this.updatedAt = updatedAt;
   }
-};
+}
 
-/** Ada isian pada daftar pengukuran per ekor (indeks mana pun). */
-const hasMeasurement = (values: string[] | undefined): boolean =>
-  Array.isArray(values) && values.some((value) => typeof value === 'string' && value.trim() !== '');
+export type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-/**
- * Draf dianggap bermakna bila ada isian di luar nilai bawaan. Waktu otomatis
- * dari jam device tidak dihitung — filled form tanpa sentuhan pengguna bukan
- * draf yang perlu dipulihkan. Baris pengukuran per ekor selalu isian pengguna.
- */
-export const draftMeaningful = (d: BatchDraft): boolean =>
-  hasMeasurement(d.shrimpTemperatures) ||
-  hasMeasurement(d.shrimpLengths) ||
-  (
-    [
-      'shrimpType',
-      'marketSource',
-      'sourceType',
-      'shrimpCount',
-      'totalWeightG',
-      'initialCondition',
-      'visualCheck',
-      'sampleShrimpCountRoomTemp',
-      'sampleShrimpCountCold',
-      'coolerDeparture',
-      'coolerMarket',
-      'coolerLab',
-    ] as const
-  ).some((k) => {
-    const v = d[k];
-    if (typeof v !== 'string' || v.trim() === '') return false;
-    return PRISTINE_DEFAULTS[k] !== v;
-  });
-
-/** True bila draf masih memuat isi apa pun. */
-const hasAnyContent = (d: BatchDraft): boolean => {
-  const scalars = [
-    'departedAt',
-    'coolerDeparture',
-    'procuredAt',
-    'arrivedAt',
-    'shrimpType',
-    'marketSource',
-    'sourceType',
-    'shrimpCount',
-    'totalWeightG',
-    'initialCondition',
-    'visualCheck',
-    'coolerMarket',
-    'coolerLab',
-  ] as const;
-  if (scalars.some((k) => typeof d[k] === 'string' && d[k]!.trim() !== '')) return true;
-  if (d.deviationAck === true) return true;
-  if (hasMeasurement(d.shrimpTemperatures) || hasMeasurement(d.shrimpLengths)) return true;
-  const captionGroups = [d.batchCaptions, d.groupingCaptions];
-  return captionGroups.some(
-    (c) => Array.isArray(c) && c.some((x) => typeof x === 'string' && x.trim() !== '')
+async function readError(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => undefined);
+  return (
+    (body as { error?: { message?: string } } | undefined)?.error?.message ??
+    `${fallback} (kode ${res.status}).`
   );
-};
+}
 
-/**
- * Simpan draf. Cap waktu disimpan di sini supaya tidak ada pemanggil yang
- * lupa menandainya — tanpa cap waktu draf tidak bisa dinilai umurnya.
- */
-export function saveBatchDraft(draft: BatchDraft): void {
-  if (!hasAnyContent(draft)) {
-    // Semua dikosongkan user? Bersihkan draf agar tidak bangkit dari kuburan.
-    removeBatchDraft();
-    return;
-  }
-  try {
-    storage()?.setItem(BATCH_DRAFT_KEY, JSON.stringify({ ...draft, savedAt: Date.now() }));
-  } catch {
-    // Tanpa localStorage: wizard tetap jalan, hanya tanpa draf.
-  }
+/** Draf terbuka milik akun ini, terbaru lebih dulu. */
+export async function listDrafts(apiFetch: ApiFetch): Promise<DraftRecord[]> {
+  const res = await apiFetch('/api/v1/batch-drafts');
+  if (!res.ok) throw new Error(await readError(res, 'Gagal memuat daftar draf'));
+  const body = (await res.json()) as { data?: DraftRecord[] };
+  return Array.isArray(body.data) ? body.data : [];
+}
+
+/** Membuat draf baru (dipanggil saat isian pertama kali berubah). */
+export async function createDraft(
+  apiFetch: ApiFetch,
+  payload: DraftPayload,
+  step: number
+): Promise<DraftRecord> {
+  const res = await apiFetch('/api/v1/batch-drafts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload, step }),
+  });
+  if (!res.ok) throw new Error(await readError(res, 'Gagal menyimpan draf'));
+  return ((await res.json()) as { data: DraftRecord }).data;
 }
 
 /**
- * Muat draf yang masih berlaku. Draf kedaluwarsa (atau dari skema lama tanpa
- * cap waktu) dibuang; draf milik pengguna lain diabaikan tanpa dihapus.
+ * Menyimpan perubahan draf. Melempar `DraftConflictError` bila versi sudah
+ * berubah — pemanggil yang memutuskan: muat ulang draf server atau buang
+ * perubahan lokal, jangan menimpa diam-diam.
  */
-export function loadBatchDraft(userId?: string): BatchDraft | null {
-  try {
-    const raw = storage()?.getItem(BATCH_DRAFT_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) {
-      return null;
-    }
-    const draft = parsed as BatchDraft;
-    if (typeof draft.savedAt !== 'number' || !Number.isFinite(draft.savedAt)) {
-      // Skema lama tanpa cap waktu — umurnya tidak bisa dinilai, jadi dibuang.
-      storage()?.removeItem(BATCH_DRAFT_KEY);
-      return null;
-    }
-    if (Date.now() - draft.savedAt > DRAFT_MAX_AGE_MS) {
-      storage()?.removeItem(BATCH_DRAFT_KEY);
-      return null;
-    }
-    if (userId && draft.userId && draft.userId !== userId) {
-      return null;
-    }
-    return draft;
-  } catch {
-    return null;
+export async function updateDraft(
+  apiFetch: ApiFetch,
+  id: string,
+  input: { payload: DraftPayload; step: number; version: number }
+): Promise<DraftRecord> {
+  const res = await apiFetch(`/api/v1/batch-drafts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (res.status === 409) {
+    const body = (await res.json().catch(() => undefined)) as
+      | { error?: { code?: string; message?: string; details?: unknown[] } }
+      | undefined;
+    const detail = (body?.error?.details?.[0] ?? {}) as {
+      version?: number;
+      ownerOperator?: string;
+      ownerDevice?: string;
+      updatedAt?: string;
+    };
+    throw new DraftConflictError(
+      body?.error?.message ?? 'Draf sudah diperbarui di perangkat lain.',
+      detail.version,
+      detail.ownerOperator,
+      detail.ownerDevice ?? undefined,
+      detail.updatedAt
+    );
   }
+  if (!res.ok) throw new Error(await readError(res, 'Gagal menyimpan draf'));
+  return ((await res.json()) as { data: DraftRecord }).data;
 }
 
-export function removeBatchDraft(): void {
-  try {
-    storage()?.removeItem(BATCH_DRAFT_KEY);
-  } catch {
-    // Abaikan.
-  }
+/** Membuang draf (status DISCARDED, bukan dihapus). */
+export async function discardDraft(apiFetch: ApiFetch, id: string): Promise<void> {
+  const res = await apiFetch(`/api/v1/batch-drafts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await readError(res, 'Gagal membuang draf'));
+}
+
+/**
+ * Menandai draf sudah menjadi batch `batchId` (idempoten). Bila ini gagal,
+ * batch tetap sudah tersimpan — jadi kegagalan di sini tidak boleh membuat
+ * operator mengira batch-nya hilang.
+ */
+export async function consumeDraft(apiFetch: ApiFetch, id: string, batchId: string): Promise<void> {
+  const res = await apiFetch(`/api/v1/batch-drafts/${encodeURIComponent(id)}/consume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batchId }),
+  });
+  if (!res.ok) throw new Error(await readError(res, 'Gagal menandai draf terpakai'));
+}
+
+/** Ringkasan waktu relatif untuk daftar draf ("12 menit lalu"). */
+export function draftAgeText(iso: string, nowMs: number = Date.now()): string {
+  const diff = Math.max(0, nowMs - Date.parse(iso));
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'baru saja';
+  if (minutes < 60) return `${minutes} menit lalu`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  return `${Math.floor(hours / 24)} hari lalu`;
 }

@@ -1,6 +1,7 @@
 import { createBatchGroups, parseBatchGrouping } from '../../../../lib/dataset/groups.ts';
 import { prisma } from '../../../../lib/db/client.ts';
 import { requireAuth, verifyCsrfAndOrigin } from '../../../../lib/auth/guard.ts';
+import { resolveAttribution } from '../../../../lib/auth/attribution.ts';
 import { jsonResponse, errorResponse, getRequestId } from '../../../../lib/api/response.ts';
 import { parseLimit } from '../../../../lib/api/validation.ts';
 import { buildBatchId, wibDateStamp } from '../../../../shared/dataset.ts';
@@ -47,6 +48,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     verifyCsrfAndOrigin(request);
     const auth = await requireAuth(request, ['ADMIN']);
+    // Akun dipakai bergantian beberapa operator: label operator perangkat ini
+    // ikut disimpan, karena operatorId selalu menunjuk akun bersama.
+    const attribution = resolveAttribution(request);
 
     const body = await request.json();
     // Satu sumber kebenaran parsing/gerbang: dipakai juga oleh PATCH
@@ -68,7 +72,15 @@ export async function POST(request: Request): Promise<Response> {
       const batchId = buildBatchId(fields.procuredAtUtc, existing + attempt);
       try {
         batch = await prisma.$transaction(async (tx) => {
-          const created = await tx.collectionBatch.create({ data: { batchId, ...fields, operatorId: auth.user.id } });
+          const created = await tx.collectionBatch.create({
+            data: {
+              batchId,
+              ...fields,
+              operatorId: auth.user.id,
+              operatorLabel: attribution.operator,
+              createdByDevice: attribution.deviceLabel,
+            },
+          });
           if (grouping) await createBatchGroups(tx, batchId, grouping);
           return created;
         });

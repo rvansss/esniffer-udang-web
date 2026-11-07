@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import ArrivalFields, { TransportDurationNote } from '../../../components/batches/ArrivalFields';
 import ShrimpMeasurementFields from '../../../components/batches/ShrimpMeasurementFields';
 import BatchPhotoPicker, { type PhotoGroup } from '../../../components/batches/BatchPhotoPicker';
-import { loadBatchDraft, saveBatchDraft, removeBatchDraft } from '../../../lib/batch-draft.ts';
+import {
+  DraftConflictError,
+  createDraft,
+  discardDraft,
+  draftAgeText,
+  consumeDraft,
+  listDrafts,
+  updateDraft,
+  type ApiFetch,
+  type DraftRecord,
+} from '../../../lib/batch-draft.ts';
+import type { DraftPayload } from '../../../shared/batch-draft.ts';
 import {
   coolerTempWarning,
   meanFormNumber,
@@ -48,9 +59,8 @@ const card = 'rounded-2xl bg-white/10 border border-white/20 p-5 md:p-6 space-y-
 const input = 'w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/20 text-sm font-mono text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 [color-scheme:dark]';
 const button = 'min-h-11 px-4 py-3 rounded-xl border border-emerald-400/40 text-emerald-100 bg-emerald-500/20 text-sm font-mono disabled:opacity-50';
 const steps = ['Pengadaan', 'Kondisi Udang', 'Pengelompokan'];
-type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-/** Ambil hanya string dari draf localStorage (isian draf tidak dipercaya mentah). */
+/** Ambil hanya string dari payload draf (isian draf tidak dipercaya mentah). */
 const stringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
@@ -61,22 +71,58 @@ function resizeRows(rows: readonly string[], count: number): string[] {
   return next;
 }
 
-function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch }) {
+/**
+ * Isian form → payload draf. Hanya field yang dikenal kontrak `DraftPayload`
+ * (lihat shared/batch-draft.ts); server menyaring ulang, jadi field asing tidak
+ * pernah tersimpan.
+ */
+function valuesToPayload(
+  values: FormValues,
+  batchCaptions: string[],
+  groupingCaptions: string[]
+): DraftPayload {
+  return {
+    departedAt: values.departedAt,
+    coolerDeparture: values.coolerDeparture,
+    procuredAt: values.procuredAt,
+    arrivedAt: values.arrivedAt,
+    marketSource: values.marketSource,
+    sourceType: values.sourceType,
+    shrimpType: values.shrimpType,
+    shrimpCount: values.shrimpCount,
+    totalWeightG: values.totalWeightG,
+    initialCondition: values.initialCondition,
+    visualCheck: values.visualCheck,
+    coolerMarket: values.coolerMarket,
+    coolerLab: values.coolerLab,
+    sampleShrimpCountRoomTemp: values.sampleShrimpCountRoomTemp,
+    sampleShrimpCountCold: values.sampleShrimpCountCold,
+    shrimpTemperatures: values.shrimpTemperatures,
+    shrimpLengths: values.shrimpLengths,
+    deviationAck: values.deviationAck,
+    batchCaptions,
+    groupingCaptions,
+  };
+}
+
+/** Payload draf → isian form, dengan nilai bawaan untuk field yang tidak ada. */
+function valuesFromPayload(payload: DraftPayload): FormValues {
+  const base = defaults();
+  const saved = payload as Record<string, unknown>;
+  for (const key of Object.keys(base) as (keyof FormValues)[]) {
+    if (key === 'deviationAck' || key === 'shrimpTemperatures' || key === 'shrimpLengths') continue;
+    if (typeof saved[key] === 'string') (base as unknown as Record<string, unknown>)[key] = saved[key];
+  }
+  base.deviationAck = saved.deviationAck === true;
+  base.shrimpTemperatures = stringArray(saved.shrimpTemperatures);
+  base.shrimpLengths = stringArray(saved.shrimpLengths);
+  return base;
+}
+
+function BatchWizard({ apiFetch }: { apiFetch: ApiFetch }) {
   const router = useRouter();
-  const [draft] = useState(() => loadBatchDraft(userId));
-  const [values, setValues] = useState<FormValues>(() => {
-    const base = defaults();
-    const saved = (draft ?? {}) as Record<string, unknown>;
-    for (const key of Object.keys(base) as (keyof FormValues)[]) {
-      if (key === 'deviationAck' || key === 'shrimpTemperatures' || key === 'shrimpLengths') continue;
-      if (typeof saved[key] === 'string') (base as unknown as Record<string, unknown>)[key] = saved[key];
-    }
-    base.deviationAck = saved.deviationAck === true;
-    base.shrimpTemperatures = stringArray(saved.shrimpTemperatures);
-    base.shrimpLengths = stringArray(saved.shrimpLengths);
-    return base;
-  });
-  const [step, setStep] = useState(() => Math.min(2, Math.max(0, draft?.step ?? 0)));
+  const [values, setValues] = useState<FormValues>(defaults);
+  const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<WizardErrors>({});
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -84,16 +130,137 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
   const [batchPhotos, setBatchPhotos] = useState<PhotoGroup>({ files: [], captions: [] });
   const [groupPhotos, setGroupPhotos] = useState<PhotoGroup>({ files: [], captions: [] });
   const [uploaded, setUploaded] = useState({ batch: false, grouping: false });
-  const [draftVisible, setDraftVisible] = useState(Boolean(draft));
   const [photoKey, setPhotoKey] = useState(0);
+
+  // Draf di server: daftar draf terbuka akun ini (dibuat operator/perangkat
+  // mana pun) + draf yang sedang diedit di sini beserta nomor versinya.
+  const [drafts, setDrafts] = useState<DraftRecord[] | null>(null);
+  const [activeDraft, setActiveDraft] = useState<DraftRecord | null>(null);
+  const [draftState, setDraftState] = useState<'idle' | 'saving' | 'saved' | 'conflict' | 'error'>('idle');
+  const [draftNote, setDraftNote] = useState<string | null>(null);
   const dirty = useRef(false);
+  const savingDraft = useRef(false);
+
+  // Muat daftar draf sekali saat halaman dibuka.
+  useEffect(() => {
+    let alive = true;
+    listDrafts(apiFetch)
+      .then((rows) => {
+        if (alive) setDrafts(rows);
+      })
+      .catch(() => {
+        if (alive) setDrafts([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [apiFetch]);
+
+  /**
+   * Menyimpan draf (dibuat saat isian pertama berubah, lalu diperbarui dengan
+   * optimistis memakai versi terakhir). `dirty` dimatikan setelah berhasil,
+   * jadi tidak ada penyimpanan berulang tanpa perubahan.
+   */
+  const flushDraft = useCallback(async () => {
+    if (!dirty.current || createdBatchId || savingDraft.current || draftState === 'conflict') return;
+    savingDraft.current = true;
+    setDraftState('saving');
+    try {
+      const payload = valuesToPayload(values, batchPhotos.captions, groupPhotos.captions);
+      const saved = activeDraft
+        ? await updateDraft(apiFetch, activeDraft.id, { payload, step, version: activeDraft.version })
+        : await createDraft(apiFetch, payload, step);
+      dirty.current = false;
+      setActiveDraft(saved);
+      setDraftState('saved');
+      setDraftNote(null);
+      setDrafts((prev) => {
+        const rest = (prev ?? []).filter((row) => row.id !== saved.id);
+        return [saved, ...rest];
+      });
+    } catch (err) {
+      if (err instanceof DraftConflictError) {
+        setDraftState('conflict');
+        setDraftNote(
+          `Draf sudah diperbarui di perangkat lain (${err.ownerOperator ?? 'operator lain'} · ${err.ownerDevice ?? 'perangkat lain'}). ` +
+            'Muat versi terbaru atau buang perubahan di sini — perubahan tidak ditimpa otomatis.'
+        );
+      } else {
+        setDraftState('error');
+        setDraftNote(err instanceof Error ? err.message : 'Gagal menyimpan draf.');
+      }
+    } finally {
+      savingDraft.current = false;
+    }
+  }, [activeDraft, apiFetch, batchPhotos.captions, createdBatchId, draftState, groupPhotos.captions, step, values]);
+
   useEffect(() => {
     if (!dirty.current || createdBatchId) return;
-    const timer = setTimeout(() => saveBatchDraft({ ...values, step, userId,
-      batchCaptions: batchPhotos.captions, groupingCaptions: groupPhotos.captions,
-    }), 800);
+    const timer = setTimeout(() => {
+      void flushDraft();
+    }, 800);
     return () => clearTimeout(timer);
-  }, [values, step, userId, batchPhotos.captions, groupPhotos.captions, createdBatchId]);
+  }, [values, step, createdBatchId, batchPhotos.captions, groupPhotos.captions, flushDraft]);
+
+  /** Melanjutkan draf yang sudah ada (dari perangkat ini maupun perangkat lain). */
+  const resumeDraft = (record: DraftRecord) => {
+    setActiveDraft(record);
+    setValues(valuesFromPayload(record.payload));
+    setStep(Math.min(2, Math.max(0, record.step)));
+    setErrors({});
+    setError('');
+    dirty.current = false;
+    setDraftState('idle');
+    setDraftNote(null);
+    setPhotoKey((v) => v + 1);
+    setBatchPhotos({ files: [], captions: stringArray(record.payload.batchCaptions) });
+    setGroupPhotos({ files: [], captions: stringArray(record.payload.groupingCaptions) });
+  };
+
+  /** Mulai isian kosong; draf lama tetap tersimpan sampai dibuang. */
+  const startFresh = () => {
+    setActiveDraft(null);
+    setValues(defaults());
+    setStep(0);
+    setErrors({});
+    setError('');
+    dirty.current = false;
+    setDraftState('idle');
+    setDraftNote(null);
+    setPhotoKey((v) => v + 1);
+    setBatchPhotos({ files: [], captions: [] });
+    setGroupPhotos({ files: [], captions: [] });
+  };
+
+  const discard = async (record: DraftRecord | null) => {
+    if (record) {
+      try {
+        await discardDraft(apiFetch, record.id);
+      } catch {
+        // Draf mungkin sudah dibuang perangkat lain; lanjutkan saja.
+      }
+      setDrafts((prev) => (prev ?? []).filter((row) => row.id !== record.id));
+    }
+    if (!record || record.id === activeDraft?.id) startFresh();
+  };
+
+  /** Mengambil versi terbaru draf dari server setelah konflik versi. */
+  const reloadDraft = async () => {
+    if (!activeDraft) return;
+    try {
+      const rows = await listDrafts(apiFetch);
+      setDrafts(rows);
+      const fresh = rows.find((row) => row.id === activeDraft.id);
+      if (fresh) resumeDraft(fresh);
+      else {
+        setDraftState('error');
+        setDraftNote('Draf ini sudah tidak ada — mungkin sudah menjadi batch atau dibuang di perangkat lain.');
+      }
+    } catch (err) {
+      setDraftNote(err instanceof Error ? err.message : 'Gagal memuat draf terbaru.');
+    }
+  };
+
   const change = (patch: Partial<FormValues>) => {
     dirty.current = true;
     setValues((v) => ({ ...v, ...patch }));
@@ -191,7 +358,12 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
         const body = await res.json();
         if (!res.ok) throw new Error(body.error?.message ?? 'Gagal menyimpan batch.');
         batchId = body.data.batchId as string;
-        setCreatedBatchId(batchId); removeBatchDraft();
+        setCreatedBatchId(batchId);
+        // Draf menjadi batch: ditandai, bukan dihapus, supaya rantai
+        // "draf → batch" tetap bisa ditelusuri kalau ada pertanyaan belakangan.
+        if (activeDraft) {
+          void consumeDraft(apiFetch, activeDraft.id, batchId).catch(() => {});
+        }
       }
       if (!uploaded.batch) { await upload(batchId, batchPhotos); setUploaded((v) => ({ ...v, batch: true })); }
       if (!uploaded.grouping) { await upload(batchId, groupPhotos); setUploaded((v) => ({ ...v, grouping: true })); }
@@ -231,7 +403,96 @@ function BatchWizard({ userId, apiFetch }: { userId: string; apiFetch: ApiFetch 
   return <div className="space-y-5 max-w-3xl mx-auto">
     <h2 className="text-2xl font-mono font-bold text-white">Batch baru</h2>
     <p className="text-xs font-mono text-white/60">Langkah {step + 1} dari 3. Tanda * berarti wajib diisi. Semua waktu dalam WIB.</p>
-    {draftVisible && <div className={card}><p className="text-xs text-cyan-200">Draf dipulihkan. Pilih ulang berkas foto. Caption sebelumnya: {[...(draft?.batchCaptions ?? []), ...(draft?.groupingCaptions ?? [])].join(' · ') || '—'}</p><button type="button" className={button} onClick={() => { dirty.current = false; removeBatchDraft(); setValues(defaults()); setStep(0); setPhotoKey((v) => v + 1); setBatchPhotos({ files: [], captions: [] }); setGroupPhotos({ files: [], captions: [] }); setDraftVisible(false); }}>Buang draf</button></div>}
+    <p role="status" className="text-[11px] font-mono text-white/45 min-h-4">
+      {draftState === 'saving'
+        ? 'Menyimpan draf ke server…'
+        : draftState === 'saved' && activeDraft
+          ? `Draf tersimpan di server · ${draftAgeText(activeDraft.updatedAt)} — bisa dilanjutkan dari perangkat lain.`
+          : !createdBatchId
+            ? 'Isian disimpan otomatis ke server setelah Anda mulai mengisi.'
+            : ''}
+    </p>
+    {draftNote && (
+      <div className={card} role="alert">
+        <p className="text-xs font-mono text-amber-200">{draftNote}</p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          {draftState === 'conflict' && (
+            <button type="button" className={`${button} !min-h-9 !py-1.5 !px-3 text-xs`} onClick={() => void reloadDraft()}>
+              Muat versi terbaru
+            </button>
+          )}
+          {draftState === 'error' && (
+            <button
+              type="button"
+              className={`${button} !min-h-9 !py-1.5 !px-3 text-xs`}
+              onClick={() => {
+                dirty.current = true;
+                void flushDraft();
+              }}
+            >
+              Coba simpan lagi
+            </button>
+          )}
+          <button
+            type="button"
+            className={`${button} !min-h-9 !py-1.5 !px-3 text-xs`}
+            onClick={() => void discard(activeDraft)}
+          >
+            Buang draf ini
+          </button>
+        </div>
+      </div>
+    )}
+    {!createdBatchId && drafts && drafts.length > 0 && (
+      <div className={card} role="region" aria-label="Draf tersimpan">
+        <p className="text-xs font-mono font-semibold text-cyan-200">
+          {drafts.length} draf tersimpan di server — bisa dilanjutkan dari perangkat mana pun.
+        </p>
+        <ul className="space-y-2">
+          {drafts.slice(0, 5).map((row) => (
+            <li
+              key={row.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-black/20 border border-white/10 px-3 py-2"
+            >
+              <span className="min-w-0">
+                <span className="block text-[12px] font-mono text-white truncate">
+                  {row.label}
+                  {activeDraft?.id === row.id ? ' · sedang dibuka' : ''}
+                </span>
+                <span className="block text-[10px] font-mono text-white/50">
+                  {row.ownerOperator} · {row.ownerDevice ?? 'perangkat lain'} · {draftAgeText(row.updatedAt)}
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => resumeDraft(row)}
+                  className={`${button} !min-h-9 !py-1.5 !px-3 text-xs`}
+                >
+                  {activeDraft?.id === row.id ? 'Muat ulang' : 'Lanjutkan'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void discard(row)}
+                  className="text-[11px] font-mono text-rose-300 px-2 min-h-9"
+                >
+                  Buang
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-[11px] font-mono text-white/45">
+          Perubahan tersimpan otomatis ke server. Foto tetap perlu dipilih ulang setelah melanjutkan di
+          perangkat lain; caption-nya ikut tersimpan.
+        </p>
+        {activeDraft && (
+          <button type="button" onClick={startFresh} className="text-[11px] font-mono text-cyan-200">
+            Mulai isian baru (draf lama tetap tersimpan)
+          </button>
+        )}
+      </div>
+    )}
     <nav aria-label="Langkah pencatatan" className="flex gap-2">{steps.map((label, i) => <button type="button" key={label} disabled={submitting || Boolean(createdBatchId)} aria-current={step === i ? 'step' : undefined} className={`${button} flex-1 text-xs`} onClick={() => navigate(i)}>{label}</button>)}</nav>
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
     {createdBatchId && <p role="status" className="text-sm text-amber-200">Batch {createdBatchId} sudah tersimpan. Coba simpan lagi untuk melanjutkan unggah foto, atau buka <a className="underline" href={`/batches/${createdBatchId}`}>detail batch</a>.</p>}
@@ -283,5 +544,5 @@ export default function NewBatchPage() {
   const router = useRouter();
   useEffect(() => { if (!isLoading && (!user || user.role !== 'ADMIN')) router.replace(user ? '/batches' : '/login'); }, [isLoading, user, router]);
   if (isLoading || !user || user.role !== 'ADMIN') return <p className="p-6 text-white/60">Memuat sesi…</p>;
-  return <BatchWizard key={user.id} userId={user.id} apiFetch={apiFetch} />;
+  return <BatchWizard apiFetch={apiFetch} />;
 }

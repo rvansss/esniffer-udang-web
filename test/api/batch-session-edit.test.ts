@@ -11,6 +11,7 @@ import { POST as lockBatch } from '../../app/api/v1/batches/[batchId]/lock/route
 import { GET as getBatchDetail } from '../../app/api/v1/batches/[batchId]/route.ts';
 import { POST as uploadPhotos } from '../../app/api/v1/batches/[batchId]/photos/route.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
+import { seedCalibration } from '../helpers/calibration.ts';
 import { PATCH as patchBatch } from '../../app/api/v1/batches/[batchId]/route.ts';
 import { PATCH as patchSession } from '../../app/api/v1/sessions/[sessionId]/route.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
@@ -133,6 +134,9 @@ describe('HTTP API v1: PATCH batch + PATCH sesi + foto per sesi (revisi tabel ri
     const groupsJson = await groupsRes.json();
     assert.strictEqual(groupsJson.data.length, 2);
     groupSr = groupsJson.data[0].groupId;
+    // Sesi live butuh kalibrasi selesai di server (gerbang pindah dari klien
+    // ke server pada Fase 0). Detail gerbangnya diuji di test/api/calibration.
+    await seedCalibration(batchId, groupSr);
 
     // Sesi H0 memakai data observasi tahap (kolom baru measurement_sessions).
     const sessionRes = await createSession(

@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { randomUUID } from 'node:crypto';
 import { prisma, closeDb } from '../../lib/db/client.ts';
 import { POST as createSession } from '../../app/api/v1/groups/[groupId]/sessions/route.ts';
+import { seedCalibration } from '../helpers/calibration.ts';
 import { POST as completeSession } from '../../app/api/v1/sessions/[sessionId]/complete/route.ts';
 import { POST as reopenSession } from '../../app/api/v1/sessions/[sessionId]/reopen/route.ts';
 import { hashPassword } from '../../lib/auth/password.ts';
@@ -98,6 +99,8 @@ describe('HTTP API v1: Dataset Session Reopen (INCOMPLETE → OPEN)', () => {
       },
     });
     groupId = group.groupId;
+    // Sesi live butuh kalibrasi selesai di server (Fase 0).
+    await seedCalibration(batchId, groupId);
 
     // Sesi terikat chamber+device tapi window kosong → complete jadi INCOMPLETE
     const created = await call(

@@ -1,193 +1,188 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
-  saveBatchDraft,
-  loadBatchDraft,
-  removeBatchDraft,
-  draftMeaningful,
-  DRAFT_MAX_AGE_MS,
-  BATCH_DRAFT_KEY,
-  type BatchDraft,
+  DRAFT_MAX_PAYLOAD_BYTES,
+  draftLabelFrom,
+  isDraftPayloadEmpty,
+  sanitizeDraftPayload,
+} from '../shared/batch-draft.ts';
+import {
+  DraftConflictError,
+  consumeDraft,
+  createDraft,
+  discardDraft,
+  draftAgeText,
+  listDrafts,
+  updateDraft,
+  type DraftRecord,
 } from '../lib/batch-draft.ts';
 
-/** Stub localStorage minimal (node tidak punya localStorage bawaan). */
-class MemoryStorage {
-  private map = new Map<string, string>();
-  getItem(k: string): string | null {
-    return this.map.get(k) ?? null;
-  }
-  setItem(k: string, v: string): void {
-    this.map.set(k, String(v));
-  }
-  removeItem(k: string): void {
-    this.map.delete(k);
-  }
-  clear(): void {
-    this.map.clear();
-  }
+/** apiFetch palsu: mencatat permintaan dan mengembalikan respons yang dijadwalkan. */
+function stubFetch(handler: (url: string, init?: RequestInit) => Response) {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    calls.push({ url, init });
+    return handler(url, init);
+  };
+  return { apiFetch, calls };
 }
 
-const DRAFT_KEY = BATCH_DRAFT_KEY;
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-describe('Batch draft (revisi putaran 2, butir 13)', () => {
-  const before = globalThis.localStorage;
-  beforeEach(() => {
-    globalThis.localStorage = new MemoryStorage() as unknown as Storage;
-  });
-  after(() => {
-    globalThis.localStorage = before;
-  });
+const draftOf = (overrides: Partial<DraftRecord> = {}): DraftRecord => ({
+  id: 'draft-1',
+  label: 'Pasar Ciroyom',
+  step: 1,
+  payload: { marketSource: 'Pasar Ciroyom' },
+  status: 'OPEN',
+  version: 3,
+  ownerOperator: 'Budi',
+  ownerDevice: 'Chrome · Android',
+  consumedBatchId: null,
+  createdAt: '2026-11-16T07:00:00.000Z',
+  updatedAt: '2026-11-16T07:10:00.000Z',
+  ...overrides,
+});
 
-  const filled: BatchDraft = {
-    step: 1,
-    procuredAt: '2099-02-02T07:10',
-    marketSource: 'Pasar Harapan Jaya',
-    sourceType: 'market',
-    shrimpCount: '12',
-    totalWeightG: '485.5',
-    coolerMarket: '1.2',
-    coolerLab: '3.8',
-  };
-
-  it('simpan lalu muat kembali mengembalikan nilai yang sama', () => {
-    saveBatchDraft(filled);
-    const loaded = loadBatchDraft();
-    assert.ok(loaded);
-    assert.strictEqual(loaded.marketSource, filled.marketSource);
-    assert.strictEqual(loaded.shrimpCount, filled.shrimpCount);
-    assert.strictEqual(loaded.coolerLab, filled.coolerLab);
-    assert.strictEqual(loaded.step, filled.step);
-  });
-
-  it('penyimpan menandai cap waktu sehingga umur draf bisa dinilai', () => {
-    saveBatchDraft(filled);
-    const loaded = loadBatchDraft();
-    assert.strictEqual(typeof loaded?.savedAt, 'number');
-    assert.ok(Math.abs(Date.now() - (loaded?.savedAt ?? 0)) < 5_000);
-  });
-
-  it('draf bermakna bila ada ketikan nyata; nilai bawaan dan waktu otomatis tidak dihitung', () => {
-    assert.ok(draftMeaningful(filled));
-    // Waktu dari jam device selalu terisi otomatis — bukan tanda user mengetik.
-    assert.strictEqual(draftMeaningful({ procuredAt: '2099-02-02T07:00', arrivedAt: '2099-02-02T07:10' }), false);
-    assert.strictEqual(draftMeaningful({ step: 2, shrimpTemperatures: [] }), false);
-    assert.strictEqual(draftMeaningful({}), false);
-    // Nilai bawaan form juga bukan isian pengguna.
-    assert.strictEqual(
-      draftMeaningful({ sourceType: 'market', shrimpCount: '10', initialCondition: 'dead' }),
-      false
-    );
-    // Jumlah di luar nilai bawaan dianggap isian pengguna.
-    assert.ok(draftMeaningful({ shrimpCount: '12' }));
-    assert.ok(draftMeaningful({ sourceType: 'supermarket' }));
-  });
-
-  it('simpan draf kosong menghapus penyimpanan lama', () => {
-    saveBatchDraft(filled);
-    saveBatchDraft({ step: 0 });
-    assert.strictEqual(loadBatchDraft(), null);
-  });
-
-  it('hapus draf membuat muat kembali null', () => {
-    saveBatchDraft(filled);
-    removeBatchDraft();
-    assert.strictEqual(loadBatchDraft(), null);
-    removeBatchDraft(); // tanpa error walau sudah tak ada
-  });
-
-  it('JSON rusak di penyimpanan mengembalikan null tanpa melempar', () => {
-    globalThis.localStorage.setItem(DRAFT_KEY, '{teu lengkap');
-    assert.strictEqual(loadBatchDraft(), null);
-  });
-
-  it('draf versi kunci lama diabaikan, bukan dibaca bentrok', () => {
-    globalThis.localStorage.setItem(
-      'esniffer:batch-draft-v1',
-      JSON.stringify({ marketSource: 'Pasar Versi Lama', savedAt: Date.now() })
-    );
-    assert.strictEqual(loadBatchDraft(), null);
-  });
-
-  it('draf tanpa cap waktu (skema lama) dibuang saat dimuat', () => {
-    globalThis.localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({ marketSource: 'Pasar Tanpa Cap Waktu' })
-    );
-    assert.strictEqual(loadBatchDraft(), null);
-    // Sekalian hilang dari penyimpanan.
-    assert.strictEqual(globalThis.localStorage.getItem(DRAFT_KEY), null);
-  });
-
-  it('draf kedaluwarsa dibuang; draf yang masih muda dikembalikan', () => {
-    globalThis.localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({ marketSource: 'Pasar Lama', savedAt: Date.now() - DRAFT_MAX_AGE_MS - 1000 })
-    );
-    assert.strictEqual(loadBatchDraft(), null);
-    assert.strictEqual(globalThis.localStorage.getItem(DRAFT_KEY), null);
-
-    globalThis.localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({ marketSource: 'Pasar Baru', savedAt: Date.now() - 1000 })
-    );
-    assert.strictEqual(loadBatchDraft()?.marketSource, 'Pasar Baru');
-  });
-
-  it('draf milik pengguna lain diabaikan dan tidak dihapus', () => {
-    saveBatchDraft({ ...filled, userId: 'user-a' });
-    assert.strictEqual(loadBatchDraft('user-a')?.marketSource, filled.marketSource);
-    assert.strictEqual(loadBatchDraft('user-b'), null);
-    // Draf pemilik asli masih utuh.
-    assert.strictEqual(loadBatchDraft('user-a')?.marketSource, filled.marketSource);
-  });
-
-  it('caption foto ikut tersimpan tanpa berkas foto', () => {
-    saveBatchDraft({
-      ...filled,
-      batchCaptions: ['Di pasar'],
-      groupingCaptions: ['Di chamber'],
+describe('Kontrak payload draf wizard (sanitasi di server & klien)', () => {
+  it('hanya kunci yang dikenal form yang lolos; kunci asing dibuang', () => {
+    const payload = sanitizeDraftPayload({
+      marketSource: 'Pasar Ciroyom',
+      shrimpCount: '10',
+      kunciAsing: 'harus hilang',
+      nested: { a: 1 },
     });
-    const loaded = loadBatchDraft();
-    assert.deepStrictEqual(loaded?.batchCaptions, ['Di pasar']);
-    assert.deepStrictEqual(loaded?.groupingCaptions, ['Di chamber']);
-    // Tidak ada berkas foto di draf.
-    assert.strictEqual((loaded as Record<string, unknown> | null)?.files, undefined);
+    assert.deepEqual(payload, { marketSource: 'Pasar Ciroyom', shrimpCount: '10' });
   });
 
-  it('pengukuran per ekor dan jumlah sampel per suhu ikut tersimpan', () => {
-    saveBatchDraft({
-      ...filled,
-      visualCheck: 'melanosis',
-      sampleShrimpCountRoomTemp: '4',
-      sampleShrimpCountCold: '3',
-      shrimpTemperatures: ['2.5', '', '2.6'],
-      shrimpLengths: ['12.5', '13', ''],
+  it('tipe salah tidak masuk: angka, objek, dan nilai null diabaikan', () => {
+    const payload = sanitizeDraftPayload({
+      marketSource: 42,
+      deviationAck: 'true',
+      shrimpTemperatures: ['2.5', 3, null, '3.5'],
+      shrimpLengths: 'bukan array',
     });
-    const loaded = loadBatchDraft();
-    assert.deepStrictEqual(loaded?.shrimpTemperatures, ['2.5', '', '2.6']);
-    assert.deepStrictEqual(loaded?.shrimpLengths, ['12.5', '13', '']);
-    assert.strictEqual(loaded?.sampleShrimpCountRoomTemp, '4');
-    assert.strictEqual(loaded?.sampleShrimpCountCold, '3');
-    assert.strictEqual(loaded?.visualCheck, 'melanosis');
+    assert.deepEqual(payload, { shrimpTemperatures: ['2.5', '3.5'] });
   });
 
-  it('baris pengukuran terisi dianggap isi draf; jumlah sampel bawaan tidak', () => {
-    assert.strictEqual(draftMeaningful({ shrimpTemperatures: ['', ''] }), false);
-    assert.ok(draftMeaningful({ shrimpTemperatures: ['2.5'] }));
-    assert.ok(draftMeaningful({ shrimpLengths: ['12.5'] }));
-    assert.strictEqual(
-      draftMeaningful({ sampleShrimpCountRoomTemp: '4', sampleShrimpCountCold: '4', visualCheck: 'normal' }),
-      false
+  it('panjang string dan jumlah item array dibatasi', () => {
+    const long = 'x'.repeat(5_000);
+    const many = Array.from({ length: 2_000 }, () => long);
+    const payload = sanitizeDraftPayload({ marketSource: long, shrimpTemperatures: many });
+    assert.strictEqual(payload.marketSource?.length, 500);
+    assert.strictEqual(payload.shrimpTemperatures?.length, 1_000);
+    assert.strictEqual(payload.shrimpTemperatures?.[0].length, 200);
+  });
+
+  it('payload yang tidak berbentuk objek menjadi objek kosong', () => {
+    for (const bad of [null, undefined, 'teks', 42, [], true]) {
+      assert.deepEqual(sanitizeDraftPayload(bad), {});
+    }
+  });
+
+  it('draf dianggap kosong hanya bila tidak ada isian berarti', () => {
+    assert.strictEqual(isDraftPayloadEmpty({}), true);
+    assert.strictEqual(isDraftPayloadEmpty({ marketSource: '   ', shrimpTemperatures: ['', ''] }), true);
+    assert.strictEqual(isDraftPayloadEmpty({ marketSource: 'Pasar' }), false);
+    assert.strictEqual(isDraftPayloadEmpty({ shrimpTemperatures: ['', '2.5'] }), false);
+  });
+
+  it('label draf memakai lokasi beli, atau penanda bawaan', () => {
+    assert.strictEqual(draftLabelFrom({ marketSource: 'Pasar Ciroyom' }, 'Draf baru'), 'Pasar Ciroyom');
+    assert.strictEqual(draftLabelFrom({ marketSource: '  ' }, 'Draf baru'), 'Draf baru');
+    assert.strictEqual(draftLabelFrom({}, 'Draf baru'), 'Draf baru');
+  });
+
+  it('batas ukuran payload tersedia sebagai konstanta bersama', () => {
+    assert.strictEqual(DRAFT_MAX_PAYLOAD_BYTES, 64 * 1024);
+  });
+});
+
+describe('Klien draf: daftar, simpan, konflik versi, dan penanda terpakai', () => {
+  it('listDrafts mengembalikan array draf dan aman bila data bukan array', async () => {
+    const { apiFetch, calls } = stubFetch(() => json({ data: [draftOf()] }));
+    const rows = await listDrafts(apiFetch);
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(calls[0].url, '/api/v1/batch-drafts');
+
+    const empty = stubFetch(() => json({ data: null }));
+    assert.deepEqual(await listDrafts(empty.apiFetch), []);
+  });
+
+  it('createDraft mengirim payload + step dan mengembalikan draf baru', async () => {
+    const { apiFetch, calls } = stubFetch(() => json({ data: draftOf({ id: 'baru' }) }, 201));
+    const created = await createDraft(apiFetch, { marketSource: 'Pasar' }, 2);
+    assert.strictEqual(created.id, 'baru');
+    const body = JSON.parse(String(calls[0].init?.body));
+    assert.deepEqual(body, { payload: { marketSource: 'Pasar' }, step: 2 });
+    assert.strictEqual(calls[0].init?.method, 'POST');
+  });
+
+  it('updateDraft mengirim versi yang dibaca dan memakai versi baru dari server', async () => {
+    const { apiFetch, calls } = stubFetch(() => json({ data: draftOf({ version: 4 }) }));
+    const updated = await updateDraft(apiFetch, 'draft-1', {
+      payload: { marketSource: 'Pasar' },
+      step: 1,
+      version: 3,
+    });
+    assert.strictEqual(updated.version, 4);
+    const body = JSON.parse(String(calls[0].init?.body));
+    assert.strictEqual(body.version, 3, 'klien mengirim versi yang terakhir dibaca');
+    assert.strictEqual(calls[0].url, '/api/v1/batch-drafts/draft-1');
+  });
+
+  it('konflik versi (409) menjadi DraftConflictError berisi pemilik terbaru', async () => {
+    const { apiFetch } = stubFetch(() =>
+      json(
+        {
+          error: {
+            code: 'DRAFT_VERSION_CONFLICT',
+            message: 'Draf sudah diperbarui di perangkat lain.',
+            details: [{ version: 9, ownerOperator: 'Sari', ownerDevice: 'Chrome · Windows' }],
+          },
+        },
+        409
+      )
     );
-    assert.ok(draftMeaningful({ sampleShrimpCountCold: '3' }));
-    assert.ok(draftMeaningful({ visualCheck: 'damaged' }));
+    await assert.rejects(
+      () => updateDraft(apiFetch, 'draft-1', { payload: {}, step: 0, version: 3 }),
+      (err: unknown) => {
+        assert.ok(err instanceof DraftConflictError, 'harus melempar DraftConflictError');
+        assert.strictEqual(err.serverVersion, 9);
+        assert.strictEqual(err.ownerOperator, 'Sari');
+        assert.strictEqual(err.ownerDevice, 'Chrome · Windows');
+        return true;
+      }
+    );
   });
 
-  it('localStorage tidak tersedia: semua operasi aman', () => {
-    globalThis.localStorage = undefined as unknown as Storage;
-    saveBatchDraft(filled);
-    assert.strictEqual(loadBatchDraft(), null);
-    removeBatchDraft();
-    globalThis.localStorage = new MemoryStorage() as unknown as Storage;
+  it('error lain memakai pesan server apa adanya', async () => {
+    const { apiFetch } = stubFetch(() => json({ error: { message: 'Draf terlalu besar.' } }, 422));
+    await assert.rejects(
+      () => updateDraft(apiFetch, 'draft-1', { payload: {}, step: 0, version: 1 }),
+      /Draf terlalu besar\./
+    );
+  });
+
+  it('discardDraft dan consumeDraft memakai method yang benar', async () => {
+    const discard = stubFetch(() => json({ data: { discarded: true } }));
+    await discardDraft(discard.apiFetch, 'draft-1');
+    assert.strictEqual(discard.calls[0].init?.method, 'DELETE');
+
+    const consume = stubFetch(() => json({ data: draftOf({ status: 'CONSUMED' }) }));
+    await consumeDraft(consume.apiFetch, 'draft-1', 'BT-20261116-01');
+    assert.strictEqual(consume.calls[0].init?.method, 'POST');
+    assert.strictEqual(consume.calls[0].url, '/api/v1/batch-drafts/draft-1/consume');
+    assert.deepEqual(JSON.parse(String(consume.calls[0].init?.body)), { batchId: 'BT-20261116-01' });
+  });
+
+  it('umur draf ditampilkan relatif terhadap sekarang', () => {
+    const now = Date.parse('2026-11-16T08:00:00.000Z');
+    assert.strictEqual(draftAgeText('2026-11-16T07:59:30.000Z', now), 'baru saja');
+    assert.strictEqual(draftAgeText('2026-11-16T07:48:00.000Z', now), '12 menit lalu');
+    assert.strictEqual(draftAgeText('2026-11-16T05:00:00.000Z', now), '3 jam lalu');
+    assert.strictEqual(draftAgeText('2026-11-14T08:00:00.000Z', now), '2 hari lalu');
   });
 });

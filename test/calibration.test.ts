@@ -1,59 +1,41 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
   CALIBRATION_STEPS,
   calibrationDone,
-  calibrationRunKey,
   calibrationStepRemainingMs,
   calibrationStepState,
-  clearCalibrationRun,
   defaultCalibrationDurations,
   formatCalibrationCountdown,
   nextCalibrationStep,
   normalizeCalibrationMins,
   pendingCalibrationStep,
-  readCalibrationDurations,
-  readCalibrationRun,
-  saveCalibrationDurations,
+  runFromStoredSteps,
+  runFromWire,
+  runToWireSteps,
   startCalibration,
   startCalibrationStep,
-  writeCalibrationRun,
+  type CalibrationRun,
 } from '../lib/calibration.ts';
-
-/** Stub localStorage minimal (node tidak punya localStorage bawaan). */
-class MemoryStorage {
-  private map = new Map<string, string>();
-  getItem(k: string): string | null {
-    return this.map.get(k) ?? null;
-  }
-  setItem(k: string, v: string): void {
-    this.map.set(k, String(v));
-  }
-  removeItem(k: string): void {
-    this.map.delete(k);
-  }
-  clear(): void {
-    this.map.clear();
-  }
-}
 
 const MIN = 60_000;
 const T0 = 1_000_000;
 
+/**
+ * Kalibrasi dua tahap kini murni fungsi waktu: yang disimpan server adalah
+ * waktu mulai absolut per langkah, jadi hitungan di semua perangkat identik.
+ * Test ini menjaga aritmetika dan bentuk wire-nya, bukan localStorage lagi.
+ */
 describe('Kalibrasi sensor dua tahap (chamber tertutup → dibuka untuk ukur suhu & timbang)', () => {
-  const before = globalThis.localStorage;
-  beforeEach(() => {
-    globalThis.localStorage = new MemoryStorage() as unknown as Storage;
-  });
-  after(() => {
-    globalThis.localStorage = before;
-  });
-
   it('dua langkah baku: 30 menit tertutup, 5 menit dibuka; tidak ada langkah tunggu 15 menit', () => {
     assert.deepEqual(defaultCalibrationDurations(), [30, 5]);
     assert.deepEqual(
       CALIBRATION_STEPS.map((step) => step.defaultMins),
       [30, 5]
+    );
+    assert.deepEqual(
+      CALIBRATION_STEPS.map((step) => step.key),
+      ['closed', 'measure']
     );
   });
 
@@ -72,135 +54,113 @@ describe('Kalibrasi sensor dua tahap (chamber tertutup → dibuka untuk ukur suh
     }
   });
 
-  it('durasi terakhir tersimpan dan dipakai lagi; nilai rusak jatuh ke bawaan', () => {
-    saveCalibrationDurations([25, 7]);
-    assert.deepEqual(readCalibrationDurations(), [25, 7]);
-    saveCalibrationDurations([999, 'x']);
-    assert.deepEqual(readCalibrationDurations(), [30, 5]);
-  });
-
-  it('mulai kalibrasi hanya menyalakan langkah 1, langkah 2 menunggu', () => {
+  it('mulai kalibrasi: hanya langkah 1 yang berjalan, langkah 2 belum dimulai', () => {
     const run = startCalibration([30, 5], T0);
     assert.ok(run);
     assert.deepEqual(run.starts, [T0, null]);
     assert.deepEqual(run.mins, [30, 5]);
     assert.strictEqual(calibrationStepState(run, 0, T0), 'running');
     assert.strictEqual(calibrationStepState(run, 1, T0), 'idle');
-    assert.strictEqual(nextCalibrationStep(run), 1);
     assert.strictEqual(calibrationDone(run, T0), false);
   });
 
-  it('langkah berikutnya terkunci sampai langkah sebelumnya benar-benar habis', () => {
-    const run = startCalibration([30, 5], T0);
-    assert.ok(run);
-    // Langkah 2 belum boleh dimulai selama chamber masih tertutup.
-    assert.strictEqual(startCalibrationStep(run, 1, 5, T0 + 29 * MIN), null);
-    // Langkah 1 tidak bisa dimulai dua kali.
-    assert.strictEqual(startCalibrationStep(run, 0, 30, T0 + 30 * MIN), null);
-    // Indeks di luar dua langkah ditolak (mis. sisa langkah 3 versi lama).
-    assert.strictEqual(startCalibrationStep(run, 2, 15, T0 + 30 * MIN), null);
-    // Tepat 30 menit: langkah 2 boleh mulai, dengan durasi isian operator.
-    const measuring = startCalibrationStep(run, 1, 7, T0 + 30 * MIN);
-    assert.ok(measuring);
-    assert.deepEqual(measuring.starts, [T0, T0 + 30 * MIN]);
-    assert.deepEqual(measuring.mins, [30, 7]);
+  it('langkah 2 ditolak sebelum langkah 1 habis, lalu diterima setelahnya', () => {
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    assert.strictEqual(startCalibrationStep(run, 1, 5, T0 + 29 * MIN), null, '29 menit belum habis');
+    const later = startCalibrationStep(run, 1, 5, T0 + 30 * MIN);
+    assert.ok(later, 'tepat 30 menit langkah 1 selesai');
+    assert.deepEqual(later.starts, [T0, T0 + 30 * MIN]);
+    assert.strictEqual(calibrationStepState(later, 1, T0 + 30 * MIN), 'running');
   });
 
-  it('kalibrasi selesai setelah 30 + 5 menit, tidak lebih cepat', () => {
-    const run = startCalibration([30, 5], T0);
-    assert.ok(run);
-    const measuring = startCalibrationStep(run, 1, 5, T0 + 30 * MIN);
-    assert.ok(measuring);
-    assert.strictEqual(calibrationDone(measuring, T0 + 34 * MIN), false);
-    assert.strictEqual(calibrationDone(measuring, T0 + 35 * MIN - 1), false);
-    assert.strictEqual(calibrationDone(measuring, T0 + 35 * MIN), true);
-    assert.strictEqual(calibrationDone(measuring, T0 + 10 * 60 * MIN), true);
-    assert.strictEqual(calibrationDone(null, T0), false);
+  it('tidak boleh melompati urutan langkah', () => {
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    assert.strictEqual(startCalibrationStep(run, 1, 5, T0), null, 'langkah 2 bukan langkah berikutnya');
+    assert.strictEqual(startCalibrationStep(run, 0, 30, T0), null, 'langkah 1 sudah dimulai');
+    assert.strictEqual(nextCalibrationStep(run), 1);
   });
 
-  it('sisa waktu dihitung per langkah dan tidak pernah negatif', () => {
-    const run = startCalibration([2, 5], T0);
-    assert.ok(run);
+  it('selesai hanya bila kedua langkah dimulai dan hitungannya habis', () => {
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    assert.strictEqual(calibrationDone(run, T0 + 100 * MIN), false, 'langkah 2 belum dimulai');
+    const both = startCalibrationStep(run, 1, 5, T0 + 30 * MIN) as CalibrationRun;
+    assert.strictEqual(calibrationDone(both, T0 + 34 * MIN), false);
+    assert.strictEqual(calibrationDone(both, T0 + 35 * MIN), true);
+    assert.strictEqual(pendingCalibrationStep(both, T0 + 35 * MIN), 2);
+  });
+
+  it('sisa waktu satu langkah dihitung dari waktu mulai absolut', () => {
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0), 30 * MIN);
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + 10 * MIN), 20 * MIN);
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + 31 * MIN), 0, 'tidak negatif');
+    assert.strictEqual(calibrationStepRemainingMs(run, 1, T0), 0, 'belum dimulai = 0');
     assert.strictEqual(calibrationStepRemainingMs(null, 0, T0), 0);
-    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0), 2 * MIN);
-    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + MIN), MIN);
-    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + 9 * MIN), 0);
-    // Langkah yang belum dimulai tidak punya hitungan berjalan.
-    assert.strictEqual(calibrationStepRemainingMs(run, 1, T0), 0);
   });
 
-  it('langkah yang menahan Start Tahap bisa disebutkan namanya', () => {
-    const run = startCalibration([30, 5], T0);
-    assert.ok(run);
-    assert.strictEqual(pendingCalibrationStep(null, T0), 0);
-    assert.strictEqual(pendingCalibrationStep(run, T0), 0);
-    const measuring = startCalibrationStep(run, 1, 5, T0 + 30 * MIN);
-    assert.ok(measuring);
-    assert.strictEqual(pendingCalibrationStep(measuring, T0 + 31 * MIN), 1);
-    assert.strictEqual(pendingCalibrationStep(measuring, T0 + 35 * MIN), CALIBRATION_STEPS.length);
-  });
-
-  it('kalibrasi berjalan tersimpan dan terbaca kembali', () => {
-    const key = calibrationRunKey('BT-1', 'G-SR');
-    const run = { mins: [30, 5], starts: [T0, null] };
-    writeCalibrationRun(key, run);
-    assert.deepEqual(readCalibrationRun(key), run);
-    clearCalibrationRun(key);
-    assert.strictEqual(readCalibrationRun(key), null);
-  });
-
-  it('kunci kalibrasi terpisah per batch dan grup', () => {
-    assert.notStrictEqual(calibrationRunKey('BT-1', 'G-SR'), calibrationRunKey('BT-1', 'G-SD'));
-    assert.notStrictEqual(calibrationRunKey('BT-1', 'G-SR'), calibrationRunKey('BT-2', 'G-SR'));
-  });
-
-  it('kalibrasi rusak, skema lama, atau sisa tiga langkah diabaikan, bukan melempar', () => {
-    const key = calibrationRunKey('BT-1', 'G-SR');
-    globalThis.localStorage.setItem(key, '{tidak lengkap');
-    assert.strictEqual(readCalibrationRun(key), null);
-    // Skema v1 (satu durasi) sengaja tidak dibaca: tidak punya jejak tahap 2.
-    globalThis.localStorage.setItem(key, JSON.stringify({ mins: 30, startedAtMs: T0 }));
-    assert.strictEqual(readCalibrationRun(key), null);
-    // Jumlah langkah harus sama dengan CALIBRATION_STEPS (dua).
-    globalThis.localStorage.setItem(key, JSON.stringify({ mins: [30], starts: [T0] }));
-    assert.strictEqual(readCalibrationRun(key), null);
-    // Sisa kalibrasi 3 langkah (versi sebelumnya) tidak dipakai lagi.
-    globalThis.localStorage.setItem(
-      key,
-      JSON.stringify({ mins: [30, 5, 15], starts: [T0, null, null] })
-    );
-    assert.strictEqual(readCalibrationRun(key), null);
-    globalThis.localStorage.setItem(key, JSON.stringify({ mins: [30, 0], starts: [T0, null] }));
-    assert.strictEqual(readCalibrationRun(key), null);
-    globalThis.localStorage.setItem(
-      key,
-      JSON.stringify({ mins: [30, 5], starts: [T0, 'x'] })
-    );
-    assert.strictEqual(readCalibrationRun(key), null);
-  });
-
-  it('hitungan mundur tampil mm:ss, dengan jam untuk durasi panjang', () => {
-    assert.strictEqual(formatCalibrationCountdown(15 * MIN), '15:00');
-    assert.strictEqual(formatCalibrationCountdown(61_000), '01:01');
-    assert.strictEqual(formatCalibrationCountdown(1_000), '00:01');
+  it('durasi milidetik dibulatkan ke atas pada tampilan mm:ss (dan jam bila perlu)', () => {
+    assert.strictEqual(formatCalibrationCountdown(90_000), '01:30');
+    assert.strictEqual(formatCalibrationCountdown(1_800_000), '30:00');
+    assert.strictEqual(formatCalibrationCountdown(3_725_000), '1:02:05');
     assert.strictEqual(formatCalibrationCountdown(0), '00:00');
-    assert.strictEqual(formatCalibrationCountdown(-5_000), '00:00');
-    assert.strictEqual(formatCalibrationCountdown(60 * MIN), '1:00:00');
-    assert.strictEqual(formatCalibrationCountdown(61 * MIN + 5_000), '1:01:05');
+    assert.strictEqual(formatCalibrationCountdown(-1000), '00:00');
   });
 
-  it('tanpa localStorage semua operasi aman', () => {
-    globalThis.localStorage = undefined as unknown as Storage;
-    assert.deepEqual(readCalibrationDurations(), [30, 5]);
-    assert.doesNotThrow(() => saveCalibrationDurations([15, 5]));
-    assert.strictEqual(readCalibrationRun(calibrationRunKey('BT-1', 'G-SR')), null);
-    assert.doesNotThrow(() =>
-      writeCalibrationRun(calibrationRunKey('BT-1', 'G-SR'), { mins: [15, 5], starts: [T0, null] })
+  it('bentuk wire bolak-balik mempertahankan waktu mulai absolut (dasar sinkron antarperangkat)', () => {
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    const steps = runToWireSteps(run);
+    assert.strictEqual(steps[0].key, 'closed');
+    assert.strictEqual(steps[0].durationMins, 30);
+    assert.strictEqual(steps[0].startedAtUtc, new Date(T0).toISOString());
+    assert.strictEqual(steps[1].startedAtUtc, null);
+
+    const parsed = runFromWire({
+      steps,
+      completedAtUtc: null,
+      version: 1,
+      updatedAt: new Date(T0).toISOString(),
+      updatedByOperator: 'Budi',
+      updatedByDevice: 'Chrome · Android',
+    });
+    assert.deepEqual(parsed, run, 'waktu mulai yang sama menghasilkan hitungan yang sama di perangkat lain');
+  });
+
+  it('wire rusak ditolak, bukan dihitung dari data yang tidak bisa dipercaya', () => {
+    const valid = runToWireSteps(startCalibration([30, 5], T0) as CalibrationRun);
+    const base = {
+      completedAtUtc: null,
+      version: 1,
+      updatedAt: new Date(T0).toISOString(),
+      updatedByOperator: null,
+      updatedByDevice: null,
+    };
+    assert.strictEqual(runFromWire({ ...base, steps: valid.slice(0, 1) }), null, 'jumlah langkah kurang');
+    assert.strictEqual(
+      runFromWire({ ...base, steps: [{ ...valid[1] }, { ...valid[0] }] }),
+      null,
+      'urutan langkah tertukar'
     );
-    assert.doesNotThrow(() => clearCalibrationRun(calibrationRunKey('BT-1', 'G-SR')));
-    // Hitungan tetap jalan di memori walau tidak tersimpan.
-    const run = startCalibration([15, 5], T0);
-    assert.ok(run);
-    assert.strictEqual(calibrationStepState(run, 0, T0 + MIN), 'running');
+    assert.strictEqual(
+      runFromWire({ ...base, steps: [{ ...valid[0], durationMins: 0 }, valid[1]] }),
+      null,
+      'durasi di luar batas'
+    );
+    assert.strictEqual(
+      runFromWire({ ...base, steps: [{ ...valid[0], startedAtUtc: 'bukan tanggal' }, valid[1]] }),
+      null,
+      'tanggal rusak'
+    );
+    assert.strictEqual(runFromWire(null), null);
+  });
+
+  it('JSON tersimpan di DB divalidasi dengan aturan yang sama', () => {
+    const steps = runToWireSteps(startCalibration([30, 5], T0) as CalibrationRun);
+    assert.deepEqual(runFromStoredSteps(steps), { mins: [30, 5], starts: [T0, null] });
+    assert.strictEqual(runFromStoredSteps('bukan array'), null);
+    assert.strictEqual(runFromStoredSteps([{ key: 'closed', durationMins: 30, startedAtUtc: null }]), null);
+    assert.strictEqual(
+      runFromStoredSteps([{ key: 'salah', durationMins: 30, startedAtUtc: null }, steps[1]]),
+      null
+    );
   });
 });

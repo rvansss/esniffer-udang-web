@@ -227,21 +227,39 @@ model User {
   sessions         AuthSession[]
   collectionBatches CollectionBatch[] @relation("BatchOperator")
   notifications    Notification[]
+  batchDrafts      BatchDraft[]
 
   @@map("users")
 }
 
+/**
+ * Satu akun dipakai bergiliran oleh beberapa operator di beberapa perangkat
+ * (HP, laptop). Karena itu identitas perangkat dicatat di sini: tanpa itu,
+ * daftar "perangkat aktif" tidak bisa dibedakan dan tidak ada cara mencabut
+ * sesi satu perangkat yang hilang tanpa mengeluarkan semua orang.
+ *
+ * `operator_name` adalah operator yang sedang memegang perangkat itu, dikirim
+ * klien lewat header X-Operator. Ini bukan identitas kriptografis (akun tetap
+ * satu); nilainya juga dicatat di setiap baris dataset yang dibuat.
+ */
 model AuthSession {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash") @db.Char(64)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
-  lastUsedAt DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash") @db.Char(64)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt   DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  deviceId     String?   @map("device_id") @db.VarChar(64)
+  deviceLabel  String?   @map("device_label") @db.VarChar(80)
+  userAgent    String?   @map("user_agent") @db.VarChar(255)
+  lastIp       String?   @map("last_ip") @db.VarChar(64)
+  /** Operator yang terakhir terlihat memakai perangkat ini. */
+  operatorName String?   @map("operator_name") @db.VarChar(80)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([userId, deviceId])
   @@map("auth_sessions")
 }
 
@@ -273,6 +291,10 @@ model CollectionBatch {
   iceToShrimpRatio  String               @default("2:1") @map("ice_to_shrimp_ratio") @db.VarChar(8)
   rejectionNotes    String?              @map("rejection_notes") @db.VarChar(500)
   operatorId        String               @map("operator_id") @db.Uuid
+  // Akun dipakai bersama beberapa operator, jadi identitas pencatat disimpan
+  // sebagai label bebas di samping operatorId (yang selalu akun bersama itu).
+  operatorLabel     String?              @map("operator_label") @db.VarChar(80)
+  createdByDevice   String?              @map("created_by_device") @db.VarChar(80)
   lockedAt          DateTime?            @map("locked_at") @db.Timestamptz(3)
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   operator          User                 @relation("BatchOperator", fields: [operatorId], references: [id], onDelete: Restrict)
@@ -281,6 +303,8 @@ model CollectionBatch {
   readings          SensorReading[]
   photos            BatchPhoto[]
   notifications     Notification[]
+  calibrations      GroupCalibration[]
+  drafts            BatchDraft[]
 
   @@map("collection_batches")
 }
@@ -329,6 +353,7 @@ model SampleGroup {
   chamber           Chamber?         @relation(fields: [chamberId], references: [id], onDelete: Restrict)
   sessions          MeasurementSession[]
   photos            BatchPhoto[]
+  calibration       GroupCalibration?
 
   @@unique([batchId, storageCondition])
   @@map("sample_groups")
@@ -352,6 +377,16 @@ model MeasurementSession {
   baselineMq4   Decimal?      @map("baseline_mq4") @db.Decimal(14, 3)
   warmupDone    Boolean       @default(false) @map("warmup_done")
   cleaningDone  Boolean       @default(false) @map("cleaning_done")
+  // Jejak kalibrasi dua tahap yang menjadi prasyarat sesi live. Disimpan di
+  // sesi (bukan hanya di grup) supaya setiap tahap H0/H6/… membawa bukti
+  // prasyaratnya sendiri saat diekspor atau diaudit.
+  calibrationCompletedAtUtc DateTime? @map("calibration_completed_at_utc") @db.Timestamptz(3)
+  calibrationVersion        Int?      @map("calibration_version")
+  /** Label operator perangkat yang membuat / menyelesaikan tahap. */
+  createdByOperator   String? @map("created_by_operator") @db.VarChar(80)
+  createdByDevice     String? @map("created_by_device") @db.VarChar(80)
+  completedByOperator String? @map("completed_by_operator") @db.VarChar(80)
+  completedByDevice   String? @map("completed_by_device") @db.VarChar(80)
   // Revisi tabel riwayat dinamis: data observasi per tahap. Modal pra-sesi
   // yang tadinya menimpa kolom grup kini menyimpan salinan per sesi, jadi
   // setiap tahap (H0, H6, …) punya suhu/berat sendiri di tabel riwayat.
@@ -427,4 +462,69 @@ model Notification {
   @@unique([sessionId, kind])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+/**
+ * Kalibrasi dua tahap milik satu grup (chamber tertutup → chamber dibuka).
+ *
+ * Sebelum Fase 0 state ini hidup di localStorage, sehingga kalibrasi yang
+ * dimulai di HP tidak terlihat di laptop dan hitungannya harus diulang.
+ * Sekarang yang disimpan adalah WAKTU MULAI ABSOLUT tiap langkah (bukan sisa
+ * detik), jadi semua perangkat menghitung sisa yang sama dari jam server.
+ *
+ * `steps` berisi array `{ key, durationMins, startedAtUtc }`; validasinya di
+ * lapisan aplikasi (lib/calibration.ts), bukan constraint DB, karena bentuk
+ * JSON ini bisa berkembang tanpa migrasi baru.
+ */
+model GroupCalibration {
+  id                String    @id @default(uuid()) @db.Uuid
+  batchId           String    @map("batch_id") @db.VarChar(16)
+  groupId           String    @unique @map("group_id") @db.VarChar(24)
+  steps             Json      @db.JsonB
+  // Diisi server saat kedua langkah benar-benar habis (bukan diklaim klien).
+  completedAtUtc    DateTime? @map("completed_at_utc") @db.Timestamptz(3)
+  version           Int       @default(1)
+  updatedByUserId   String?   @map("updated_by_user_id") @db.Uuid
+  updatedByOperator String?   @map("updated_by_operator") @db.VarChar(80)
+  updatedByDevice   String?   @map("updated_by_device") @db.VarChar(80)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  batch             CollectionBatch @relation(fields: [batchId], references: [batchId], onDelete: Cascade)
+  group             SampleGroup     @relation(fields: [groupId], references: [groupId], onDelete: Cascade)
+
+  @@index([batchId])
+  @@map("group_calibrations")
+}
+
+/**
+ * Draf wizard batch baru di server (Fase 0). Sebelumnya draf hanya ada di
+ * localStorage dengan satu kunci global, sehingga isian yang dimulai di HP
+ * tidak bisa dilanjutkan di laptop — dan dua operator di satu browser saling
+ * menimpa draf.
+ *
+ * `version` adalah kunci optimistic concurrency: klien mengirim versi yang
+ * dibacanya, server menolak (409) bila sudah berubah, jadi draf tidak pernah
+ * tertimpa diam-diam dari perangkat lain.
+ */
+model BatchDraft {
+  id               String   @id @default(uuid()) @db.Uuid
+  ownerId          String   @map("owner_id") @db.Uuid
+  /** Label operator pemilik draf; akun bersama tidak membedakan orang. */
+  ownerOperator    String   @map("owner_operator") @db.VarChar(80)
+  ownerDeviceId    String?  @map("owner_device_id") @db.VarChar(64)
+  ownerDeviceLabel String?  @map("owner_device_label") @db.VarChar(80)
+  label            String   @default("") @db.VarChar(120)
+  step             Int      @default(0)
+  payload          Json     @db.JsonB
+  /** OPEN | CONSUMED | DISCARDED (draft kedaluwarsa tidak dihapus, hanya disaring). */
+  status           String   @default("OPEN") @db.VarChar(16)
+  version          Int      @default(1)
+  consumedBatchId  String?  @map("consumed_batch_id") @db.VarChar(16)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner            User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  consumedBatch    CollectionBatch? @relation(fields: [consumedBatchId], references: [batchId], onDelete: SetNull)
+
+  @@index([ownerId, status, updatedAt])
+  @@map("batch_drafts")
 }

@@ -20,21 +20,18 @@ import {
   CALIBRATION_MIN_MINS,
   CALIBRATION_STEPS,
   calibrationDone,
-  calibrationRunKey,
   calibrationStepRemainingMs,
   calibrationStepState,
-  clearCalibrationRun,
   defaultCalibrationDurations,
   formatCalibrationCountdown,
   normalizeCalibrationMins,
-  readCalibrationDurations,
-  readCalibrationRun,
-  saveCalibrationDurations,
-  startCalibration,
-  startCalibrationStep,
-  writeCalibrationRun,
+  runFromWire,
   type CalibrationRun,
+  type CalibrationWire,
 } from '../../../lib/calibration.ts';
+// Preferensi isian (angka durasi terakhir) tetap per perangkat; status
+// kalibrasi sendiri ada di server (group_calibrations).
+import { readCalibrationDurations, saveCalibrationDurations } from '../../../lib/calibration-prefs.ts';
 import type { ApiSessionStatus } from '../../../lib/api/dataset.ts';
 
 interface SessionItem {
@@ -64,6 +61,8 @@ interface GroupItem {
   labWeightBeforeG: number | null;
   labWeightAfterG: number | null;
   sampleShrimpCount: number;
+  /** Status kalibrasi dari server; null = belum pernah dimulai grup ini. */
+  calibration: CalibrationWire | null;
   sessions: SessionItem[];
 }
 
@@ -205,16 +204,19 @@ export default function BatchDetailPage() {
 
   // form sesi per grup
   const [tpSel, setTpSel] = useState<Record<string, string>>({});
-  // Kalibrasi sensor per grup (lib/calibration.ts). Menggantikan checkbox
-  // "warmup 30 menit": dua tahap (chamber tertutup, lalu dibuka untuk mengukur
-  // suhu/berat) dihitung mundur dan mengunci tombol Start Tahap sampai kedua
-  // langkahnya habis. Waktu tunggu setelah udang masuk chamber tidak dihitung di
-  // sini — durasinya diisi di form tahap ("Durasi pengujian").
+  // Kalibrasi sensor per grup. Sejak Fase 0 statusnya ada di server
+  // (group_calibrations) dan ikut pada GET detail batch: kalibrasi yang dimulai
+  // di ponsel terlihat dan berlanjut di laptop, karena yang disimpan adalah
+  // waktu mulai absolut dari jam server — bukan sisa detik di browser.
   const [calibRun, setCalibRun] = useState<Record<string, CalibrationRun | null>>({});
+  /** Bentuk wire terakhir dari server, untuk menampilkan siapa & kapan. */
+  const [calibWire, setCalibWire] = useState<Record<string, CalibrationWire | null>>({});
   /** Isian durasi per grup per langkah; indeks sejajar CALIBRATION_STEPS. */
   const [calibMins, setCalibMins] = useState<Record<string, string[]>>({});
   /** Durasi terakhir yang dipakai, jadi nilai awal isian grup berikutnya. */
   const [calibDurations, setCalibDurations] = useState<number[]>(defaultCalibrationDurations);
+  /** Grup yang aksinya sedang diproses server (tombol per grup, bukan seluruh halaman). */
+  const [calibBusy, setCalibBusy] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState<Record<string, boolean>>({});
   const [chSel, setChSel] = useState<Record<string, string>>({});
   const [coldChamberDraft, setColdChamberDraft] = useState<Record<string, string>>({});
@@ -255,22 +257,27 @@ export default function BatchDetailPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Durasi kalibrasi terakhir jadi nilai awal isian. Dibaca setelah mount
-  // supaya hasil render server dan klien sama.
+  // Durasi kalibrasi terakhir jadi nilai awal isian. Ini preferensi perangkat
+  // (bukan sumber kebenaran), jadi tetap dibaca dari localStorage.
   useEffect(() => {
     setCalibDurations(readCalibrationDurations());
   }, []);
 
-  // Pulihkan kalibrasi yang sedang berjalan setelah muat ulang halaman, supaya
-  // hitungan mundur tidak tereset dan operator bisa lanjut memantau.
+  // Kalibrasi mengikuti data server yang datang bersama detail batch: setiap
+  // perangkat membaca baris group_calibrations yang sama, sehingga hitungan
+  // mundur di HP dan laptop selalu identik dan tidak ada state lokal yang bisa
+  // tertinggal. Efek ini juga berjalan setiap polling memperbarui `batch`.
   useEffect(() => {
     if (!batch) return;
-    const restored: Record<string, CalibrationRun | null> = {};
+    const runs: Record<string, CalibrationRun | null> = {};
+    const wires: Record<string, CalibrationWire | null> = {};
     for (const g of batch.sampleGroups) {
-      restored[g.groupId] = readCalibrationRun(calibrationRunKey(batchId, g.groupId));
+      wires[g.groupId] = g.calibration ?? null;
+      runs[g.groupId] = runFromWire(g.calibration ?? null);
     }
-    setCalibRun(restored);
-  }, [batch, batchId]);
+    setCalibWire(wires);
+    setCalibRun(runs);
+  }, [batch]);
 
   // Modal form pra-sesi: input suhu berat foto sebelum start sesi atau ambil data waktu.
   // Suhu disimpan sebagai baris per ekor (`shrimpTemps`), bukan satu angka:
@@ -340,6 +347,35 @@ export default function BatchDetailPage() {
   }, [user, apiFetch, batchId, refreshKey]);
 
   const refresh = () => setRefreshKey((k) => k + 1);
+
+  /**
+   * Sinkronisasi ringan antarperangkat: detail batch (termasuk status
+   * kalibrasi) dimuat ulang tiap 15 detik selama tab terlihat, dan segera
+   * setelah tab kembali aktif. Tanpa ini, sesi/kalibrasi yang dimulai di HP
+   * baru terlihat di laptop setelah reload manual — sumber keluhan "tidak
+   * tersimpan". Dijeda saat ada modal/busy supaya isian yang sedang diketik
+   * tidak tertimpa respons lama.
+   */
+  const canAutoRefreshRef = React.useRef(false);
+  canAutoRefreshRef.current = !sessionModal && !editOpen && !busy;
+  const refreshRef = React.useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    if (!user) return;
+    const run = () => {
+      if (document.visibilityState === 'visible' && canAutoRefreshRef.current) {
+        refreshRef.current();
+      }
+    };
+    const interval = setInterval(run, 15_000);
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('focus', run);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('focus', run);
+    };
+  }, [user]);
 
   const handleSaveColdChamber = async (group: GroupItem) => {
     const chamberId = coldChamberDraft[group.groupId] ?? group.chamberId ?? '';
@@ -506,20 +542,64 @@ export default function BatchDetailPage() {
   const isCalibrated = (groupId: string): boolean =>
     calibrationDone(calibRun[groupId] ?? null, nowMs);
 
-  /** Simpan kalibrasi yang berubah, catat durasinya, dan segarkan isian grup. */
-  const applyCalibrationRun = (g: GroupItem, run: CalibrationRun) => {
-    writeCalibrationRun(calibrationRunKey(batchId, g.groupId), run);
-    setCalibRun((prev) => ({ ...prev, [g.groupId]: run }));
-    setCalibDurations(saveCalibrationDurations(run.mins));
-    setCalibMins((prev) => {
-      const next = { ...prev };
-      delete next[g.groupId];
-      return next;
-    });
+  /**
+   * Keterangan "siapa & kapan" untuk kalibrasi. Akun dipakai bergantian, jadi
+   * nama operator + perangkat ditampilkan supaya jelas siapa yang memulai
+   * hitungan di chamber — bukan hanya "kalibrasi berjalan".
+   */
+  const calibMetaText = (wire: CalibrationWire | null): string | null => {
+    if (!wire) return null;
+    const firstStart = wire.steps.find((step) => step.startedAtUtc)?.startedAtUtc;
+    if (!firstStart) return null;
+    const who = wire.updatedByOperator ?? 'Tanpa nama';
+    const device = wire.updatedByDevice ?? 'perangkat tanpa label';
+    return `Dimulai ${formatWibDateTime(new Date(firstStart))} WIB · ${who} (${device}) · rev ${wire.version}`;
+  };
+
+  /**
+   * Menyimpan satu aksi kalibrasi ke server. Server yang menentukan waktu
+   * mulai dan status selesai, lalu jawabannya dipakai langsung sebagai state
+   * baru — tidak ada lagi salinan localStorage yang bisa berbeda antarperangkat.
+   */
+  const putCalibration = async (
+    g: GroupItem,
+    body: Record<string, unknown>
+  ): Promise<CalibrationWire | null> => {
+    setCalibBusy(g.groupId);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${encodeURIComponent(g.groupId)}/calibration`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error?.message || `Gagal menyimpan kalibrasi (kode ${res.status}).`);
+      }
+      const wire = (json.data ?? null) as CalibrationWire | null;
+      setCalibWire((prev) => ({ ...prev, [g.groupId]: wire }));
+      setCalibRun((prev) => ({ ...prev, [g.groupId]: runFromWire(wire) }));
+      const run = runFromWire(wire);
+      if (run) {
+        setCalibDurations(saveCalibrationDurations(run.mins));
+        setCalibMins((prev) => {
+          const next = { ...prev };
+          delete next[g.groupId];
+          return next;
+        });
+      }
+      return wire;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan kalibrasi.');
+      return null;
+    } finally {
+      setCalibBusy(null);
+    }
   };
 
   /** Mulai kalibrasi: langkah 1 (chamber tertutup) langsung berjalan. */
-  const handleStartCalibration = (g: GroupItem) => {
+  const handleStartCalibration = async (g: GroupItem) => {
     const mins = CALIBRATION_STEPS.map((_, i) => normalizeCalibrationMins(calibMinsFor(g, i)));
     const invalid = mins.findIndex((value) => value === null);
     if (invalid >= 0) {
@@ -528,32 +608,55 @@ export default function BatchDetailPage() {
       );
       return;
     }
-    const run = startCalibration(mins as number[], Date.now());
-    if (!run) return;
-    applyCalibrationRun(g, run);
+    await putCalibration(g, { action: 'start', durations: mins });
   };
 
   /** Lanjut ke langkah kalibrasi berikutnya (chamber dibuka untuk ukur suhu & timbang). */
-  const handleNextCalibrationStep = (g: GroupItem, index: number) => {
+  const handleNextCalibrationStep = async (g: GroupItem, index: number) => {
     if (index <= 0) {
-      handleStartCalibration(g);
+      await handleStartCalibration(g);
       return;
     }
     const mins = normalizeCalibrationMins(calibMinsFor(g, index));
-    const run = startCalibrationStep(calibRun[g.groupId] ?? null, index, mins, Date.now());
-    if (!run) {
-      setError(
-        `Langkah "${CALIBRATION_STEPS[index].label}" belum bisa dimulai: selesaikan dulu "${CALIBRATION_STEPS[index - 1].label}".`
-      );
+    if (mins === null) {
+      setError(`Durasi ${CALIBRATION_STEPS[index].label} harus bilangan bulat ${CALIBRATION_MIN_MINS}–${CALIBRATION_MAX_MINS} menit.`);
       return;
     }
-    applyCalibrationRun(g, run);
+    await putCalibration(g, { action: 'advance', stepIndex: index, durationMins: mins });
   };
 
-  /** Batalkan / ulangi kalibrasi: hitungan kembali ke nol, Start Tahap terkunci lagi. */
-  const resetCalibration = (groupId: string) => {
-    clearCalibrationRun(calibrationRunKey(batchId, groupId));
-    setCalibRun((prev) => ({ ...prev, [groupId]: null }));
+  /**
+   * Batalkan / ulangi kalibrasi di server. Dipanggil juga setelah sesi live
+   * dibuat: tahap berikutnya wajib kalibrasi ulang, bukan mewarisi hitungan
+   * tahap sebelumnya. Kegagalan di sini tidak boleh menggagalkan sesi yang
+   * sudah tersimpan, jadi error-nya diabaikan (status server tetap benar dan
+   * akan terlihat pada polling berikutnya).
+   */
+  const resetCalibration = async (g: GroupItem | string) => {
+    const group = typeof g === 'string' ? batch?.sampleGroups.find((item) => item.groupId === g) : g;
+    const groupId = typeof g === 'string' ? g : g.groupId;
+    if (!group) return;
+    setCalibBusy(groupId);
+    try {
+      const res = await apiFetch(`/api/v1/groups/${encodeURIComponent(groupId)}/calibration`, {
+        method: 'DELETE',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error?.message || `Gagal mereset kalibrasi (kode ${res.status}).`);
+      }
+      setCalibWire((prev) => ({ ...prev, [groupId]: null }));
+      setCalibRun((prev) => ({ ...prev, [groupId]: null }));
+      setCalibMins((prev) => {
+        const next = { ...prev };
+        delete next[groupId];
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mereset kalibrasi.');
+    } finally {
+      setCalibBusy(null);
+    }
   };
 
   const handleCreateSession = async (g: GroupItem, captureMode: 'live' | 'time_range' = 'live') => {
@@ -814,8 +917,9 @@ export default function BatchDetailPage() {
       } else {
         notify(`Sesi ${timepointCode} berhasil dimulai (${durationMinutes} menit).`);
         // Kalibrasi terpakai: tahap berikutnya wajib kalibrasi ulang, bukan
-        // mewarisi hitungan yang sudah selesai dari tahap sebelumnya.
-        resetCalibration(groupId);
+        // mewarisi hitungan yang sudah selesai dari tahap sebelumnya. Reset
+        // dikirim ke server supaya perangkat lain ikut melihatnya.
+        await resetCalibration(groupId);
       }
       refresh();
     } catch (err) {
@@ -1814,14 +1918,18 @@ export default function BatchDetailPage() {
                                 type="button"
                                 onClick={() =>
                                   i === 0
-                                    ? handleStartCalibration(g)
-                                    : handleNextCalibrationStep(g, i)
+                                    ? void handleStartCalibration(g)
+                                    : void handleNextCalibrationStep(g, i)
                                 }
-                                disabled={busy}
+                                disabled={busy || calibBusy === g.groupId}
                                 className="px-3 py-1.5 rounded-xl border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-[11px] font-mono font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
                                 title={`Mulai hitungan ${step.label}`}
                               >
-                                {i === 0 ? 'Mulai kalibrasi' : 'Mulai langkah'}
+                                {calibBusy === g.groupId
+                                  ? 'Menyimpan…'
+                                  : i === 0
+                                    ? 'Mulai kalibrasi'
+                                    : 'Mulai langkah'}
                               </button>
                             ) : (
                               <span className="text-[10px] font-mono text-white/35">
@@ -1834,6 +1942,11 @@ export default function BatchDetailPage() {
                       );
                     })}
                   </ol>
+                  {calibMetaText(calibWire[g.groupId] ?? null) && (
+                    <p className="text-[10px] font-mono text-white/40">
+                      {calibMetaText(calibWire[g.groupId] ?? null)}
+                    </p>
+                  )}
                   <div className="flex w-full flex-wrap items-center gap-2">
                     <span
                       role={calibDoneNow ? 'status' : 'timer'}
@@ -1856,8 +1969,8 @@ export default function BatchDetailPage() {
                     {calibRunOf !== null && (
                       <button
                         type="button"
-                        onClick={() => resetCalibration(g.groupId)}
-                        disabled={busy}
+                        onClick={() => void resetCalibration(g)}
+                        disabled={busy || calibBusy === g.groupId}
                         className="px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-white/70 text-[11px] font-mono transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
                         title={calibDoneNow ? 'Ulangi kalibrasi dari langkah 1' : 'Batalkan kalibrasi'}
                       >
