@@ -98,6 +98,19 @@ describe('Kalibrasi sensor dua tahap (chamber tertutup → dibuka untuk ukur suh
     assert.strictEqual(calibrationStepRemainingMs(null, 0, T0), 0);
   });
 
+  it('sisa waktu tidak pernah melebihi durasi langkah walau jam perangkat tertinggal', () => {
+    // Kasus lapangan: jam laptop tertinggal 20 detik dari jam server, sehingga
+    // "sekarang" versi perangkat lebih kecil dari waktu mulai. Tanpa clamp,
+    // hitungan tampak 30:20 padahal durasinya 30 menit.
+    const run = startCalibration([30, 5], T0) as CalibrationRun;
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 - 20_000), 30 * MIN);
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 - 10 * MIN), 30 * MIN);
+    assert.strictEqual(calibrationStepState(run, 0, T0 - 20_000), 'running');
+    // Jam perangkat yang mendahului (kasus HP) tetap berakhir di 0, tidak negatif.
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + 45_000), 30 * MIN - 45_000);
+    assert.strictEqual(calibrationStepRemainingMs(run, 0, T0 + 10 * MIN), 20 * MIN);
+  });
+
   it('durasi milidetik dibulatkan ke atas pada tampilan mm:ss (dan jam bila perlu)', () => {
     assert.strictEqual(formatCalibrationCountdown(90_000), '01:30');
     assert.strictEqual(formatCalibrationCountdown(1_800_000), '30:00');

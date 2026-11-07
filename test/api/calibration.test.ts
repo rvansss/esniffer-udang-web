@@ -196,6 +196,9 @@ describe('Kalibrasi dua tahap: state di server, jam server, terlihat lintas pera
       ctx(groupId)
     );
     assert.strictEqual(res.status, 200);
+    // Header jam server: klien memakainya untuk menyelaraskan hitungan mundur,
+    // supaya laptop dan HP tidak menghitung dari jam perangkat masing-masing.
+    assert.strictEqual(res.headers.get('x-server-time'), String(T0), 'respons membawa jam server');
     const wire = (await res.json()).data;
     assert.strictEqual(wire.steps.length, 2);
     assert.strictEqual(wire.steps[0].startedAtUtc, new Date(T0).toISOString(), 'waktu mulai = jam server');

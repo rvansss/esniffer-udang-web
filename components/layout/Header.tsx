@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth, LogoutError } from '../auth/AuthProvider';
 import NotificationBell from './NotificationBell';
-import OperatorPanel from './OperatorPanel';
 import CreateChamberModal from '../chambers/CreateChamberModal';
 
 interface ChamberItem {
@@ -228,7 +227,6 @@ export default function Header() {
 
       {/* Profil & menu pengguna */}
       <div className="flex items-center gap-3 ml-auto">
-        {!isLoginPage && <OperatorPanel />}
         <NotificationBell />
         {user ? (
           <div className="relative" ref={menuRef}>

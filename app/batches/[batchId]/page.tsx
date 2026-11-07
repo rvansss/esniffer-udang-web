@@ -13,6 +13,8 @@ import ObservationTempFields from '../../../components/batches/ObservationTempFi
 import { PencilIcon, RepeatIcon, CameraIcon } from '../../../components/ui/icons';
 import { CAPTION_PLACEHOLDER, CaptionGuide, PhotoSourcePicker } from '../../../components/batches/PhotoUploadControls';
 import { PHOTO_MAX_BYTES, PHOTO_WARN_BYTES, TIMEPOINT_SEQUENCES, MAX_PHOTO_CAPTION_LENGTH, formatPhotoSize, isPhotoFile, isPhotoOversize, isPhotoTooLarge, wibDateTimeLocal } from '../../../shared/dataset.ts';
+import { useServerNow } from '../../../hooks/useServerNow';
+import { useBatchCalibrationStream } from '../../../hooks/useBatchCalibrationStream';
 import { coolerTempWarning, observationRowCount, observationTempMean, parseWibInput, shrimpCountWarning } from '../../../lib/batch-wizard.ts';
 import { pickUploadCandidates } from '../../../lib/photo-queue.ts';
 import {
@@ -250,12 +252,11 @@ export default function BatchDetailPage() {
   const [resultModalSessionId, setResultModalSessionId] = useState<string | null>(null);
   const completingRef = React.useRef<Set<string>>(new Set());
 
-  // Tick timer per detik untuk live countdown sesi berjalan
-  const [nowMs, setNowMs] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  // Tick timer per detik untuk live countdown sesi & kalibrasi. Nilainya
+  // berasal dari jam server (lihat lib/client-clock.ts), bukan jam perangkat:
+  // kalau memakai Date.now() langsung, laptop dan HP menghitung sisa waktu yang
+  // berbeda dari waktu mulai yang sama (keluhan "30:20" vs "29:15").
+  const nowMs = useServerNow(1000);
 
   // Durasi kalibrasi terakhir jadi nilai awal isian. Ini preferensi perangkat
   // (bukan sumber kebenaran), jadi tetap dibaca dari localStorage.
@@ -278,6 +279,27 @@ export default function BatchDetailPage() {
     setCalibWire(wires);
     setCalibRun(runs);
   }, [batch]);
+
+  // Dorongan state kalibrasi via SSE: perangkat lain (mis. HP di chamber)
+  // menerima tombol yang ditekan di laptop dalam hitungan detik, bukan setelah
+  // polling 15 detik berikutnya. Payload memuat semua grup batch — grup yang
+  // di-reset dikirim `null`, jadi kembali ke "belum dimulai" tanpa refresh.
+  // Bila SSE putus, polling detail batch tetap merekonsiliasi semuanya.
+  // `user` jadi syarat: sebelum login halaman memang dialihkan ke /login,
+  // jangan buka koneksi yang pasti ditolak 401.
+  const calibrationStream = useBatchCalibrationStream(user ? batchId : null);
+  useEffect(() => {
+    const pushed = calibrationStream.state;
+    if (!pushed) return;
+    const wires: Record<string, CalibrationWire | null> = {};
+    const runs: Record<string, CalibrationRun | null> = {};
+    for (const [groupId, wire] of Object.entries(pushed.calibrations)) {
+      wires[groupId] = wire ?? null;
+      runs[groupId] = runFromWire(wire ?? null);
+    }
+    setCalibWire((prev) => ({ ...prev, ...wires }));
+    setCalibRun((prev) => ({ ...prev, ...runs }));
+  }, [calibrationStream.state]);
 
   // Modal form pra-sesi: input suhu berat foto sebelum start sesi atau ambil data waktu.
   // Suhu disimpan sebagai baris per ekor (`shrimpTemps`), bukan satu angka:
@@ -349,12 +371,13 @@ export default function BatchDetailPage() {
   const refresh = () => setRefreshKey((k) => k + 1);
 
   /**
-   * Sinkronisasi ringan antarperangkat: detail batch (termasuk status
+   * Sinkronisasi ringan antarperangkat: detail batch (sesi, foto, status
    * kalibrasi) dimuat ulang tiap 15 detik selama tab terlihat, dan segera
-   * setelah tab kembali aktif. Tanpa ini, sesi/kalibrasi yang dimulai di HP
-   * baru terlihat di laptop setelah reload manual — sumber keluhan "tidak
-   * tersimpan". Dijeda saat ada modal/busy supaya isian yang sedang diketik
-   * tidak tertimpa respons lama.
+   * setelah tab kembali aktif. Status kalibrasi sendiri sudah didorong SSE
+   * (`useBatchCalibrationStream`) sehingga perangkat lain melihatnya dalam
+   * hitungan detik; polling ini yang merekonsiliasi sisanya bila SSE putus.
+   * Dijeda saat ada modal/busy supaya isian yang sedang diketik tidak tertimpa
+   * respons lama.
    */
   const canAutoRefreshRef = React.useRef(false);
   canAutoRefreshRef.current = !sessionModal && !editOpen && !busy;

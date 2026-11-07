@@ -70,7 +70,12 @@ menembak endpoint per grup.
   tersimpan per sesi.
 - **Sesi rentang waktu** (`autoBackfill`) tetap tidak menuntut kalibrasi (retrospektif).
 - Halaman detail batch **memuat ulang tiap 15 detik** saat tab terlihat + saat tab kembali aktif,
-  dijeda ketika ada modal/busy. Status kalibrasi yang dimulai di HP muncul di laptop tanpa reload.
+  dijeda ketika ada modal/busy. Perubahan kalibrasi sendiri **didorong SSE**
+  (`GET /api/v1/batches/:batchId/calibration/stream`) sehingga perangkat lain melihat aksi tombol
+  dalam hitungan detik; polling 15 detik tinggal menjadi rekonsiliasi.
+- Countdown kalibrasi dan sesi memakai **jam server** (`x-server-time` pada setiap respons JSON →
+  `lib/client-clock.ts`), bukan jam perangkat. Rinciannya di
+  [15 — Sinkronisasi Waktu Kalibrasi](./15-sinkronisasi-waktu-kalibrasi.md).
 - Setelah sesi live dibuat, kalibrasi di-reset **di server** (tahap berikutnya wajib kalibrasi ulang).
 - Draf wizard: autosave 800 ms ke server, daftar "lanjutkan draf" lintas perangkat, konflik versi
   diselesaikan manual (muat versi terbaru / buang), draf yang menjadi batch berstatus `CONSUMED`.
@@ -82,7 +87,10 @@ menembak endpoint per grup.
 - Login ulang di perangkat yang sama **mencabut sesi lama perangkat itu** (tidak menumpuk).
 - Batas `MAX_SESSIONS_PER_USER` (default 10, lihat `.env.example`); sesi tertua dicabut otomatis.
 - TTL sesi tetap 24 jam absolut; `last_used_at` di-throttle 5 menit.
-- Setiap perangkat bisa dicabut sendiri lewat panel operator di header (tanpa mengeluarkan semua).
+- Endpoint `GET /api/v1/auth/devices` dan `PATCH /api/v1/auth/operator` tetap ada di server, tetapi
+  **panel operator di header sudah dihapus** atas permintaan pengguna. Tanpa UI pengisian, header
+  `X-Operator` tidak pernah dikirim sehingga label operator pada baris dataset jatuh ke `"Tanpa nama"`;
+  label perangkat (`deviceLabel` dari User-Agent) tetap tercatat.
 
 ## 7. Yang sengaja belum dikerjakan (Fase 1)
 

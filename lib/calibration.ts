@@ -130,7 +130,15 @@ export function calibrationStepState(
   return nowMs - start >= mins * 60_000 ? 'done' : 'running';
 }
 
-/** Sisa waktu satu langkah (ms). 0 = belum dimulai atau sudah habis. */
+/**
+ * Sisa waktu satu langkah (ms). 0 = belum dimulai atau sudah habis.
+ *
+ * Hasilnya di-clamp ke durasi langkah: kalau jam perangkat masih tertinggal
+ * dari jam server (belum tersinkron, offset belum masuk), `nowMs()` bisa lebih
+ * kecil dari `start` dan sisa waktunya akan tampak melebihi durasi — mis.
+ * "30:20" untuk langkah 30 menit, persis keluhan di lapangan. Hitungan tidak
+ * boleh melebih-lebihkan waktu tunggu yang belum dijalani.
+ */
 export function calibrationStepRemainingMs(
   run: CalibrationRun | null,
   index: number,
@@ -138,7 +146,8 @@ export function calibrationStepRemainingMs(
 ): number {
   const start = run?.starts[index];
   if (start === null || start === undefined) return 0;
-  return Math.max(0, start + (run?.mins[index] ?? 0) * 60_000 - nowMs);
+  const totalMs = (run?.mins[index] ?? 0) * 60_000;
+  return Math.min(totalMs, Math.max(0, start + totalMs - nowMs));
 }
 
 /** Langkah berikutnya yang belum dimulai; `stepCount` bila semua sudah dimulai. */

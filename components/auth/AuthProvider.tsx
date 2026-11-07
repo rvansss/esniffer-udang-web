@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { applyServerTimeFromHeader } from '../../lib/client-clock.ts';
 
 export interface AuthUser {
   id: string;
@@ -216,6 +217,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Wrapper fetch: menyertakan X-CSRF-Token pada mutasi dan X-Operator pada
    * setiap permintaan. Header operator inilah yang dicatat server sebagai
    * "siapa yang mencatat" — akun tetap satu, orangnya bisa bergantian.
+   *
+   * Setiap respons juga membawa `x-server-time` (jam server). Di sini sampel
+   * itu dipakai untuk menyelaraskan jam klien (`lib/client-clock.ts`), supaya
+   * hitungan mundur kalibrasi/sesi memakai jam server yang sama di semua
+   * perangkat — bukan jam perangkat masing-masing.
    */
   const apiFetch = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -229,10 +235,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers.set('X-Operator', operatorName);
       }
 
+      const sentAtMs = Date.now();
       const res = await fetch(input, {
         ...init,
         headers,
       });
+      applyServerTimeFromHeader(res.headers.get('x-server-time'), sentAtMs, Date.now());
 
       if (res.status === 401) {
         setUser(null);

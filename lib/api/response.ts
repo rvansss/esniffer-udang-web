@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { HttpError } from './errors.ts';
 import { logger } from '../logging/logger.ts';
+import { nowMs } from '../runtime/clock.ts';
 
 export interface ApiErrorEnvelope {
   error: {
@@ -38,7 +39,19 @@ export function jsonReplacer(_key: string, value: unknown): unknown {
 }
 
 /**
+ * Nama header waktu server. Klien memakainya untuk menyelaraskan hitungan
+ * mundur (kalibrasi, sesi berjalan) dengan jam server, bukan jam perangkat.
+ */
+export const SERVER_TIME_HEADER = 'x-server-time';
+
+/**
  * Returns a standardized JSON success response.
+ *
+ * Header `x-server-time` (epoch ms) selalu ikut: yang disimpan dataset adalah
+ * WAKTU MULAI ABSOLUT dari jam server, jadi tanpa jam pembanding perangkat
+ * menghitung sisa waktunya dengan jamnya sendiri — selisih dua jam perangkat
+ * langsung menjadi selisih hitungan (dan bisa melebihi durasi). Body respons
+ * tidak diubah supaya kontrak API tetap.
  */
 export function jsonResponse<T>(
   data: T,
@@ -55,6 +68,9 @@ export function jsonResponse<T>(
   headers.set('Content-Type', 'application/json; charset=utf-8');
   if (!headers.has('Cache-Control')) {
     headers.set('Cache-Control', 'no-store, private');
+  }
+  if (!headers.has(SERVER_TIME_HEADER)) {
+    headers.set(SERVER_TIME_HEADER, String(nowMs()));
   }
 
   return new Response(JSON.stringify(body, jsonReplacer), {
